@@ -534,6 +534,12 @@ careeros-ai/
 └── package.json
 ```
 
+> **4.3 落地偏差记录(2026-08-18,任务 1.1 实施确认,以实际代码为准)**:
+> - `src/app/api/` **不建** REST 式子目录(auth/profile/navigator/resume/agent)——API 层统一走 tRPC Router(见 6.2);仅 NextAuth 回调、文件上传等框架必需端点以 Route Handler 形式落在 api/ 下(随任务 1.4、4.1 建立),当前为空占位目录。
+> - 配置文件实际为 **`next.config.mjs`**(Next.js 14 不支持 TypeScript 配置文件,非 next.config.ts)。
+> - `prisma/schema.prisma`(根目录 prisma/)为**唯一** schema 位置;树上 `src/lib/db/schema.prisma` 不建,`src/lib/db/` 仅放 prisma.ts(Prisma 官方惯例)。
+> - 补充文件:全局样式为 `src/styles/globals.css`(shadcn 主题 CSS 变量所在,components.json 已指向);测试基建为 `vitest.config.mts` + `src/test/setup.ts`(Vitest + Testing Library,树上未列)。
+
 ---
 
 ## 五、MVP 技术范围
