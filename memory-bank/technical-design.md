@@ -654,3 +654,50 @@ abstract class BaseAgent {
 ---
 
 *本文档定义了 CareerOS AI 的技术方案，回答"用什么技术、为什么、怎么组织"。与 [architecture.md](./architecture.md)（产品架构）配合阅读，前者描述"能力如何组织"，本文档描述"能力如何技术实现"。*
+
+---
+
+## 七、M1 实施架构决策补记(2026-08-19,任务 1.2–1.8 落地确认)
+
+M1(项目地基)实施中形成的新架构决策,以实际代码为准:
+
+### 7.1 Agent 进度流设计:确定性生命周期事件 + 一次性 JSON
+
+任务 1.6 确定:流式输出**不做 LLM 逐字流**。`BaseAgent.executeStream` 产出 5 个**确定性**生命周期进度事件(start → prompt → llm → parse → done,中文文案如「正在理解你的背景与目标…」)+ 最终**一次性 JSON 结果**(经 Zod 校验)。理由:MVP 阶段进度文案由 Agent 生命周期确定性产出即可满足体验,LLM 逐字流增加解析与渲染复杂度,收益低;结构化为最终一次性 JSON 使「非法输出→友好错误+日志不崩溃」可精确处理。若后续(2.4 等)确需逐字流,Adapter 层已预留 `stream` 接口,可增量演进。
+
+### 7.2 头像方案:首字母 + 预设配色,零文件存储
+
+头像 = 昵称首字符 + 自动配色(名字哈希 mod 5,5 个预设色:松绿 #0c8a5f / 罗兰紫 #7c5cfc / 琥珀 #b45309 / 湖蓝 #2e6fe8 / 石板灰 #57534b),仅存 `User.avatarColor` 单列(用户显式选择的颜色,无值则回退哈希色)。零文件上传、零存储成本,满足 M1「修改头像」;**头像图片上传留待 4.1 存储抽象就绪后升级**(届时加 avatarUrl 列)。
+
+### 7.3 tRPC 端点位置与直连测试
+
+API 层统一走 tRPC,HTTP 端点为 `/api/trpc/[trpc]`(src/app/api/ 下**不建** 4.3 树中的 auth/profile/navigator/resume/agent REST 目录——树上偏差已记录)。`appRouter` 导出 `createCaller`,`src/lib/trpc/__tests__/` 接口测试用 createCaller 直连调用(真实 Prisma + 真实 PG),不依赖 HTTP 层,可稳定测试鉴权(publicProcedure/protectedProcedure)与业务错误码。
+
+### 7.4 环境变量约定
+
+`.env`(gitignored)/ `.env.example`(提交):`DATABASE_URL`(postgresql://careeros:careeros_dev@localhost:5432/careeros?schema=public)、`NEXTAUTH_SECRET`、`NEXTAUTH_URL=http://localhost:3000`、`LLM_PROVIDER=mock`(开发默认,生产改 deepseek)。Provider 切换仅改环境变量,零代码改动。
+
+### 7.5 next-auth v5 锁定与 trustHost
+
+next-auth 锁定 **5.0.0-beta.32**(beta API 会漂移,精确锁定写入 package.json);Credentials + jwt session(用户 id 注入 token,session 增补)。`trustHost: true` 为生产构建必需(否则 UntrustedHost 500)。`auth.config.ts`(edge 安全,无 providers)与 `auth.ts`(Credentials + bcrypt)拆分;受保护路径匹配逻辑(isProtectedPath:精确或 `${path}/` 前缀)在 `auth.config.ts` 的 `authorized` 回调,纯函数可单测。
+
+### 7.6 Prisma 6 锁定
+
+锁定 **Prisma 6**(7 的默认引擎变更与当前 schema 写法不兼容;`prisma/schema.prisma` 用 classic `url = env("DATABASE_URL")`)。升级 Prisma 7 需迁移配置写法,随后续版本评估。
+
+### 7.7 路由:工作台 /dashboard 与 (dashboard) 组冲突规避
+
+工作台落在 `/dashboard`:`src/app/(dashboard)/dashboard/page.tsx`。原因:Next 14 路由组内 `(dashboard)/page.tsx` 会与根 `app/page.tsx`(首页,属任务 5.2,占位保留)冲突;用子路径 /dashboard 显式命名规避。受保护路径列表 = /dashboard /profile /navigator /resume /settings。
+
+### 7.8 middleware 位置(src/ 布局)
+
+Next.js 14 在 src/ 布局下会**静默忽略根目录 middleware.ts**(无编译产物,/dashboard 直接 404)。middleware 必须在 `src/middleware.ts`,导出 `NextAuth(authConfig).auth`,matcher 覆盖 5 条受保护路径。此为本项目 + src/ 布局 + Next 14 组合的坑,后续任务勿再移动。
+
+### 7.9 顶栏资料同步:user.me + React Query invalidate
+
+顶栏昵称/头像配色经 `trpc.user.me`(React Query)拉取;updateProfile 成功后 `utils.user.me.invalidate()` 即时同步,无需刷新页面。会话(session)只作登录态判定与回退展示,资料以 user.me 为准(单一数据源)。
+
+### 7.10 Prompt 以 Markdown 解耦 + fs 加载(部署注意)
+
+Agent System Prompt 存 `src/lib/prompts/*.md`,经 `loadPrompt` 以 `fs` 从 `process.cwd()` 读取 + 模块级缓存。本地开发零成本;**若部署 Vercel Serverless,fs 读取打包内文件可能失效,需改为 import 资源或读打包产物**(4.1 部署前评估,已记入 progress.md 遗留)。
+
