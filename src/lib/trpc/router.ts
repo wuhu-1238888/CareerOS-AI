@@ -20,6 +20,18 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 
 export const appRouter = t.router({
   user: t.router({
+    // 当前登录用户资料(顶栏头像/昵称、1.8 设置页同步)
+    me: protectedProcedure.query(async ({ ctx }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: { id: true, name: true, avatarColor: true },
+      });
+      if (!user) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "用户不存在" });
+      }
+      return user;
+    }),
+
     register: publicProcedure
       .input(
         z.object({
