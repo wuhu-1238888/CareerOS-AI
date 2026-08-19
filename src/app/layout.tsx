@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { SessionProvider } from "next-auth/react";
+import { TRPCProvider } from "@/trpc/provider";
 import "../styles/globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +15,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <SessionProvider>
+          <TRPCProvider>{children}</TRPCProvider>
+        </SessionProvider>
+      </body>
     </html>
   );
 }
