@@ -1,0 +1,168 @@
+// CareerOS AI 数据模型 —— 字段来源:PRD 第八节(8.1 实体关系 / 8.2 关键实体字段概览)
+// 已确认偏差:
+//   1) SkillRadar 不建独立表,六维技能雷达数据并入 CareerProfile.ai_analysis JSON 列;
+//   2) CareerProfile 增加画像版本字段(version + parentVersion),任务 2.6/2.7/6.5 依赖。
+// 级联策略(验证要求明确):
+//   User 删除 → Cascade CareerProfile / Resume;AgentRun 观测日志保留(SetNull);
+//   CareerProfile 删除 → Cascade CareerPath / Roadmap;Roadmap → Cascade Stage → Task;
+//   Resume 删除 → Cascade ResumeVersion → Optimization。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid(2))
+  email        String   @unique
+  name         String
+  avatar       String? // 头像文件 URL,任务 4.1 存储抽象就绪后接入;MVP 使用首字母头像(avatarColor)
+  avatarColor  String? // 首字母头像配色(5 预设色之一),任务 1.8 起使用
+  passwordHash String? // bcrypt 哈希;邮箱+密码登录必填,未来其他登录方式可为空(仅存哈希,绝不存明文)
+  authMethod   String   @default("password") @map("auth_method")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  profiles  CareerProfile[]
+  resumes   Resume[]
+  agentRuns AgentRun[]
+
+  @@map("users")
+}
+
+model CareerProfile {
+  id            String   @id @default(cuid(2))
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version       Int      @default(1) // 画像版本号;同用户每次更新产生新行,活跃版本取最大 version
+  parentVersion Int?     @map("parent_version") // 本版本基于的父版本;首个版本为空
+  education     Json? // 教育经历(数组)
+  skills        Json? // 技能列表
+  experiences   Json? // 实习/项目经历(数组)
+  interests     Json? // 兴趣方向
+  targets       Json? // 目标岗位/行业
+  aiAnalysis    Json? @map("ai_analysis") // Profile Agent 分析结果;六维技能雷达数据并入此处(偏差 1)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  careerPaths CareerPath[]
+  roadmaps    Roadmap[]
+
+  @@map("career_profiles")
+}
+
+model CareerPath {
+  id            String   @id @default(cuid(2))
+  profileId     String   @map("profile_id")
+  profile       CareerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  directionName String   @map("direction_name") // 推荐方向名称
+  matchScore    Float    @map("match_score") // 匹配度 0~1
+  strengths     Json     @default("[]") // 匹配优势(数组)
+  weaknesses    Json     @default("[]") // 匹配劣势(数组)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("career_paths")
+}
+
+model Roadmap {
+  id              String   @id @default(cuid(2))
+  profileId       String   @map("profile_id")
+  profile         CareerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  targetDirection String   @map("target_direction") // 目标方向
+  weeklyHours     Int?     @map("weekly_hours") // 每周可投入小时数
+  currentStage    String?  @map("current_stage") // 当前阶段标识
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  stages Stage[]
+
+  @@map("roadmaps")
+}
+
+model Stage {
+  id                String  @id @default(cuid(2))
+  roadmapId         String  @map("roadmap_id")
+  roadmap           Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  name              String // 阶段名
+  goal              String // 阶段目标
+  order             Int // 阶段顺序(从 1 起)
+  estimatedDuration String? @map("estimated_duration") // 预计时长(如「2 周」,PRD 未定类型以文本存储)
+  content           Json    @default("{}") // 阶段内容(Navigator Agent 输出:学习内容/项目/检查点)
+
+  tasks Task[]
+
+  @@map("stages")
+}
+
+model Task {
+  id          String @id @default(cuid(2))
+  stageId     String @map("stage_id")
+  stage       Stage  @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  description String // 任务描述
+  type        String // 任务类型(如 学习 / 实践项目)
+  status      String @default("pending") // 三态:pending / in_progress / completed(服务器持久化,任务 2.5 依赖)
+  order       Int // 任务顺序(从 1 起)
+
+  @@map("tasks")
+}
+
+model Resume {
+  id           String   @id @default(cuid(2))
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalText String   @map("original_text") @db.Text // 上传简历解析出的原文
+  parsedData   Json?    @map("parsed_data") // 简历解析结果(Resume Agent parse 阶段)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  versions ResumeVersion[]
+
+  @@map("resumes")
+}
+
+model ResumeVersion {
+  id              String   @id @default(cuid(2))
+  resumeId        String   @map("resume_id")
+  resume          Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  targetDirection String?  @map("target_direction") // 本次优化目标方向
+  optimizedText   String?  @map("optimized_text") @db.Text // 优化后全文
+  changes         Json     @default("{}") // 变更摘要(结构化,供前后对比)
+  atsScore        Int?     @map("ats_score") // ATS 评分(0~100)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  optimizations Optimization[]
+
+  @@map("resume_versions")
+}
+
+model Optimization {
+  id              String        @id @default(cuid(2))
+  resumeVersionId String        @map("resume_version_id")
+  resumeVersion   ResumeVersion @relation(fields: [resumeVersionId], references: [id], onDelete: Cascade)
+  category        String? // 修改类别(如 关键词 / 量化表达 / 动词开头)
+  originalText    String?       @map("original_text")
+  optimizedText   String?       @map("optimized_text")
+  reason          String? // 修改理由(AI 解释,设计原则「可信」)
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@map("optimizations")
+}
+
+model AgentRun {
+  id         String   @id @default(cuid(2))
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agentName  String   @map("agent_name") // Agent 名称(注册表键)
+  intent     String? // 调用意图(Orchestrator 路由依据)
+  status     String   @default("running") // running / succeeded / failed
+  input      Json? // 输入摘要
+  output     Json? // 输出摘要
+  error      String? // 失败信息
+  durationMs Int?     @map("duration_ms") // 耗时(观测用)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("agent_runs")
+}
