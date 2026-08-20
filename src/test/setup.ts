@@ -14,3 +14,13 @@ if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
   Element.prototype.releasePointerCapture = () => {};
   Element.prototype.scrollIntoView = () => {};
 }
+
+// jsdom 未实现 ResizeObserver,recharts ResponsiveContainer 挂载即抛错(2.5 雷达图)
+// 空实现即可:jsdom 中图表不会测量渲染,断言走 HTML 图例文本
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

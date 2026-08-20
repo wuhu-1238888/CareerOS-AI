@@ -40,6 +40,8 @@ vi.mock("@/trpc/client", () => ({
       latestRun: {
         useQuery: () => ({ data: mocks.latestRunData, isLoading: false }),
       },
+      listVersions: { useQuery: () => ({ data: [], isLoading: false }) },
+      getVersion: { useQuery: () => ({ data: undefined, isLoading: false }) },
       analyze: { useMutation: () => ({ mutateAsync: mocks.analyzeMutateAsync }) },
       retry: { useMutation: () => ({ mutateAsync: mocks.retryMutateAsync }) },
     },
@@ -84,7 +86,7 @@ describe("ProfileHub 状态机", () => {
     expect(screen.getByRole("button", { name: "下一步" })).toBeInTheDocument();
   });
 
-  it("有分析结果:渲染结果视图(2.5 接入前为占位)", async () => {
+  it("有分析结果:渲染结果视图;分析数据非法时给出异常提示(渲染前校验)", async () => {
     mocks.profileData = {
       id: "p1",
       version: 1,
@@ -94,7 +96,7 @@ describe("ProfileHub 状态机", () => {
       careerPaths: [],
     };
     render(<ProfileHub />);
-    expect(await screen.findByText("画像分析结果即将在此展示")).toBeInTheDocument();
+    expect(await screen.findByText("分析数据异常,请重新分析画像")).toBeInTheDocument();
   });
 
   it("最近 run 运行中(刷新恢复):渲染分析过程视图", async () => {

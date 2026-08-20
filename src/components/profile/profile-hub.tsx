@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { ProfileForm } from "./profile-form";
 import { AnalysisView } from "./analysis-view";
+import { ProfileResult } from "./profile-result";
 import type { ProfileData } from "@/lib/profile/schemas";
 
 function friendlyError(err: unknown): string {
@@ -55,13 +56,9 @@ export function ProfileHub() {
     );
   }
 
-  if (hasResult) {
-    // 占位:分析结果视图在 2.5 接入
-    return (
-      <div className="mx-auto w-full max-w-[640px] rounded-card border border-hairline bg-surface p-10 text-center shadow-card">
-        <p className="text-body text-ink-muted">画像分析结果即将在此展示</p>
-      </div>
-    );
+  if (hasResult && profile.data) {
+    // 2.5 结果视图;onCorrect 由 2.6 纠偏流程接入
+    return <ProfileResult initial={profile.data} />;
   }
 
   const draftKey = `careeros:profile-draft:${me.data.id}`;
