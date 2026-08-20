@@ -72,7 +72,8 @@ describe("profile CRUD(真实写库,顺序执行)", () => {
     const row = await caller(userIdA).profile.create(profileData());
     profileId = row.id;
     expect(row.version).toBe(1);
-    expect(row.education).toMatchObject({ 0: { degree: "本科" } });
+    expect(row.data.education).toMatchObject([{ degree: "本科" }]);
+    expect(row.aiAnalysis).toBeNull();
     const dbRow = await prisma.careerProfile.findUnique({ where: { id: row.id } });
     expect(dbRow?.userId).toBe(userIdA);
     expect(dbRow?.aiAnalysis).toBeNull();
@@ -95,6 +96,7 @@ describe("profile CRUD(真实写库,顺序执行)", () => {
     data.skills = [{ name: "TypeScript", level: "精通" }];
     const row = await caller(userIdA).profile.update(data);
     expect(row.id).toBe(profileId);
+    expect(row.data.skills).toMatchObject([{ name: "TypeScript", level: "精通" }]);
     const dbRow = await prisma.careerProfile.findUnique({ where: { id: profileId } });
     expect(dbRow?.skills).toMatchObject({ 0: { name: "TypeScript", level: "精通" } });
   });

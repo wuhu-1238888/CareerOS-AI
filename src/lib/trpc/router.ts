@@ -4,7 +4,13 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import type { Context } from "./context";
-import { profileDataSchema, careerPathInputSchema } from "@/lib/profile/schemas";
+import {
+  profileDataSchema,
+  careerPathInputSchema,
+  educationEntrySchema,
+  skillEntrySchema,
+  experienceEntrySchema,
+} from "@/lib/profile/schemas";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -18,6 +24,55 @@ async function requireOwnedProfile(
     throw new TRPCError({ code: "NOT_FOUND", message: "画像不存在" });
   }
   return profile;
+}
+
+// 画像数据读取边界:Json 列内容经 schema 校验后返回(不直接信任数据库原始 JSON,损坏/缺失回退空值)
+function parseProfileData(row: {
+  education: unknown;
+  skills: unknown;
+  experiences: unknown;
+  interests: unknown;
+  targets: unknown;
+}) {
+  const education = educationEntrySchema.array().max(5).safeParse(row.education);
+  const skills = skillEntrySchema.array().max(20).safeParse(row.skills);
+  const experiences = experienceEntrySchema.array().max(10).safeParse(row.experiences);
+  const interests = z.array(z.string()).safeParse(row.interests);
+  const targets = z.array(z.string()).safeParse(row.targets);
+  return {
+    education: education.success ? education.data : [],
+    skills: skills.success ? skills.data : [],
+    experiences: experiences.success ? experiences.data : [],
+    interests: interests.success ? interests.data : [],
+    targets: targets.success ? targets.data : [],
+  };
+}
+
+// 画像行序列化:对外输出统一形状 { 元信息 + data(ProfileData)+ aiAnalysis }
+type ProfileRowShape = {
+  id: string;
+  version: number;
+  parentVersion: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  education: unknown;
+  skills: unknown;
+  experiences: unknown;
+  interests: unknown;
+  targets: unknown;
+  aiAnalysis: unknown;
+};
+
+function serializeProfile(row: ProfileRowShape) {
+  return {
+    id: row.id,
+    version: row.version,
+    parentVersion: row.parentVersion,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    data: parseProfileData(row),
+    aiAnalysis: row.aiAnalysis,
+  };
 }
 
 const t = initTRPC.context<Context>().create();
@@ -118,11 +173,14 @@ export const appRouter = t.router({
   profile: t.router({
     // 当前用户最新画像(含推荐方向,按匹配度降序);从未创建 → null
     get: protectedProcedure.query(async ({ ctx }) => {
-      return ctx.prisma.careerProfile.findFirst({
+      const row = await ctx.prisma.careerProfile.findFirst({
         where: { userId: ctx.userId },
         orderBy: { version: "desc" },
         include: { careerPaths: { orderBy: { matchScore: "desc" } } },
       });
+      if (!row) return null;
+      const { careerPaths, ...rest } = row;
+      return { ...serializeProfile(rest), careerPaths };
     }),
 
     // 版本列表(结果页版本选择器用):仅返回元信息,内容按需 getVersion
@@ -138,11 +196,14 @@ export const appRouter = t.router({
     getVersion: protectedProcedure
       .input(z.object({ id: z.string().min(1) }))
       .query(async ({ ctx, input }) => {
-        const profile = await requireOwnedProfile(ctx, input.id);
-        return ctx.prisma.careerProfile.findUnique({
-          where: { id: profile.id },
+        await requireOwnedProfile(ctx, input.id);
+        const row = await ctx.prisma.careerProfile.findUnique({
+          where: { id: input.id },
           include: { careerPaths: { orderBy: { matchScore: "desc" } } },
         });
+        if (!row) return null;
+        const { careerPaths, ...rest } = row;
+        return { ...serializeProfile(rest), careerPaths };
       }),
 
     // 创建首个数据行(version=1,无分析结果);已有画像 → CONFLICT
@@ -154,7 +215,7 @@ export const appRouter = t.router({
       if (existing) {
         throw new TRPCError({ code: "CONFLICT", message: "已有画像,请使用更新或重新分析" });
       }
-      return ctx.prisma.careerProfile.create({
+      const row = await ctx.prisma.careerProfile.create({
         data: {
           userId: ctx.userId,
           version: 1,
@@ -165,6 +226,7 @@ export const appRouter = t.router({
           targets: input.targets,
         },
       });
+      return serializeProfile(row);
     }),
 
     // 更新最新版本的基础数据列(不改变版本号;重新分析由 2.4 管线产生新版本)
@@ -176,7 +238,7 @@ export const appRouter = t.router({
       if (!latest) {
         throw new TRPCError({ code: "NOT_FOUND", message: "画像不存在" });
       }
-      return ctx.prisma.careerProfile.update({
+      const row = await ctx.prisma.careerProfile.update({
         where: { id: latest.id },
         data: {
           education: input.education,
@@ -186,6 +248,7 @@ export const appRouter = t.router({
           targets: input.targets,
         },
       });
+      return serializeProfile(row);
     }),
 
     // 删除全部版本(CareerPath/Roadmap 级联删除)
