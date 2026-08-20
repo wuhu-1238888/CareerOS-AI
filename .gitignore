@@ -28,6 +28,17 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+.env.*
+!.env.example
+
+# IDE / local tooling
+.idea/
+.vscode/
+.claude/
+
+# OS files (Windows)
+Thumbs.db
+Desktop.ini
 
 # vercel
 .vercel

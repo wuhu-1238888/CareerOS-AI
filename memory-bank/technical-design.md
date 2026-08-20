@@ -675,7 +675,7 @@ API 层统一走 tRPC,HTTP 端点为 `/api/trpc/[trpc]`(src/app/api/ 下**不建
 
 ### 7.4 环境变量约定
 
-`.env`(gitignored)/ `.env.example`(提交):`DATABASE_URL`(postgresql://careeros:careeros_dev@localhost:5432/careeros?schema=public)、`NEXTAUTH_SECRET`、`NEXTAUTH_URL=http://localhost:3000`、`LLM_PROVIDER=mock`(开发默认,生产改 deepseek)。Provider 切换仅改环境变量,零代码改动。
+`.env`(gitignored)/ `.env.example`(提交):`DATABASE_URL`(postgresql://careeros:<本地密码>@localhost:5432/careeros?schema=public)、`NEXTAUTH_SECRET`、`NEXTAUTH_URL=http://localhost:3000`、`LLM_PROVIDER=mock`(开发默认,生产改 deepseek)。Provider 切换仅改环境变量,零代码改动。
 
 ### 7.5 next-auth v5 锁定与 trustHost
 
