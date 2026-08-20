@@ -142,6 +142,59 @@ describe("RoadmapTimeline 时间线与阶段卡", () => {
   });
 });
 
+describe("RoadmapTimeline 手风琴折叠(UI/UX 优化)", () => {
+  it("展开其他阶段自动收起上一个,同一时刻仅一个阶段展开", async () => {
+    render(<RoadmapTimeline roadmap={roadmap} />);
+    const user = userEvent.setup();
+    // 默认展开 框架进阶(首个未完成)
+    expect(screen.getByText("掌握 Web 框架与工程化")).toBeInTheDocument();
+    // 展开 夯实基础 → 框架进阶 自动收起
+    await user.click(screen.getByRole("button", { name: /夯实基础/ }));
+    expect(screen.getByText("掌握 Python 与 SQL 基础")).toBeInTheDocument();
+    expect(screen.queryByText("掌握 Web 框架与工程化")).toBeNull();
+    // 展开 工程化与部署 → 夯实基础 自动收起
+    await user.click(screen.getByRole("button", { name: /工程化与部署/ }));
+    expect(screen.getByText("掌握测试与部署")).toBeInTheDocument();
+    expect(screen.queryByText("掌握 Python 与 SQL 基础")).toBeNull();
+    // 点击已展开阶段 → 全部收起
+    await user.click(screen.getByRole("button", { name: /工程化与部署/ }));
+    expect(screen.queryByText("掌握测试与部署")).toBeNull();
+  });
+});
+
+describe("RoadmapTimeline 概览带(UI/UX 优化)", () => {
+  it("目标岗位/整体进度两区:路径文案、每周投入、当前阶段名、总进度、重新生成", () => {
+    const onRegenerate = vi.fn();
+    render(<RoadmapTimeline roadmap={roadmap} onRegenerate={onRegenerate} />);
+    expect(screen.getByText("目标岗位")).toBeInTheDocument();
+    expect(screen.getByText("整体进度")).toBeInTheDocument();
+    expect(screen.getByText("每周 10 小时 · 有一定基础")).toBeInTheDocument();
+    expect(screen.getByText("当前阶段:框架进阶")).toBeInTheDocument();
+    expect(screen.getByText("总进度 43%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新生成" })).toBeInTheDocument();
+  });
+
+  it("全部阶段完成:总进度 100% 且不显示当前阶段名", () => {
+    const allDone: TimelineRoadmap = {
+      ...roadmap,
+      stages: roadmap.stages.map((s) => ({
+        ...s,
+        tasks: s.tasks.map((t) => ({ ...t, status: "completed" })),
+      })),
+    };
+    render(<RoadmapTimeline roadmap={allDone} />);
+    expect(screen.queryByText(/当前阶段:/)).toBeNull();
+    expect(screen.getByText("总进度 100%")).toBeInTheDocument();
+  });
+
+  it("阶段卡头部:阶段序号眉标 + 任务计数", () => {
+    render(<RoadmapTimeline roadmap={roadmap} />);
+    expect(screen.getByText("阶段 1")).toBeInTheDocument();
+    expect(screen.getByText("阶段 4")).toBeInTheDocument();
+    expect(screen.getByText("3/3 任务")).toBeInTheDocument();
+  });
+});
+
 describe("RoadmapTimeline 任务交互接线(3.5 回调)", () => {
   it("未提供 onToggleTask:任务只读(无任务切换按钮)", () => {
     render(<RoadmapTimeline roadmap={roadmap} />);

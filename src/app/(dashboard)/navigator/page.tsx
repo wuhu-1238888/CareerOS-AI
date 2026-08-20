@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "成长路线 - CareerOS AI" };
 export default function NavigatorPage() {
   return (
     <>
-      <PageHeader title="成长路线" description="选择目标方向,让 AI 为你拆解成可执行的阶段与任务" />
+      <PageHeader title="成长路线" description="从当前能力到目标岗位的个性化成长路径" />
       <NavigatorHub />
     </>
   );

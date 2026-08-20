@@ -53,7 +53,7 @@ export function NavigatorHub() {
 
   if (roadmap.isLoading || profile.isLoading) {
     return (
-      <div className="mx-auto w-full max-w-[640px] space-y-4 px-4 py-6" aria-label="加载中">
+      <div className="w-full space-y-4 py-6" aria-label="加载中">
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
