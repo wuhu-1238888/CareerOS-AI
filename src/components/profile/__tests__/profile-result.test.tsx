@@ -1,4 +1,5 @@
 // 画像结果视图测试(2.5):概要/优势展开/不足来源/雷达图例/方向卡/发展建议/版本切换/数据异常守卫/页面头动作
+// 布局优化(2026-08-20):核心结论带与底部行动区复用真实数据,同一文本可出现多处
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -103,6 +104,20 @@ describe("ProfileResult", () => {
     expect(screen.getByText(analysis.confidence.note)).toBeInTheDocument();
   });
 
+  it("核心结论带:综合评价(置信度)/核心优势/主要短板/最推荐方向,仅聚合真实数据", () => {
+    render(<ProfileResult initial={row} />);
+    expect(screen.getByLabelText("核心结论")).toBeInTheDocument();
+    expect(screen.getByText("综合评价")).toBeInTheDocument();
+    expect(screen.getByText("核心优势")).toBeInTheDocument();
+    expect(screen.getByText("主要短板")).toBeInTheDocument();
+    expect(screen.getByText("最推荐方向")).toBeInTheDocument();
+    // 无全局综合分:展示置信度 badge,不伪造数字分
+    expect(screen.getByText("高")).toBeInTheDocument();
+    // 前两条优势与下方详情同源(同一真实数据,两处呈现)
+    expect(screen.getAllByText("实践经历对口")).toHaveLength(2);
+    expect(screen.getAllByText("目标清晰")).toHaveLength(2);
+  });
+
   it("优势可展开:详情默认隐藏,点击后展示 AI 洞察", async () => {
     render(<ProfileResult initial={row} />);
     expect(screen.queryByText("两段开发经历均与目标岗位直接相关")).toBeNull();
@@ -115,8 +130,8 @@ describe("ProfileResult", () => {
 
   it("不足来自推荐方向差距并标注来源方向", () => {
     render(<ProfileResult initial={row} />);
-    // 同一差距在「不足」列与方向卡劣势中各出现一次
-    expect(screen.getAllByText("缺少高并发与分布式实战经验")).toHaveLength(2);
+    // 同一差距出现在核心结论带、「不足」列与方向卡劣势中(同一真实数据,3 处)
+    expect(screen.getAllByText("缺少高并发与分布式实战经验")).toHaveLength(3);
     expect(screen.getByText("来自方向「后端开发」")).toBeInTheDocument();
   });
 
@@ -131,7 +146,8 @@ describe("ProfileResult", () => {
 
   it("推荐方向卡:匹配度大数字、理由、优势/劣势", () => {
     render(<ProfileResult initial={row} />);
-    expect(screen.getByText("后端开发")).toBeInTheDocument();
+    // 「后端开发」同时出现在核心结论带与方向卡标题中
+    expect(screen.getAllByText("后端开发")).toHaveLength(2);
     // 「数据分析」同时出现在能力标签与方向卡标题中
     expect(screen.getAllByText("数据分析")).toHaveLength(2);
     expect(screen.getByText("85")).toBeInTheDocument();
@@ -179,14 +195,20 @@ describe("ProfileResult", () => {
     expect(screen.getByText("分析数据异常,请重新分析画像")).toBeInTheDocument();
   });
 
-  it("页面头动作:规划成长路线/优化简历链接,这不是我未接线时禁用", () => {
+  it("页面头与底部行动区:规划成长路线/优化简历各两处入口(同一目标),这不是我未接线时禁用", () => {
     render(<ProfileResult initial={row} />);
-    expect(screen.getByRole("link", { name: /规划成长路线/ })).toHaveAttribute(
-      "href",
-      "/navigator"
-    );
-    expect(screen.getByRole("link", { name: /优化简历/ })).toHaveAttribute("href", "/resume");
+    const navigatorLinks = screen.getAllByRole("link", { name: /规划成长路线/ });
+    const resumeLinks = screen.getAllByRole("link", { name: /优化简历/ });
+    expect(navigatorLinks).toHaveLength(2);
+    expect(resumeLinks).toHaveLength(2);
+    for (const link of navigatorLinks) expect(link).toHaveAttribute("href", "/navigator");
+    for (const link of resumeLinks) expect(link).toHaveAttribute("href", "/resume");
     expect(screen.getByRole("button", { name: "这不是我" })).toBeDisabled();
+  });
+
+  it("底部下一步行动:轻量行动区,复用已实现入口(不新增功能)", () => {
+    render(<ProfileResult initial={row} />);
+    expect(screen.getByText("下一步")).toBeInTheDocument();
   });
 
   it("这不是我:接线后(2.6)可点击并触发回调", async () => {

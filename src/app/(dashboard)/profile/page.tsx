@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "职业画像 - CareerOS AI" };
 export default function ProfilePage() {
   return (
     <>
-      <PageHeader title="职业画像" description="梳理你的教育背景、技能与兴趣,构建专属职业画像" />
+      <PageHeader title="职业画像" description="基于你的经历、技能与职业目标生成的职业能力画像" />
       <ProfileHub />
     </>
   );

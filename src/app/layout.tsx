@@ -19,8 +19,8 @@ export default function RootLayout({
       <body className="antialiased">
         <SessionProvider>
           <TRPCProvider>{children}</TRPCProvider>
-          {/* 全局 Toast(2.6 纠偏「已记录,AI 将重新分析」) */}
-          <Toaster position="top-center" />
+          {/* 全局 Toast(2.6 纠偏「已记录,AI 将重新分析」);位置按 DesignSystem 右下 */}
+          <Toaster position="bottom-right" />
         </SessionProvider>
       </body>
     </html>
