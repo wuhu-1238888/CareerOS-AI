@@ -303,4 +303,30 @@ describe("ProfileHub 状态机", () => {
     expect(input.feedback).toBeUndefined();
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
   });
+
+  it("提交已完成但轮询缓存仍为 running 时:已有结果优先渲染结果视图(回归:卡在过程页需刷新)", async () => {
+    mocks.profileData = {
+      id: "p1",
+      version: 1,
+      parentVersion: null,
+      data: {},
+      aiAnalysis: validAnalysis,
+      careerPaths: [],
+    };
+    mocks.latestRunData = {
+      id: "run-1",
+      status: "running",
+      stale: false,
+      progress: [
+        { stage: "start", message: "正在启动「career-profile-analyzer」…" },
+        { stage: "prompt", message: "正在理解你的背景与目标…" },
+        { stage: "llm", message: "正在分析…" },
+      ],
+      error: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ProfileHub />);
+    expect(await screen.findByText("计算机专业应届生。")).toBeInTheDocument();
+    expect(screen.queryByText("画像顾问")).toBeNull();
+  });
 });

@@ -63,7 +63,9 @@ export function ProfileHub() {
   }
 
   const draftKey = `careeros:profile-draft:${me.data.id}`;
-  const recovering = !analyzeError && latestRun.data?.status === "running";
+  // 仅「无结果」时进入恢复等待:提交成功后画像已刷新(hasResult=true),轮询缓存的 running
+  // 状态是过期的,不应再把视图钉在分析过程页(修复:提交成功后卡在 60%、需手动刷新才出结果)
+  const recovering = !analyzeError && !hasResult && latestRun.data?.status === "running";
   const failedRun =
     !formMode && !analyzeError && latestRun.data?.status === "failed" ? latestRun.data : null;
 
