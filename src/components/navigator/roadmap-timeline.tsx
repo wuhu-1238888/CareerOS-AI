@@ -71,6 +71,7 @@ export function RoadmapTimeline({
   onToggleTask,
   onFeedbackTask,
   regeneratingStageId,
+  pendingTaskId,
 }: {
   roadmap: TimelineRoadmap;
   /** 概要条「重新生成」入口(hub 注入);未提供时按钮不显示 */
@@ -81,6 +82,8 @@ export function RoadmapTimeline({
   onFeedbackTask?: (taskId: string, feedback: "太难了" | "已经会了") => void;
   /** 3.5 接线:正在重生成的阶段(显示 ai-badge「调整中」) */
   regeneratingStageId?: string | null;
+  /** 3.5 接线:状态切换 mutation 在途的任务(禁用其切换按钮) */
+  pendingTaskId?: string | null;
 }) {
   // 默认展开首个「进行中」阶段(全部完成则展开第一个)——DesignSystem 阶段卡默认折叠
   const doneFlags = roadmap.stages.map(stageIsDone);
@@ -312,11 +315,13 @@ export function RoadmapTimeline({
                                   {interactive ? (
                                     <button
                                       type="button"
+                                      disabled={pendingTaskId === task.id}
                                       onClick={() => onToggleTask!(task.id, nextTaskStatus(task.status))}
                                       aria-label={`任务「${task.description}」,当前${meta.label},点击切换状态`}
                                       className={cn(
                                         "flex min-w-0 items-center gap-1.5 text-left text-body-sm",
-                                        meta.className
+                                        meta.className,
+                                        "disabled:cursor-not-allowed disabled:opacity-50"
                                       )}
                                     >
                                       <span aria-hidden>{meta.symbol}</span>

@@ -1,7 +1,8 @@
-// 成长路线页状态枢纽测试(3.4):四态切换(方向表单/生成过程/失败恢复/时间线)+ 会话内重试、
-// 刷新恢复(retry 重放 / succeeded 自动刷新)+ 重新生成预填 + 提交载荷
+// 成长路线页状态枢纽测试(3.4/3.5):四态切换(方向表单/生成过程/失败恢复/时间线)+ 会话内重试、
+// 刷新恢复(retry 重放 / succeeded 自动刷新)+ 重新生成预填 + 提交载荷 + 任务三态切换/反馈重生成接线
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Toaster } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NavigatorHub } from "../navigator-hub";
 
@@ -51,6 +52,8 @@ const mocks = vi.hoisted(() => ({
   latestRunData: null as RunMock | null,
   generateMutateAsync: vi.fn(),
   retryMutateAsync: vi.fn(),
+  updateStatusMutateAsync: vi.fn(),
+  regenerateStageMutateAsync: vi.fn(),
   invalidateRoadmap: vi.fn(),
 }));
 
@@ -70,6 +73,12 @@ vi.mock("@/trpc/client", () => ({
         },
         generate: { useMutation: () => ({ mutateAsync: mocks.generateMutateAsync }) },
         retry: { useMutation: () => ({ mutateAsync: mocks.retryMutateAsync }) },
+      },
+      stage: {
+        regenerate: { useMutation: () => ({ mutateAsync: mocks.regenerateStageMutateAsync }) },
+      },
+      task: {
+        updateStatus: { useMutation: () => ({ mutateAsync: mocks.updateStatusMutateAsync }) },
       },
     },
   },
@@ -139,6 +148,8 @@ beforeEach(() => {
   mocks.invalidateRoadmap.mockResolvedValue(undefined);
   mocks.generateMutateAsync.mockResolvedValue({ roadmapId: "r1", runId: "run-1" });
   mocks.retryMutateAsync.mockResolvedValue({ roadmapId: "r2", runId: "run-2" });
+  mocks.updateStatusMutateAsync.mockResolvedValue({ status: "in_progress" });
+  mocks.regenerateStageMutateAsync.mockResolvedValue({ stageId: "s1" });
 });
 
 describe("NavigatorHub 状态机", () => {
@@ -287,5 +298,56 @@ describe("NavigatorHub 状态机", () => {
     mocks.generateMutateAsync.mockResolvedValueOnce({ roadmapId: "r3", runId: "run-3" });
     await user.click(screen.getByRole("button", { name: "生成成长路线" }));
     await waitFor(() => expect(mocks.invalidateRoadmap).toHaveBeenCalled());
+  });
+
+  it("任务三态切换(3.5):updateStatus mutation 载荷正确并刷新路线图", async () => {
+    mocks.roadmapData = roadmapData;
+    render(<NavigatorHub />);
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: /任务「学习 Python 语法」/ }));
+    await waitFor(() =>
+      expect(mocks.updateStatusMutateAsync).toHaveBeenCalledWith({
+        taskId: "t1",
+        status: "in_progress",
+      })
+    );
+    await waitFor(() => expect(mocks.invalidateRoadmap).toHaveBeenCalled());
+  });
+
+  it("任务反馈(3.5):太难了 → stage.regenerate 载荷正确 + 成功 toast + 刷新", async () => {
+    mocks.roadmapData = roadmapData;
+    render(
+      <>
+        <Toaster />
+        <NavigatorHub />
+      </>
+    );
+    await userEvent.setup().click(await screen.findByRole("button", { name: "太难了" }));
+    await waitFor(() =>
+      expect(mocks.regenerateStageMutateAsync).toHaveBeenCalledWith({
+        roadmapId: "r1",
+        stageId: "s1",
+        feedback: "太难了",
+      })
+    );
+    expect(await screen.findByText("已按你的反馈调整该阶段,内容已更新")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.invalidateRoadmap).toHaveBeenCalled());
+  });
+
+  it("任务反馈失败(3.5):错误 toast,不刷新路线图", async () => {
+    mocks.roadmapData = roadmapData;
+    mocks.regenerateStageMutateAsync.mockRejectedValue(
+      new Error("AI 返回了无法识别的结果,请稍后重试")
+    );
+    render(
+      <>
+        <Toaster />
+        <NavigatorHub />
+      </>
+    );
+    await userEvent.setup().click(await screen.findByRole("button", { name: "太难了" }));
+    expect(await screen.findByText("AI 返回了无法识别的结果,请稍后重试")).toBeInTheDocument();
+    expect(mocks.invalidateRoadmap).not.toHaveBeenCalled();
   });
 });

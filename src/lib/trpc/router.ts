@@ -13,7 +13,7 @@ import {
   experienceEntrySchema,
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
-import { generateRoadmap, parseRoadmapSummary, parseStageContent } from "@/lib/navigator/pipeline";
+import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -615,6 +615,49 @@ export const appRouter = t.router({
             },
           });
           return { id: row.id, order: row.order };
+        }),
+
+      // 单阶段重生成(3.5):任务反馈(太难了/已经会了)→ Stage Agent 重写该阶段(原地更新,其余阶段不动)
+      regenerate: protectedProcedure
+        .input(
+          z.object({
+            roadmapId: z.string().min(1),
+            stageId: z.string().min(1),
+            feedback: z.enum(["太难了", "已经会了"], { errorMap: () => ({ message: "反馈内容不正确" }) }),
+          })
+        )
+        .mutation(async ({ ctx, input }) => {
+          await requireOwnedRoadmap(ctx, input.roadmapId);
+          const row = await ctx.prisma.stage.findUnique({
+            where: { id: input.stageId },
+            include: {
+              roadmap: { select: { id: true, targetDirection: true, weeklyHours: true, currentStage: true } },
+            },
+          });
+          if (!row || row.roadmap.id !== input.roadmapId) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "阶段不存在" });
+          }
+          // 阶段重生成需要完整路线图输入(周时/阶段自评);3.1 空路线图未含 → 引导重新生成
+          if (row.roadmap.weeklyHours == null || !row.roadmap.currentStage) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "路线图信息不完整,请重新生成后再试" });
+          }
+          const abilityTags = await readAbilityTags(ctx);
+          const outcome = await regenerateStage({
+            userId: ctx.userId,
+            stageId: input.stageId,
+            input: {
+              direction: row.roadmap.targetDirection,
+              weeklyHours: row.roadmap.weeklyHours,
+              currentStage: row.roadmap.currentStage,
+            },
+            stage: { name: row.name, content: parseStageContent(row.content) },
+            feedback: input.feedback,
+            abilityTags,
+          });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { stageId: outcome.stageId };
         }),
     }),
 

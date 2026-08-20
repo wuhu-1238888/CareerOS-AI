@@ -122,6 +122,66 @@ export async function generateRoadmap(params: {
   return { ok: true, roadmapId: roadmap.id, runId: outcome.runId, analysis };
 }
 
+// 单阶段重生成(3.5):反馈(太难了/已经会了)→ Orchestrator(Navigator Stage Agent)→ 原地更新该阶段。
+// 名称/目标/时长/content 与任务全量替换(任务状态重置为 pending——「重生成」的固有语义),其余阶段不动;
+// 失败不落行(事务外,阶段保持原状)。
+export type RegenerateStageOutcome =
+  | { ok: true; stageId: string; runId: string; stage: RoadmapStage }
+  | { ok: false; error: string; runId: string };
+
+export async function regenerateStage(params: {
+  userId: string;
+  stageId: string;
+  input: NavigatorGenerateInput;
+  /** 原阶段(供 Agent 参考与重写):name 必填,content 可能为 null(防御解析失败时传 {}) */
+  stage: { name: string; content: StageContent | null };
+  feedback: "太难了" | "已经会了";
+  abilityTags?: { name: string; level: string }[];
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<RegenerateStageOutcome> {
+  const { userId, stageId, input, stage, feedback, abilityTags = [], adapter } = params;
+  const runner: Orchestrator = adapter ? new Orchestrator(prisma, adapter) : orchestrator;
+
+  const progressChain = { current: Promise.resolve() };
+  const outcome = await runner.run<RoadmapStage>({
+    intent: "regenerate-stage",
+    input: {
+      ...input,
+      abilityTags,
+      stageName: stage.name,
+      stageContent: stage.content ?? {},
+      feedback,
+    },
+    context: {},
+    userId,
+    onRunProgress: (runId, progress: AgentProgress) => {
+      progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
+    },
+  });
+  await progressChain.current;
+
+  if (!outcome.ok) {
+    return outcome;
+  }
+
+  const next = outcome.result.data;
+  await prisma.$transaction(async (tx) => {
+    await tx.stage.update({
+      where: { id: stageId },
+      data: {
+        name: next.name,
+        goal: next.goal,
+        estimatedDuration: next.estimatedDuration,
+        content: stageContentJson(next),
+        tasks: { deleteMany: {}, create: deriveTasks(next) },
+      },
+    });
+  });
+
+  return { ok: true, stageId, runId: outcome.runId, stage: next };
+}
+
 // 进度追加落库:同一 run 的事件顺序到达,读-改-写安全(唯一写入方为当前管线调用)
 async function appendProgress(runId: string, progress: AgentProgress) {
   const run = await prisma.agentRun.findUnique({

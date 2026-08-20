@@ -157,6 +157,18 @@ describe("RoadmapTimeline 任务交互接线(3.5 回调)", () => {
     expect(onToggleTask).toHaveBeenCalledWith("t5", "in_progress");
   });
 
+  it("pendingTaskId:切换 mutation 在途的任务禁用,其余任务仍可点", async () => {
+    const onToggleTask = vi.fn();
+    render(
+      <RoadmapTimeline roadmap={roadmap} onToggleTask={onToggleTask} pendingTaskId="t5" />
+    );
+    expect(screen.getByRole("button", { name: /任务「学习接口鉴权」/ })).toBeDisabled();
+    const other = screen.getByRole("button", { name: /任务「学习 FastAPI」/ });
+    expect(other).toBeEnabled();
+    await userEvent.setup().click(other);
+    expect(onToggleTask).toHaveBeenCalledWith("t4", "completed");
+  });
+
   it("提供 onFeedbackTask:每个任务附「太难了/已经会了」,点击传参;阶段调整中禁用 + ai-badge「调整中」", async () => {
     const onFeedbackTask = vi.fn();
     render(

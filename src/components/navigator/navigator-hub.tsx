@@ -5,6 +5,7 @@
 // 时间线概要条「重新生成」→ 回到预填表单(方向/周时/阶段自评)。
 import { useEffect, useRef, useState } from "react";
 import { Compass } from "lucide-react";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { DirectionForm, type DirectionFormInput, type SuggestedDirection } from "./direction-form";
@@ -21,11 +22,15 @@ export function NavigatorHub() {
   const roadmap = trpc.navigator.roadmap.get.useQuery();
   const generate = trpc.navigator.roadmap.generate.useMutation();
   const retry = trpc.navigator.roadmap.retry.useMutation();
+  const updateTask = trpc.navigator.task.updateStatus.useMutation();
+  const regenerate = trpc.navigator.stage.regenerate.useMutation();
 
   // 会话提交状态:submitted=true 表示生成 mutation 在途;generateError 为失败文案(驱动失败视图)
   const [submitted, setSubmitted] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [regenerateMode, setRegenerateMode] = useState(false);
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [regeneratingStageId, setRegeneratingStageId] = useState<string | null>(null);
   const lastInput = useRef<DirectionFormInput | null>(null);
   const finishedRef = useRef(false);
 
@@ -121,6 +126,40 @@ export function NavigatorHub() {
     setRegenerateMode(true);
   }
 
+  // 3.5 任务三态切换:服务端持久化(mutation 在途禁用该任务,可撤销),失败 toast 报错
+  async function handleToggleTask(taskId: string, nextStatus: string) {
+    setPendingTaskId(taskId);
+    try {
+      await updateTask.mutateAsync({
+        taskId,
+        status: nextStatus as "pending" | "in_progress" | "completed",
+      });
+      await utils.navigator.roadmap.get.invalidate();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setPendingTaskId(null);
+    }
+  }
+
+  // 3.5 任务反馈:太难了/已经会了 → 单阶段重生成(该阶段「调整中」+ 按钮禁用),成功后 toast 并刷新
+  async function handleFeedbackTask(taskId: string, feedback: "太难了" | "已经会了") {
+    const data = roadmap.data;
+    if (!data) return;
+    const stage = data.stages.find((s) => s.tasks.some((t) => t.id === taskId));
+    if (!stage) return;
+    setRegeneratingStageId(stage.id);
+    try {
+      await regenerate.mutateAsync({ roadmapId: data.id, stageId: stage.id, feedback });
+      await utils.navigator.roadmap.get.invalidate();
+      toast.success("已按你的反馈调整该阶段,内容已更新");
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setRegeneratingStageId(null);
+    }
+  }
+
   let view: React.ReactNode;
   if (submitted || recovering || generateError) {
     view = (
@@ -155,7 +194,16 @@ export function NavigatorHub() {
       />
     );
   } else if (hasRoadmap && roadmap.data) {
-    view = <RoadmapTimeline roadmap={roadmap.data} onRegenerate={handleRegenerate} />;
+    view = (
+      <RoadmapTimeline
+        roadmap={roadmap.data}
+        onRegenerate={handleRegenerate}
+        onToggleTask={handleToggleTask}
+        onFeedbackTask={handleFeedbackTask}
+        regeneratingStageId={regeneratingStageId}
+        pendingTaskId={pendingTaskId}
+      />
+    );
   } else if (failedRun) {
     view = (
       <AnalysisView
