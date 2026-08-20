@@ -1,19 +1,51 @@
 "use client";
-// 职业画像页状态枢纽(2.2 起):加载骨架 / 无画像→四步采集表单 / 有画像→结果视图(2.5 接入)
-// 2.2 阶段提交仅保存画像数据(profile.create/update);2.4 起提交切换为分析管线
+// 职业画像页状态枢纽(2.2 起,2.4 接入分析管线):加载骨架 / 采集表单 / 分析过程 / 结果视图(2.5 接入)。
+// 分析态统一轮询 profile.latestRun(700ms,进度事件已随执行落库):分析中刷新页面按最近 run 恢复;
+// 失败态提供「重试」(会话内用最近一次提交数据;刷新后服务端从 AgentRun.input 重放)与「修改信息」(草稿保留)。
+import { useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { ProfileForm } from "./profile-form";
+import { AnalysisView } from "./analysis-view";
 import type { ProfileData } from "@/lib/profile/schemas";
+
+function friendlyError(err: unknown): string {
+  return err instanceof Error ? err.message : "分析失败,请稍后重试";
+}
 
 export function ProfileHub() {
   const utils = trpc.useUtils();
   const me = trpc.user.me.useQuery();
   const profile = trpc.profile.get.useQuery();
-  const create = trpc.profile.create.useMutation();
-  const update = trpc.profile.update.useMutation();
+  const analyze = trpc.profile.analyze.useMutation();
+  const retry = trpc.profile.retry.useMutation();
 
-  if (me.isLoading || profile.isLoading) {
+  // 本次会话提交状态:submitted=true 表示分析 mutation 在途;analyzeError 为失败文案(驱动失败视图);
+  // editMode=true 表示用户从失败视图选择「修改信息」,忽略历史 failed run 回到表单(刷新后仍按失败恢复)
+  const [submitted, setSubmitted] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const lastInput = useRef<ProfileData | null>(null);
+  const finishedRef = useRef(false);
+
+  const hasResult = !!profile.data?.aiAnalysis;
+
+  // 无结果时跟踪最近一次 run:仅 running(或提交在途)时轮询 700ms,其余状态不重复拉取
+  const latestRun = trpc.profile.latestRun.useQuery(undefined, {
+    enabled: !profile.isLoading && !hasResult,
+    refetchInterval: (query) =>
+      submitted || query.state.data?.status === "running" ? 700 : false,
+  });
+
+  // 恢复路径:刷新后 run 已 succeeded(管线已完成)→ 刷新画像进入结果视图
+  useEffect(() => {
+    if (!hasResult && latestRun.data?.status === "succeeded" && !finishedRef.current) {
+      finishedRef.current = true;
+      void utils.profile.get.invalidate();
+    }
+  }, [hasResult, latestRun.data?.status, utils]);
+
+  if (me.isLoading || profile.isLoading || !me.data) {
     return (
       <div className="mx-auto w-full max-w-[640px] space-y-4 px-4 py-6" aria-label="加载中">
         <Skeleton className="h-16 w-full" />
@@ -22,9 +54,6 @@ export function ProfileHub() {
       </div>
     );
   }
-
-  const hasResult = !!profile.data?.aiAnalysis;
-  const draftKey = me.data ? `careeros:profile-draft:${me.data.id}` : undefined;
 
   if (hasResult) {
     // 占位:分析结果视图在 2.5 接入
@@ -35,18 +64,75 @@ export function ProfileHub() {
     );
   }
 
-  return (
-    <ProfileForm
-      initialData={profile.data?.data}
-      draftKey={draftKey}
-      onSubmit={async (data: ProfileData) => {
-        if (profile.data) {
-          await update.mutateAsync(data);
-        } else {
-          await create.mutateAsync(data);
-        }
-        await utils.profile.get.invalidate();
-      }}
-    />
-  );
+  const draftKey = `careeros:profile-draft:${me.data.id}`;
+  const recovering = !analyzeError && latestRun.data?.status === "running";
+  const failedRun =
+    !editMode && !analyzeError && latestRun.data?.status === "failed" ? latestRun.data : null;
+
+  // 在途提交时忽略历史 run(避免把上次失败的旧 run 当作本次状态),等待轮询发现新 run
+  const runForView =
+    submitted && latestRun.data && latestRun.data.status !== "running"
+      ? null
+      : (latestRun.data ?? null);
+
+  async function submit(data: ProfileData) {
+    lastInput.current = data;
+    finishedRef.current = false;
+    setAnalyzeError(null);
+    setEditMode(false);
+    setSubmitted(true);
+    try {
+      await analyze.mutateAsync(data);
+      await utils.profile.get.invalidate();
+    } catch (err) {
+      setAnalyzeError(friendlyError(err));
+      // 向表单抛出以保留草稿(表单仅在提交成功时清除 localStorage)
+      throw err;
+    } finally {
+      setSubmitted(false);
+    }
+  }
+
+  async function handleRetry() {
+    // 会话内失败:直接用最近一次提交的数据重试
+    if (lastInput.current) {
+      await submit(lastInput.current).catch(() => undefined);
+      return;
+    }
+    // 刷新后恢复:服务端从失败 run 的 input 重放分析
+    if (!failedRun) {
+      setAnalyzeError("分析任务不存在,请重新填写");
+      return;
+    }
+    finishedRef.current = false;
+    setAnalyzeError(null);
+    setSubmitted(true);
+    try {
+      await retry.mutateAsync({ runId: failedRun.id });
+      await utils.profile.get.invalidate();
+    } catch (err) {
+      setAnalyzeError(friendlyError(err));
+    } finally {
+      setSubmitted(false);
+    }
+  }
+
+  function handleEdit() {
+    lastInput.current = null;
+    setAnalyzeError(null);
+    setEditMode(true);
+  }
+
+  if (submitted || recovering || analyzeError || failedRun) {
+    return (
+      <AnalysisView
+        run={runForView}
+        error={analyzeError ?? failedRun?.error ?? null}
+        onRetry={handleRetry}
+        onEdit={handleEdit}
+      />
+    );
+  }
+
+  return <ProfileForm initialData={profile.data?.data} draftKey={draftKey} onSubmit={submit} />;
 }

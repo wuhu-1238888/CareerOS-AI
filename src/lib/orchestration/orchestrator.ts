@@ -7,7 +7,7 @@ import type { LLMAdapter } from "@/lib/llm/adapter";
 import { llm } from "@/lib/llm";
 import { registry as defaultRegistry } from "@/lib/agents/registry";
 import type { AgentRegistry } from "@/lib/agents/registry";
-import type { AgentContext, AgentResult, ProgressCallback } from "@/lib/agents/types";
+import type { AgentContext, AgentProgress, AgentResult, ProgressCallback } from "@/lib/agents/types";
 import { AgentInputError, AgentNotFoundError, AgentOutputError } from "@/lib/agents/types";
 
 export interface RunAgentParams {
@@ -17,6 +17,8 @@ export interface RunAgentParams {
   context: AgentContext;
   userId?: string;
   onProgress?: ProgressCallback;
+  /** 携带 runId 的进度回调(2.4 起):管线把生命周期事件实时写入 AgentRun.progress,供轮询与刷新恢复 */
+  onRunProgress?: (runId: string, progress: AgentProgress) => void;
 }
 
 export type RunAgentOutcome<TOutput> =
@@ -62,7 +64,10 @@ export class Orchestrator {
     try {
       const result = await agent.execute(params.input, params.context, {
         adapter: this.adapter,
-        onProgress: params.onProgress,
+        onProgress: (progress) => {
+          params.onProgress?.(progress);
+          params.onRunProgress?.(runId, progress);
+        },
       });
       await this.db.agentRun.update({
         where: { id: runId },

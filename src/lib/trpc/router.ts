@@ -11,6 +11,7 @@ import {
   skillEntrySchema,
   experienceEntrySchema,
 } from "@/lib/profile/schemas";
+import { analyzeProfile } from "@/lib/profile/pipeline";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -74,6 +75,49 @@ function serializeProfile(row: ProfileRowShape) {
     aiAnalysis: row.aiAnalysis,
   };
 }
+
+// AgentRun 状态序列化(2.4):running 超过 2 分钟视为中断(服务端进程被杀),返回失败态供重试
+const RUN_STALE_MS = 2 * 60 * 1000;
+
+function serializeRun(run: {
+  id: string;
+  status: string;
+  progress: unknown;
+  error: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  const stale = run.status === "running" && Date.now() - run.updatedAt.getTime() > RUN_STALE_MS;
+  return {
+    id: run.id,
+    status: stale ? "failed" : run.status,
+    stale,
+    progress: parseRunProgress(run.progress),
+    error: stale ? "分析中断,请重试" : run.error,
+    createdAt: run.createdAt,
+  };
+}
+
+function parseRunProgress(value: unknown): { stage: string; message: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (p): p is { stage: string; message: string } =>
+      !!p &&
+      typeof p === "object" &&
+      typeof (p as { stage?: unknown }).stage === "string" &&
+      typeof (p as { message?: unknown }).message === "string"
+  );
+}
+
+// 分析输入(2.4):表单数据 + 可选纠偏反馈;analyze 与 retry(从 AgentRun.input 重放)共用
+const analyzeInputSchema = profileDataSchema.extend({
+  feedback: z
+    .object({
+      areas: z.array(z.enum(["direction", "ability", "strength"])).min(1, "请选择不准确的部分"),
+      note: z.string().max(500, "补充说明最多 500 字").optional(),
+    })
+    .optional(),
+});
 
 const t = initTRPC.context<Context>().create();
 
@@ -255,6 +299,59 @@ export const appRouter = t.router({
     delete: protectedProcedure.mutation(async ({ ctx }) => {
       await ctx.prisma.careerProfile.deleteMany({ where: { userId: ctx.userId } });
       return { ok: true };
+    }),
+
+    // 画像分析(2.4):表单/纠偏/更新共用 —— 等待执行完成后返回新版本信息;
+    // 进度事件已随执行实时写入 AgentRun.progress,客户端轮询 latestRun/getRun 展示
+    analyze: protectedProcedure
+      .input(analyzeInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        const { feedback, ...data } = input;
+        const outcome = await analyzeProfile({ userId: ctx.userId, data, feedback });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { profileId: outcome.profileId, version: outcome.version, runId: outcome.runId };
+      }),
+
+    // 失败重试(2.4):从最近一次失败 run 的 input 重放分析(刷新后数据仍在服务端,无需客户端回传)
+    retry: protectedProcedure
+      .input(z.object({ runId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findUnique({ where: { id: input.runId } });
+        if (!run || run.userId !== ctx.userId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
+        }
+        const parsed = analyzeInputSchema.safeParse(run.input);
+        if (!parsed.success) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新填写" });
+        }
+        const { feedback, ...data } = parsed.data;
+        const outcome = await analyzeProfile({ userId: ctx.userId, data, feedback });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { profileId: outcome.profileId, version: outcome.version, runId: outcome.runId };
+      }),
+
+    // 指定分析任务的运行状态与进度(仅本人可见)
+    getRun: protectedProcedure
+      .input(z.object({ runId: z.string().min(1) }))
+      .query(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findUnique({ where: { id: input.runId } });
+        if (!run || run.userId !== ctx.userId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
+        }
+        return serializeRun(run);
+      }),
+
+    // 最近一次画像分析 run:分析页轮询(700ms)与刷新恢复的统一入口
+    latestRun: protectedProcedure.query(async ({ ctx }) => {
+      const run = await ctx.prisma.agentRun.findFirst({
+        where: { userId: ctx.userId, intent: "analyze-profile" },
+        orderBy: { createdAt: "desc" },
+      });
+      return run ? serializeRun(run) : null;
     }),
 
     // 推荐方向数据层 CRUD(创建/删除用于数据完整性;正常写入由分析管线 2.4 执行)
