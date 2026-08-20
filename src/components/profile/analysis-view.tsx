@@ -1,8 +1,9 @@
 "use client";
 // 分析过程视图(2.4):Agent 卡(48px 圆形图标 + 状态 badge)+ 4px 进度条 + 生命周期文案轮播。
-// 纯展示组件:数据由 ProfileHub 统一轮询 profile.latestRun(700ms)后传入,本组件不再发起查询。
+// 纯展示组件:数据由 Hub 统一轮询 latestRun(700ms)后传入,本组件不再发起查询。
 // 失败 → 友好错误 + 重试 / 修改信息(草稿保留在 localStorage,返回表单不丢数据)。
-import { Loader2, UserRound } from "lucide-react";
+// 3.4 起参数化 Agent 名称/图标/说明文案(带默认值),Navigator 复用零行为变化。
+import { Loader2, UserRound, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiBadge } from "@/components/shared/ai-badge";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,10 @@ export function AnalysisView({
   error,
   onRetry,
   onEdit,
+  agentName = "画像顾问",
+  icon: Icon = UserRound,
+  runningDescription = "正在分析你的背景,生成专属职业画像",
+  failedDescription = "这次分析没有完成,你可以重试或修改信息后重新分析",
 }: {
   run: RunView | null;
   /** 本次会话内 mutation 失败的错误文案(优先于 run.error 显示) */
@@ -34,6 +39,14 @@ export function AnalysisView({
   onRetry: () => void;
   /** 返回表单修改信息(仅失败态提供) */
   onEdit: () => void;
+  /** 3.4 Navigator 复用:Agent 展示名(默认「画像顾问」) */
+  agentName?: string;
+  /** 3.4 Navigator 复用:Agent 图标(默认 UserRound) */
+  icon?: LucideIcon;
+  /** 3.4 Navigator 复用:分析中文案(默认画像文案) */
+  runningDescription?: string;
+  /** 3.4 Navigator 复用:失败态说明(默认画像文案) */
+  failedDescription?: string;
 }) {
   const failed = error ?? (run?.status === "failed" ? run.error ?? "分析未完成,请重试" : null);
   const progress = failed ? [] : (run?.progress ?? []);
@@ -50,11 +63,11 @@ export function AnalysisView({
             aria-hidden
             className="flex size-12 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-600"
           >
-            <UserRound className="size-6" />
+            <Icon className="size-6" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="text-body-lg font-medium text-ink">画像顾问</p>
+              <p className="text-body-lg font-medium text-ink">{agentName}</p>
               <AiBadge />
               {failed ? (
                 <span className="rounded-pill bg-danger-bg px-2 py-0.5 text-caption text-danger">
@@ -67,7 +80,7 @@ export function AnalysisView({
               )}
             </div>
             <p className="mt-0.5 text-body-sm text-ink-muted">
-              {failed ? "这次分析没有完成,你可以重试或修改信息后重新分析" : "正在分析你的背景,生成专属职业画像"}
+              {failed ? failedDescription : runningDescription}
             </p>
           </div>
           {!failed && <Loader2 className="size-5 shrink-0 animate-spin text-green-600" aria-hidden />}

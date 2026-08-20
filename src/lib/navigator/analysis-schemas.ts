@@ -25,14 +25,18 @@ export const roadmapStageSchema = z.object({
 });
 export type RoadmapStage = z.infer<typeof roadmapStageSchema>;
 
-/** 完整路线图分析:概要(总时长/阶段数/最终目标)+ 3-4 个阶段 */
+/** 路线图概要:总时长/阶段数(3-4)/最终目标。独立导出,供 DB Json 列防御解析复用 */
+export const roadmapSummarySchema = z.object({
+  totalDuration: z.string().min(1, "总时长不能为空").max(30),
+  stageCount: z.number().int().min(3, "阶段数至少 3").max(4, "阶段数最多 4"),
+  finalGoal: z.string().min(1, "最终目标不能为空").max(200),
+});
+export type RoadmapSummary = z.infer<typeof roadmapSummarySchema>;
+
+/** 完整路线图分析:概要 + 3-4 个阶段 */
 export const roadmapAnalysisSchema = z
   .object({
-    summary: z.object({
-      totalDuration: z.string().min(1, "总时长不能为空").max(30),
-      stageCount: z.number().int().min(3, "阶段数至少 3").max(4, "阶段数最多 4"),
-      finalGoal: z.string().min(1, "最终目标不能为空").max(200),
-    }),
+    summary: roadmapSummarySchema,
     stages: z.array(roadmapStageSchema).min(3, "阶段至少 3 个").max(4, "阶段最多 4 个"),
   })
   .superRefine((value, ctx) => {
@@ -45,3 +49,12 @@ export const roadmapAnalysisSchema = z
     }
   });
 export type RoadmapAnalysis = z.infer<typeof roadmapAnalysisSchema>;
+
+/** 阶段 content Json 列形状(3.4 读取边界防御解析用,比完整 stageSchema 宽松:损坏时回退 null 而非报错) */
+export const stageContentSchema = z.object({
+  learningContent: z.array(z.string().min(1).max(100)).max(8),
+  practiceProjects: z.array(practiceProjectSchema).max(4).default([]),
+  resources: z.array(z.string().min(1).max(200)).max(8).default([]),
+  checkpoints: z.array(z.string().min(1).max(200)).max(5).default([]),
+});
+export type StageContent = z.infer<typeof stageContentSchema>;

@@ -15,28 +15,37 @@ export type SuggestedDirection = {
   strengths: string[];
 };
 
+// 当前阶段自评三选一(与 Router/Agent 输入枚举一致)
+const STAGE_OPTIONS = ["完全新手", "有一定基础", "接近入门"] as const;
+
 export type DirectionFormInput = {
   direction: string;
   weeklyHours: number;
-  currentStage: string;
+  currentStage: (typeof STAGE_OPTIONS)[number];
 };
-
-// 当前阶段自评三选一(与 Router/Agent 输入枚举一致)
-const STAGE_OPTIONS = ["完全新手", "有一定基础", "接近入门"] as const;
 
 export function DirectionForm({
   suggestedDirections,
   onSubmit,
+  initial,
 }: {
   /** 画像推荐方向(hub 从 profile.get().careerPaths 注入);无画像 → null */
   suggestedDirections?: SuggestedDirection[] | null;
   onSubmit: (input: DirectionFormInput) => Promise<void>;
+  /** 预填(3.4 重新生成):方向落入自定义输入,周时/阶段自评预选 */
+  initial?: { direction: string; weeklyHours: number | null; currentStage: string | null } | null;
 }) {
   // 方向 = 自定义输入优先,其次为选中的推荐卡
-  const [custom, setCustom] = useState("");
+  const [custom, setCustom] = useState(initial?.direction ?? "");
   const [suggested, setSuggested] = useState<string | null>(null);
-  const [weeklyHours, setWeeklyHours] = useState("");
-  const [currentStage, setCurrentStage] = useState<string | null>(null);
+  const [weeklyHours, setWeeklyHours] = useState(
+    initial?.weeklyHours != null ? String(initial.weeklyHours) : ""
+  );
+  const [currentStage, setCurrentStage] = useState<(typeof STAGE_OPTIONS)[number] | null>(
+    initial?.currentStage && (STAGE_OPTIONS as readonly string[]).includes(initial.currentStage)
+      ? (initial.currentStage as (typeof STAGE_OPTIONS)[number])
+      : null
+  );
   const [fieldErrors, setFieldErrors] = useState<{
     direction?: string;
     weeklyHours?: string;

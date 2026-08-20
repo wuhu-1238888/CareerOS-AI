@@ -13,6 +13,7 @@ import {
   experienceEntrySchema,
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
+import { generateRoadmap, parseRoadmapSummary, parseStageContent } from "@/lib/navigator/pipeline";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -55,6 +56,22 @@ async function requireOwnedTask(
     throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
   }
   return task;
+}
+
+// 运行时读取最新画像的能力标签(3.4 路线图生成输入):aiAnalysis.abilityTags 防御解析,无画像/损坏 → []
+async function readAbilityTags(ctx: { prisma: Context["prisma"]; userId: string }) {
+  const profile = await ctx.prisma.careerProfile.findFirst({
+    where: { userId: ctx.userId },
+    orderBy: { version: "desc" },
+    select: { aiAnalysis: true },
+  });
+  if (!profile) return [];
+  const raw = (profile.aiAnalysis as { abilityTags?: unknown } | null)?.abilityTags;
+  const parsed = z
+    .array(z.object({ name: z.string().min(1).max(50), level: z.enum(["基础", "熟练", "精通"]) }))
+    .max(20)
+    .safeParse(raw);
+  return parsed.success ? parsed.data : [];
 }
 
 // 画像数据读取边界:Json 列内容经 schema 校验后返回(不直接信任数据库原始 JSON,损坏/缺失回退空值)
@@ -106,7 +123,7 @@ function serializeProfile(row: ProfileRowShape) {
   };
 }
 
-// 路线图行序列化(3.1):嵌套 stages/tasks 按 order 升序返回;content/summary 原始透传(3.4 起由分析 Schema 防御解析)
+// 路线图行序列化(3.1):嵌套 stages/tasks 按 order 升序返回;content/summary 经防御解析(3.4),损坏回退 null
 type RoadmapRowShape = {
   id: string;
   targetDirection: string;
@@ -131,7 +148,7 @@ function serializeRoadmap(row: RoadmapRowShape) {
     targetDirection: row.targetDirection,
     weeklyHours: row.weeklyHours,
     currentStage: row.currentStage,
-    summary: row.summary,
+    summary: parseRoadmapSummary(row.summary),
     createdAt: row.createdAt,
     stages: row.stages.map((stage) => ({
       id: stage.id,
@@ -139,7 +156,7 @@ function serializeRoadmap(row: RoadmapRowShape) {
       goal: stage.goal,
       order: stage.order,
       estimatedDuration: stage.estimatedDuration,
-      content: stage.content,
+      content: parseStageContent(stage.content),
       tasks: stage.tasks,
     })),
   };
@@ -186,6 +203,19 @@ const analyzeInputSchema = profileDataSchema.extend({
       note: z.string().max(500, "补充说明最多 500 字").optional(),
     })
     .optional(),
+});
+
+// 路线图生成输入(3.4):generate 与 retry(从 AgentRun.input 重放)共用
+const generateInputSchema = z.object({
+  direction: z.string().min(1, "请输入目标方向").max(30, "方向名称最多 30 个字符"),
+  weeklyHours: z
+    .number()
+    .int("每周投入时间须为整数")
+    .min(1, "每周投入时间至少 1 小时")
+    .max(80, "每周投入时间最多 80 小时"),
+  currentStage: z.enum(["完全新手", "有一定基础", "接近入门"], {
+    errorMap: () => ({ message: "当前阶段不正确" }),
+  }),
 });
 
 const t = initTRPC.context<Context>().create();
@@ -509,6 +539,49 @@ export const appRouter = t.router({
           });
           return { id: row.id };
         }),
+
+      // 生成成长路线(3.4):替换式落库;能力标签运行时读最新画像(无画像 → 空数组)
+      generate: protectedProcedure.input(generateInputSchema).mutation(async ({ ctx, input }) => {
+        const abilityTags = await readAbilityTags(ctx);
+        const outcome = await generateRoadmap({ userId: ctx.userId, input, abilityTags });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { roadmapId: outcome.roadmapId, runId: outcome.runId };
+      }),
+
+      // 失败重试(3.4):从最近一次失败 run 的 input 重放(刷新后数据仍在服务端)
+      retry: protectedProcedure
+        .input(z.object({ runId: z.string().min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          const run = await ctx.prisma.agentRun.findUnique({ where: { id: input.runId } });
+          if (!run || run.userId !== ctx.userId) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "生成任务不存在" });
+          }
+          const parsed = generateInputSchema.safeParse(run.input);
+          if (!parsed.success) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新填写" });
+          }
+          const abilityTags = await readAbilityTags(ctx);
+          const outcome = await generateRoadmap({
+            userId: ctx.userId,
+            input: parsed.data,
+            abilityTags,
+          });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { roadmapId: outcome.roadmapId, runId: outcome.runId };
+        }),
+
+      // 最近一次路线图生成 run(3.4):页面轮询(700ms)与刷新恢复的统一入口;按 intent 与画像分析不串台
+      latestRun: protectedProcedure.query(async ({ ctx }) => {
+        const run = await ctx.prisma.agentRun.findFirst({
+          where: { userId: ctx.userId, intent: "generate-roadmap" },
+          orderBy: { createdAt: "desc" },
+        });
+        return run ? serializeRun(run) : null;
+      }),
     }),
 
     stage: t.router({

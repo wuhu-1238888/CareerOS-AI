@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModulePlaceholder } from "@/components/shared/module-placeholder";
+import { NavigatorHub } from "@/components/navigator/navigator-hub";
 
 export const metadata: Metadata = { title: "成长路线 - CareerOS AI" };
 
-// 职业导航模块(1.7 占位,里程碑 M3 建设):方向匹配、成长路线与任务
+// 职业导航模块(M3):方向选择 → 生成过程 → 成长路线时间线(任务交互)
 export default function NavigatorPage() {
   return (
     <>
-      <PageHeader title="成长路线" description="探索适合你的职业方向,制定可执行的成长计划" />
-      <ModulePlaceholder moduleName="成长路线模块" milestone="M3" />
+      <PageHeader title="成长路线" description="选择目标方向,让 AI 为你拆解成可执行的阶段与任务" />
+      <NavigatorHub />
     </>
   );
 }

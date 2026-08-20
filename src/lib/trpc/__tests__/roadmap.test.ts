@@ -132,9 +132,15 @@ describe("roadmap CRUD(真实写库,顺序执行)", () => {
     expect(get?.currentStage).toBe("有一定基础");
     expect(get?.stages.map((s) => s.order)).toEqual([1, 2]);
     expect(get?.stages[0]?.name).toBe("夯实基础");
-    expect(get?.stages[0]?.content).toEqual({});
+    // 3.4 起 content 经防御解析:空/损坏 → null;合法内容补齐默认字段
+    expect(get?.stages[0]?.content).toBeNull();
     expect(get?.stages[1]?.estimatedDuration).toBe("3 周");
-    expect(get?.stages[1]?.content).toEqual({ learningContent: ["React"] });
+    expect(get?.stages[1]?.content).toEqual({
+      learningContent: ["React"],
+      practiceProjects: [],
+      resources: [],
+      checkpoints: [],
+    });
     expect(get?.stages[1]?.tasks).toHaveLength(0);
     expect(get?.stages[0]?.tasks.map((t) => t.type)).toEqual(["学习", "实践项目"]);
   });
