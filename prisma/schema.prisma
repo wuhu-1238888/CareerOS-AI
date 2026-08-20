@@ -1,7 +1,9 @@
 // CareerOS AI 数据模型 —— 字段来源:PRD 第八节(8.1 实体关系 / 8.2 关键实体字段概览)
 // 已确认偏差:
 //   1) SkillRadar 不建独立表,六维技能雷达数据并入 CareerProfile.ai_analysis JSON 列;
-//   2) CareerProfile 增加画像版本字段(version + parentVersion),任务 2.6/2.7/6.5 依赖。
+//   2) CareerProfile 增加画像版本字段(version + parentVersion),任务 2.6/2.7/6.5 依赖;
+//   3) M2 批准决策:CareerPath.matchScore 统一为 0~100 整数(PRD/DesignRules 百分比口径);
+//      AgentRun 增加 progress JSON 列(1.6 生命周期事件落库,任务 2.4 分析中刷新恢复)。
 // 级联策略(验证要求明确):
 //   User 删除 → Cascade CareerProfile / Resume;AgentRun 观测日志保留(SetNull);
 //   CareerProfile 删除 → Cascade CareerPath / Roadmap;Roadmap → Cascade Stage → Task;
@@ -60,7 +62,7 @@ model CareerPath {
   profileId     String   @map("profile_id")
   profile       CareerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   directionName String   @map("direction_name") // 推荐方向名称
-  matchScore    Float    @map("match_score") // 匹配度 0~1
+  matchScore    Int      @map("match_score") // 匹配度 0~100 整数(PRD 百分比口径,偏差 3)
   strengths     Json     @default("[]") // 匹配优势(数组)
   weaknesses    Json     @default("[]") // 匹配劣势(数组)
   createdAt     DateTime @default(now()) @map("created_at")
@@ -160,6 +162,7 @@ model AgentRun {
   input      Json? // 输入摘要
   output     Json? // 输出摘要
   error      String? // 失败信息
+  progress   Json? // 生命周期进度事件数组(1.6 五阶段文案),任务 2.4 落库供分析中刷新恢复
   durationMs Int?     @map("duration_ms") // 耗时(观测用)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
