@@ -1,6 +1,7 @@
-// 画像页状态枢纽测试(2.4):四态切换(表单/分析中/失败恢复/结果占位)+ 会话内重试与刷新恢复
+// 画像页状态枢纽测试(2.4/2.6):四态切换(表单/分析中/失败恢复/结果视图)+ 会话内重试、刷新恢复与纠偏重算
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Toaster } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProfileHub } from "../profile-hub";
 
@@ -55,6 +56,40 @@ const failedRun: RunMock = {
   progress: [],
   error: "AI 返回了无法识别的结果,请稍后重试",
   createdAt: "2026-08-20T10:00:00Z",
+};
+
+// 合法分析结果(纠偏流程需要结果视图上的「这不是我」入口)
+const validAnalysis = {
+  summary: "计算机专业应届生。",
+  abilityTags: [
+    { name: "Python", level: "熟练" },
+    { name: "SQL", level: "熟练" },
+    { name: "JavaScript", level: "基础" },
+  ],
+  strengths: [
+    { title: "实践经历对口", detail: "两段开发经历均与目标岗位直接相关" },
+    { title: "目标清晰", detail: "岗位目标与能力积累方向一致" },
+    { title: "技能组合完整", detail: "编程语言与数据库技能配套" },
+  ],
+  directions: [
+    {
+      name: "后端开发",
+      matchScore: 85,
+      reason: "技术栈匹配",
+      strengths: ["Python 熟练"],
+      weaknesses: ["缺少分布式经验"],
+    },
+    {
+      name: "数据分析",
+      matchScore: 70,
+      reason: "SQL 基础",
+      strengths: ["SQL 熟练"],
+      weaknesses: [],
+    },
+  ],
+  radar: { 产品: 40, 技术: 80, 数据: 68, 沟通: 50, 项目: 66, 行业: 45 },
+  suggestions: [{ gap: "缺少分布式经验", action: "完成一个分布式项目" }],
+  confidence: { level: "高", note: "信息齐全" },
 };
 
 async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
@@ -157,6 +192,78 @@ describe("ProfileHub 状态机", () => {
       createdAt: "2026-08-20T10:00:00Z",
     };
     render(<ProfileHub />);
+    await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+  });
+
+  it("纠偏(2.6):这不是我 → 弹窗提交 → Toast → 带反馈重算 → 重算期间展示分析过程", async () => {
+    mocks.profileData = {
+      id: "p1",
+      version: 1,
+      parentVersion: null,
+      data: {},
+      aiAnalysis: validAnalysis,
+      careerPaths: [],
+    };
+    let resolveAnalyze!: (value: unknown) => void;
+    mocks.analyzeMutateAsync.mockImplementation(
+      () => new Promise((resolve) => (resolveAnalyze = resolve))
+    );
+    render(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    const user = userEvent.setup();
+    expect(await screen.findByText("计算机专业应届生。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "这不是我" }));
+    expect(await screen.findByText("哪些部分不准确?")).toBeInTheDocument();
+    await user.click(screen.getByText("推荐方向不准确"));
+    await user.click(screen.getByRole("button", { name: "提交反馈" }));
+    expect(await screen.findByText("已记录,AI 将重新分析")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.analyzeMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ feedback: { areas: ["direction"], note: undefined } })
+      )
+    );
+    // 重算期间展示分析过程视图(优先级高于旧结果)
+    expect(await screen.findByText("画像顾问")).toBeInTheDocument();
+    resolveAnalyze({ profileId: "p2", version: 2, runId: "run-2" });
+    await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+  });
+
+  it("纠偏重算失败:失败视图重试携带反馈(会话内重放)", async () => {
+    mocks.profileData = {
+      id: "p1",
+      version: 1,
+      parentVersion: null,
+      data: {},
+      aiAnalysis: validAnalysis,
+      careerPaths: [],
+    };
+    mocks.analyzeMutateAsync.mockRejectedValueOnce(new Error("AI 返回了无法识别的结果,请稍后重试"));
+    render(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    const user = userEvent.setup();
+    expect(await screen.findByText("计算机专业应届生。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "这不是我" }));
+    await user.click(await screen.findByText("能力评估不准确"));
+    await user.click(screen.getByRole("button", { name: "提交反馈" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "AI 返回了无法识别的结果,请稍后重试"
+    );
+    mocks.analyzeMutateAsync.mockResolvedValueOnce({ profileId: "p2", version: 2, runId: "run-3" });
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mocks.analyzeMutateAsync).toHaveBeenLastCalledWith(
+        expect.objectContaining({ feedback: { areas: ["ability"], note: undefined } })
+      )
+    );
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
   });
 });

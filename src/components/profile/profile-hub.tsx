@@ -1,14 +1,19 @@
 "use client";
-// 职业画像页状态枢纽(2.2 起,2.4 接入分析管线):加载骨架 / 采集表单 / 分析过程 / 结果视图(2.5 接入)。
+// 职业画像页状态枢纽(2.2 起,2.4 接入分析管线,2.5 接入结果视图,2.6 接入纠偏):
+// 加载骨架 / 采集表单 / 分析过程 / 结果视图。
 // 分析态统一轮询 profile.latestRun(700ms,进度事件已随执行落库):分析中刷新页面按最近 run 恢复;
 // 失败态提供「重试」(会话内用最近一次提交数据;刷新后服务端从 AgentRun.input 重放)与「修改信息」(草稿保留)。
+// 纠偏(2.6):弹窗收集反馈 → Toast → 全量重算(分析与纠偏共用同一管线,产生新版本)。
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { ProfileForm } from "./profile-form";
 import { AnalysisView } from "./analysis-view";
 import { ProfileResult } from "./profile-result";
+import { CorrectionDialog } from "./correction-dialog";
 import type { ProfileData } from "@/lib/profile/schemas";
+import type { CorrectionFeedback } from "@/lib/profile/pipeline";
 
 function friendlyError(err: unknown): string {
   return err instanceof Error ? err.message : "分析失败,请稍后重试";
@@ -26,14 +31,15 @@ export function ProfileHub() {
   const [submitted, setSubmitted] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const lastInput = useRef<ProfileData | null>(null);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const lastInput = useRef<{ data: ProfileData; feedback?: CorrectionFeedback } | null>(null);
   const finishedRef = useRef(false);
 
   const hasResult = !!profile.data?.aiAnalysis;
 
-  // 无结果时跟踪最近一次 run:仅 running(或提交在途)时轮询 700ms,其余状态不重复拉取
+  // 跟踪最近一次 run:无结果(首建/恢复)或提交在途(纠偏重算)时启用;仅 running/在途时轮询 700ms
   const latestRun = trpc.profile.latestRun.useQuery(undefined, {
-    enabled: !profile.isLoading && !hasResult,
+    enabled: !profile.isLoading && (!hasResult || submitted),
     refetchInterval: (query) =>
       submitted || query.state.data?.status === "running" ? 700 : false,
   });
@@ -56,11 +62,6 @@ export function ProfileHub() {
     );
   }
 
-  if (hasResult && profile.data) {
-    // 2.5 结果视图;onCorrect 由 2.6 纠偏流程接入
-    return <ProfileResult initial={profile.data} />;
-  }
-
   const draftKey = `careeros:profile-draft:${me.data.id}`;
   const recovering = !analyzeError && latestRun.data?.status === "running";
   const failedRun =
@@ -72,14 +73,14 @@ export function ProfileHub() {
       ? null
       : (latestRun.data ?? null);
 
-  async function submit(data: ProfileData) {
-    lastInput.current = data;
+  async function submit(data: ProfileData, feedback?: CorrectionFeedback) {
+    lastInput.current = { data, feedback };
     finishedRef.current = false;
     setAnalyzeError(null);
     setEditMode(false);
     setSubmitted(true);
     try {
-      await analyze.mutateAsync(data);
+      await analyze.mutateAsync({ ...data, feedback });
       await utils.profile.get.invalidate();
     } catch (err) {
       setAnalyzeError(friendlyError(err));
@@ -91,9 +92,10 @@ export function ProfileHub() {
   }
 
   async function handleRetry() {
-    // 会话内失败:直接用最近一次提交的数据重试
+    // 会话内失败:直接用最近一次提交的数据(含纠偏反馈)重试
     if (lastInput.current) {
-      await submit(lastInput.current).catch(() => undefined);
+      const { data, feedback } = lastInput.current;
+      await submit(data, feedback).catch(() => undefined);
       return;
     }
     // 刷新后恢复:服务端从失败 run 的 input 重放分析
@@ -120,16 +122,54 @@ export function ProfileHub() {
     setEditMode(true);
   }
 
-  if (submitted || recovering || analyzeError || failedRun) {
-    return (
+  // 纠偏(2.6):Toast 确认后全量重算;失败进入分析失败视图(重试/修改信息)
+  async function handleCorrect(feedback: CorrectionFeedback) {
+    const data = lastInput.current?.data ?? profile.data?.data;
+    if (!data) {
+      toast.error("画像数据不存在,请重新填写");
+      return;
+    }
+    toast("已记录,AI 将重新分析");
+    await submit(data, feedback).catch(() => undefined);
+  }
+
+  let view: React.ReactNode;
+  if (submitted || recovering || analyzeError) {
+    // 分析在途或本次会话失败(含纠偏重算):优先级高于结果视图
+    view = (
       <AnalysisView
         run={runForView}
-        error={analyzeError ?? failedRun?.error ?? null}
+        error={analyzeError}
         onRetry={handleRetry}
         onEdit={handleEdit}
       />
     );
+  } else if (hasResult && profile.data) {
+    view = <ProfileResult initial={profile.data} onCorrect={() => setCorrectionOpen(true)} />;
+  } else if (failedRun) {
+    // 无结果时遇历史失败 run:失败恢复视图(刷新后仍可重试)
+    view = (
+      <AnalysisView
+        run={failedRun}
+        error={failedRun.error}
+        onRetry={handleRetry}
+        onEdit={handleEdit}
+      />
+    );
+  } else {
+    view = (
+      <ProfileForm initialData={profile.data?.data} draftKey={draftKey} onSubmit={submit} />
+    );
   }
 
-  return <ProfileForm initialData={profile.data?.data} draftKey={draftKey} onSubmit={submit} />;
+  return (
+    <>
+      {view}
+      <CorrectionDialog
+        open={correctionOpen}
+        onOpenChange={setCorrectionOpen}
+        onSubmit={handleCorrect}
+      />
+    </>
+  );
 }

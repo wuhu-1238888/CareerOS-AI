@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SessionProvider } from "next-auth/react";
+import { Toaster } from "sonner";
 import { TRPCProvider } from "@/trpc/provider";
 import "../styles/globals.css";
 
@@ -18,6 +19,8 @@ export default function RootLayout({
       <body className="antialiased">
         <SessionProvider>
           <TRPCProvider>{children}</TRPCProvider>
+          {/* 全局 Toast(2.6 纠偏「已记录,AI 将重新分析」) */}
+          <Toaster position="top-center" />
         </SessionProvider>
       </body>
     </html>
