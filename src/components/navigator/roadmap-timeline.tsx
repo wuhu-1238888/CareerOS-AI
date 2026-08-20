@@ -1,6 +1,6 @@
 "use client";
 // 成长路线时间线主视图(3.4,任务交互 3.5 接线;UI/UX 优化):sticky 概览带(目标岗位 | 整体进度 两区)
-// + 纵向时间线(节点三态 done/current/future + 连线)+ 阶段卡(手风琴式折叠:一次展开一个,
+// + 纵向时间线(节点三态 done/current/future + 连线)+ 阶段卡(默认折叠,多阶段可同时展开,
 // 默认展开首个未完成阶段;展开区 = 阶段目标全宽 + 学习内容/实践项目/检查点/资源 2 列网格 + 任务行式列表)。
 // 遵循 DesignSystem「Career Roadmap」与 DesignRules「职业路线页」:无横向甘特图、一屏 ≤4 阶段、
 // 无完成弹窗庆祝、无付费课程引导;任务状态符号 + 文字双通道;全 token 类名,零硬编码色值。
@@ -88,14 +88,17 @@ export function RoadmapTimeline({
   /** 3.5 接线:状态切换 mutation 在途的任务(禁用其切换按钮) */
   pendingTaskId?: string | null;
 }) {
-  // 手风琴式展开:默认展开首个「进行中」阶段(全部完成则展开第一个)——DesignSystem 阶段卡默认折叠
+  // 多阶段可同时展开:默认展开首个「进行中」阶段(全部完成则展开第一个),点击各阶段头独立展开/收起
+  // —— DesignSystem 阶段卡默认折叠(用户试用反馈:展开新阶段不应收起已展开阶段)
   const doneFlags = roadmap.stages.map(stageIsDone);
   const firstIncomplete = doneFlags.indexOf(false);
-  const [openStageId, setOpenStageId] = useState<string | null>(
+  const [openStages, setOpenStages] = useState<Set<string>>(
     () =>
-      roadmap.stages.length > 0
-        ? roadmap.stages[firstIncomplete === -1 ? 0 : firstIncomplete]!.id
-        : null
+      new Set(
+        roadmap.stages.length > 0
+          ? [roadmap.stages[firstIncomplete === -1 ? 0 : firstIncomplete]!.id]
+          : []
+      )
   );
 
   const totalTasks = roadmap.stages.reduce((sum, stage) => sum + stage.tasks.length, 0);
@@ -118,7 +121,12 @@ export function RoadmapTimeline({
   if (roadmap.currentStage) metaParts.push(roadmap.currentStage);
 
   function toggleStage(id: string) {
-    setOpenStageId((prev) => (prev === id ? null : id));
+    setOpenStages((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   return (
@@ -173,7 +181,7 @@ export function RoadmapTimeline({
         <ol className="mt-6">
           {roadmap.stages.map((stage, index) => {
             const status = statusOf(index);
-            const open = openStageId === stage.id;
+            const open = openStages.has(stage.id);
             const doneCount = stage.tasks.filter((task) => task.status === "completed").length;
             const badge = STAGE_BADGE[status];
             return (
