@@ -2,11 +2,11 @@
 
 ## 当前项目状态
 
-- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)+ **M2(Career Profile,任务 2.1–2.7)全部完成**
-- **最近更新**:2026-08-20,职业画像结果页 Desktop 布局优化(核心结论带 / 2 列网格 / 卡片层级)
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7 全部完成,另按验收反馈补齐「经历时长」、修复「提交卡 60%」并完成结果页 Desktop 布局优化(M1 已通过用户验收;M2 待用户整体验收)
-- **当前状态**:**M2 已实现,等待用户整体产品验收**。不开始 M3,不开始阶段 3。
-- **测试基线**:178 个测试 / 28 个文件全部通过;typecheck / lint / build 零错误
+- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)+ M2(Career Profile)+ **M3(Career Navigator,任务 3.1–3.5)全部完成**
+- **最近更新**:2026-08-20,成长路线时间线页(3.4)与任务状态标记/反馈重生成(3.5)完成并推送
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5 全部完成,另按验收反馈补齐「经历时长」、修复「提交卡 60%」并完成结果页 Desktop 布局优化(M1 已通过用户验收;M2、M3 待用户整体验收)
+- **当前状态**:**M3 已实现,等待用户整体产品验收**。不开始阶段 4+。
+- **测试基线**:246 个测试 / 34 个文件全部通过;typecheck / lint / build 零错误;dev server 下 5 个页面登录态 200、未登录 307 中间件保护正常
 
 ## 已完成的工作
 
@@ -139,6 +139,41 @@
 - 表单/过程页保持 640px 聚焦布局(DesignRules 规格);业务逻辑 / AI 分析 / 数据结构零改动
 - 验证:结果页测试 11 → 13;全套 178 测试/28 文件、typecheck/lint/build 全绿;grep 零硬编码色值零渐变
 
+### 任务 3.1 路线图数据与 API(2026-08-20,commit `ef29591`)
+
+- schema 三处最小调整(计划批准的阶段 3 必要变更,迁移 `20260820141231_roadmap_owner_summary` 含 SQL 回填):`Roadmap.userId` 必填直连 User(级联删 + 索引,无画像路线图的所有权链路)/ `profileId` 改可空(3.2 手动输入路径的硬前提)/ 新增 `summary Json?`(AI 概要:总时长/阶段数/最终目标);seed 与 DB 集成测试同步补 userId
+- tRPC `navigator` 命名空间:`roadmap.get`(最新路线图嵌套 stages/tasks 按 order 升序)/ `roadmap.create`(空路线图,3.1 验证用)/ `stage.create` / `task.create`(order 缺省 max+1)/ `task.updateStatus`(三态 zod 校验);`requireOwnedRoadmap`/`requireOwnedTask` 归属校验,越权一律 NOT_FOUND(不泄露存在性)
+- 验证:10 个真实 DB 测试(创建→追加阶段→追加任务→更新状态→嵌套读取→越权 userA→userB→未登录→CONFLICT→隔离)+ typecheck/lint + seed 跑通
+
+### 任务 3.2 目标方向选择页(2026-08-20,commit `f10b63d`)
+
+- `direction-form.tsx`:目标方向(画像推荐卡 2-4 张含匹配度 + 自定义输入始终可用)→ 每周可投入时间(1–80 整数校验)→ 当前阶段自评三选一 chips;固定底部栏主按钮「生成成长路线」(640px 单列,同画像表单规格)
+- 方向双状态模型:自定义输入优先、其次选中推荐卡(互斥切换,选中态 ✓ + aria 双通道);错误文案「请选择或输入目标方向 / 目标方向最多 30 字 / 请输入 1–80 之间的整数 / 请选择当前阶段」
+- 验证:10 个组件测试(推荐卡渲染/选中互斥/自定义切换/周时边界与非法值/阶段 chips/提交载荷/服务端错误)
+
+### 任务 3.3 Navigator Agent(2026-08-20,commit `ae74713`)
+
+- 双 Agent 共用同一 Prompt `navigator/navigator.md`(mode 字段区分,防两文件阶段结构漂移):`NavigatorAgent`(全量,intent `generate-roadmap`,输出 roadmapAnalysisSchema:概要 + 3-4 阶段)与 `NavigatorStageAgent`(单阶段重生成,intent `regenerate-stage`,输入附 stageName/stageContent/feedback,输出 roadmapStageSchema)
+- Prompt:职业规划师角色锚定 + 5 步推理(目标拆解→针对化调整→内容填充→项目设计→时间校准)+ 边界(不保证就业/不推荐付费课程/不替用户决策/不评估用户/不编造能力)+ 输出 JSON 结构与数量约束
+- 阶段 Schema:名称 1-30/目标 1-200/学习内容 3-5/实践项目 1-2 **含产出物**/资源 ≤8/检查点 ≤5/预估时长;`superRefine` 保证 summary.stageCount === stages.length
+- 验证:5 份固定样例(3 全量 + 2 单阶段)+ 14 个测试(样例循环/结构一致/周时变化→时长变化/单阶段只返回该阶段/非法输出/进度事件/注册路由);全套 212/212
+
+### 任务 3.4 路线图时间线页(2026-08-20,commit `8491dac`)
+
+- `pipeline.ts` 生成管线(镜像画像管线):progressChain 串行化进度落库 + `generateRoadmap` 替换式落库(`$transaction` 内 deleteMany 旧路线图 + 嵌套 create 阶段/任务,失败整体回滚);`parseStageContent`/`parseRoadmapSummary` 防御解析(损坏/缺失 → null,不直接信任 DB Json);任务派生 = 学习内容(type 学习)在前 + 实践项目(type 实践项目,description=标题)在后,产出物留 content Json
+- tRPC:`roadmap.generate`(BAD_GATEWAY)/ `roadmap.retry`(从 AgentRun.input 重放,刷新恢复)/ `roadmap.latestRun`(intent 隔离,与画像不串台);`serializeRoadmap` 防御解析
+- `roadmap-timeline.tsx`(按 DesignSystem「Career Roadmap」):sticky 概要条(「成为「方向」的 N 路径」+ finalGoal 副行 + 总进度 + 重新生成)+ 纵向时间线(节点三态 done 绿实心✓/current 白底 green-400 环/future 灰环;连线完成段绿/未完成段灰)+ 阶段卡默认折叠(标题 + 时长 badge + 任务进度 badge),展开显示目标/学习内容 Tag/实践项目含产出物/检查点(静态 ☐)/任务列表(符号+文字双通道)
+- `navigator-hub.tsx` 镜像 profile-hub 状态机:表单 → 生成中(复用 AnalysisView 参数化,职业规划师/Compass/专属文案)→ 时间线;失败重试双通道(会话内 lastInput / retry runId)+ 修改信息回表单;刷新恢复(latestRun 轮询 700ms + finishedRef 防重入);「重新生成」→ 预填表单
+- `analysis-view.tsx` 仅新增带默认值的可选 props(agentName/icon/runningDescription/failedDescription),既有行为零变化
+- 验证:pipeline 真实 DB 测试(成功落库/无画像/二次生成替换/失败不落行/防御解析/护栏)+ timeline 8 测试 + hub 10 测试;AnalysisView 既有 5 测试零退化;全套 239/239 + typecheck/lint/build
+
+### 任务 3.5 任务状态标记与反馈(2026-08-20,commit `a8da5fb`)
+
+- 任务三态切换:点击状态符号按 待开始 → 进行中 → 已完成 → 待开始 循环(可撤销),`task.updateStatus` 服务端持久化(刷新保留),mutation 在途该任务禁用(pendingTaskId)
+- 任务反馈:「太难了/已经会了」ghost 小按钮 → `regenerateStage` 管线(NavigatorStageAgent,intent `regenerate-stage`)→ 该阶段**原地更新**(名称/目标/时长/content + 任务全量替换,任务状态重置 pending——重生成的固有语义),其余阶段不动;调整中阶段显示 ai-badge「调整中」+ 反馈按钮禁用,成功 toast + 刷新,失败 toast 恢复可点
+- 护栏:越权 NOT_FOUND、阶段不属于该路线图 NOT_FOUND、非法反馈 BAD_REQUEST、3.1 空路线图(无周时/阶段自评)→ BAD_REQUEST「路线图信息不完整,请重新生成后再试」(管线前抛出,不产生 run)
+- 验证:管线测试(仅目标阶段变化/任务 7 条全替换全 pending/其余阶段不动/失败不落行/护栏)+ timeline pendingTaskId 禁用 + hub 接线 3 测试(切换载荷/反馈载荷+成功 toast/失败 toast 不刷新);全套 246/246 + typecheck/lint/build;dev server 登录态 5 页面 200、未登录 307 中间件保护正常
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功
@@ -151,6 +186,9 @@
 - TS2802(es5 目标下 MapIterator 迭代)→ Array.from;TS18046(泛型推断)→ 测试中显式 cast
 - psql 需 PGPASSWORD;camelCase 列(passwordHash)需加引号;authMethod 映射为 auth_method
 - 提交成功后卡在分析过程视图(典型 60%)、刷新才出结果(用户验收实测)→ 根因:analyze mutation 等服务端跑完全管线才返回,invalidate 后 hasResult=true 使 latestRun 轮询查询禁用,缓存里残留的 running 状态把视图钉在过程页;修复:`recovering` 判定增加 `!hasResult` 前置(commit 5468f81),并新增回归测试(已有结果 + 缓存 running → 渲染结果视图)
+- 阶段 3:`.superRefine()` 使 roadmapAnalysisSchema 变 ZodEffects 无 `.shape` → `parseRoadmapSummary` 崩溃;修复:summary 提取为独立 `roadmapSummarySchema` 导出,两处共用
+- 阶段 3:tRPC 序列化 Prisma Json 列(careerPaths)后为深递归类型,`.map` 触发 TS2589 → `as unknown as SuggestedDirection[]` 桥接;DirectionFormInput.currentStage 收窄为 `(typeof STAGE_OPTIONS)[number]` 消除 TS2345;es5 目标下 `Array.entries()` 触发 TS2802 → 经典 for 循环
+- 阶段 3:3.1 早期行的 content Json 缺 practiceProjects 字段被防御解析判 null → 读取侧 `stageContentSchema` 补 `.default([])`(旧行兼容),roadmap.test 断言同步到新序列化契约
 
 ## 未解决的问题(遗留)
 
@@ -166,13 +204,13 @@
 
 ## 下一步 Implementation Step
 
-**用户对阶段 2(M2)的整体产品验收**(验收标准见 implementation-plan M2 节 / 计划文档第六节):
+**用户对阶段 3(M3)的整体产品验收**(验收标准见 implementation-plan M3 节 / 计划文档第八节):
 
-- 四步表单 → AI 分析(进度可视)→ 画像结果(概要/优势不足/六维雷达/2-4 方向含匹配度/发展建议)全流程可走通;首次到画像概要 < 5 分钟
-- 「这不是我」纠偏 → 全量重算 → 新版本,旧版本可查看;「更新信息」同样生成新版本且版本号递增
-- Dashboard 问候行按决策 5 显示更新状态与提示
-- 未登录/越权访问画像数据被拒绝;所有数据视图四态齐全;DesignRules 自检清单通过;无硬编码色值/零渐变/无聊天式界面
-- 现有 91 测试不回归,新增测试全绿(基线 178/28 文件)
-- 浏览器人工走查项:雷达图真实渲染、四步表单移动端、纠偏新旧版本切换(工程测试非验收门槛)
+- 方向选择(有画像 → 推荐卡含匹配度;无画像 → 手动输入)→ AI 生成进度可视 → 时间线主视图(概要条/节点三态/阶段卡折叠展开)全流程可走通
+- 任务三态切换刷新保留(服务端持久化);「太难了/已经会了」→ 单阶段重生成仅该阶段变化,调整中提示与成功/失败 toast
+- 全量重新生成 = 替换式(旧路线图删除);阶段全完成 → 节点变绿 + badge「已完成」
+- 未登录/越权访问路线图被拒绝;所有数据视图四态齐全;DesignRules 职业路线页 4 禁令(无横向甘特图/一屏 ≤4 阶段/无完成庆祝弹窗/无课程商城引导)+ 无硬编码色值/零渐变
+- 现有 178 测试不回归,新增测试全绿(基线 246/34 文件);typecheck/lint/build 零错误
+- 浏览器人工走查项(工程测试非验收门槛):方向选择 → 生成进度 → 时间线展开折叠 → 任务三态切换刷新保留 → 反馈后阶段更新 → Desktop/Mobile 布局 → Console 无报错
 
-**验收通过后进入 M3(任务 3.1 起);当前不开始 M3、不开始阶段 3。**
+**验收通过后进入阶段 4(M4);当前不开始阶段 4。**
