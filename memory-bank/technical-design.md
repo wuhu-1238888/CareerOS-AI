@@ -701,3 +701,23 @@ Next.js 14 在 src/ 布局下会**静默忽略根目录 middleware.ts**(无编�
 
 Agent System Prompt 存 `src/lib/prompts/*.md`,经 `loadPrompt` 以 `fs` 从 `process.cwd()` 读取 + 模块级缓存。本地开发零成本;**若部署 Vercel Serverless,fs 读取打包内文件可能失效,需改为 import 资源或读打包产物**(4.1 部署前评估,已记入 progress.md 遗留)。
 
+## 八、M2 实施架构决策补记(2026-08-20,任务 2.1–2.7 落地确认)
+
+M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
+
+### 8.1 画像版本模型:每分析一行,不可变快照
+
+每次分析(首建 / 纠偏 / 更新信息)在 CareerProfile 表创建**新行**:`version = 当前最大 version + 1`,`parentVersion = 上一版本的 version 数值`(非 id——Schema 为 Int 存储版本号,读取时按 version 定位父行),数据列与 aiAnalysis 写入后**不再修改**(不可变快照);活跃版本 = 该用户最大 version。CareerPath 随每次分析全量重建(deleteMany + createMany,数据量小、保证与快照一致)。版本选择器(listVersions + getVersion)供查看旧版本。纠偏/更新失败时**不创建新行**,旧版本完好可读。
+
+### 8.2 分析管线:进度落库 + 客户端轮询 + stale 判失败
+
+`profile.analyze` 为一次等待执行完成的 tRPC mutation:创建 AgentRun(running)→ Orchestrator 执行,进度事件经新增的 `onRunProgress` 回调**实时写入 `AgentRun.progress`(Json)**(管线内以 promise 链串行化读-改-写,防事件连发覆盖丢失;返回前等待全部落库)→ 完成写 succeeded/failed 并返回结果。客户端轮询 `profile.latestRun`(约 700ms)渲染进度条与文案轮播;页面刷新后按 run 恢复。**stale 判据**:`running 且 updatedAt > 2 分钟`(服务端进程被杀等中断)在查询层序列化为 failed「分析中断,请重试」,保证任何中断都有恢复路径。失败重试双通道:会话内用最近一次提交数据重放;刷新后 `profile.retry` 从 AgentRun.input 服务端重放(无需客户端回传数据)。
+
+### 8.3 纠偏交互:弹窗选择 + Toast + 全量重算(合并两文档要求)
+
+2.6 弹窗(方向/能力/优势多选 + 补充说明 ≤500 字)与 DesignRules Toast 并存:弹窗提交 → 关闭 → Toast「已记录,AI 将重新分析」→ `profile.analyze(feedback)` **全量重算**并生成新版本(implementation-plan 2.6「不采用增量重算」为权威)。纠偏重算期间展示分析过程视图(优先级高于旧结果);失败则失败视图重试并**携带 feedback**(会话内 lastInput 重放 / 刷新后 AgentRun.input 重放)。
+
+### 8.4 Agent 框架扩展:onRunProgress 回调
+
+`Orchestrator.run` 的 RunAgentParams 新增 `onRunProgress?: (runId, progress) => void`,在既有 `onProgress` 链路上挂接,由 runId 定位 AgentRun 行写进度(见 8.2)。此为 Agent 框架面向「进度持久化」的最小扩展点;后续模块(3.x/4.x)复用同一机制。
+

@@ -2,11 +2,11 @@
 
 ## 当前项目状态
 
-- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)**全部完成**
-- **最近更新**:2026-08-19,任务 1.8 完成,commit `a2ebd41`
-- **已完成任务**:1.1 – 1.8 全部完成(共 9 个 commit)
-- **当前状态**:**M1 已实现,等待用户整体产品验收**。不开始 M2,不开始阶段 2。
-- **测试基线**:91 个测试 / 19 个文件全部通过;typecheck / lint / build 零错误
+- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)+ **M2(Career Profile,任务 2.1–2.7)全部完成**
+- **最近更新**:2026-08-20,任务 2.7 完成,M2 共 7 个 commit
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7 全部完成(M1 已通过用户验收;M2 待用户整体验收)
+- **当前状态**:**M2 已实现,等待用户整体产品验收**。不开始 M3,不开始阶段 3。
+- **测试基线**:167 个测试 / 28 个文件全部通过;typecheck / lint / build 零错误
 
 ## 已完成的工作
 
@@ -71,6 +71,55 @@
 - 顶栏同步:user.me 经 React Query,invalidate 后昵称/配色即时同步
 - 验证:昵称改后顶栏同步、改密后旧失效新可用(接口测试断言 bcrypt.compare)、简历文件区块空态不报错、DesignRules 自检走查通过
 
+### 任务 2.1 画像数据与 API(2026-08-20,commit `1b9f8b3`)
+
+- schema 两处阶段 1 微调(均有明确阶段 2 依赖,计划批准时已说明):`CareerPath.matchScore` Float 0~1 → **Int 0-100**(与 PRD/DesignRules 百分比口径同单位,迁移时零数据);`AgentRun` 新增 `progress Json?` 列(1.6 五阶段文案落库,2.4 轮询与刷新恢复依赖);迁移 `20260820024904_profile_progress_matchscore`
+- `src/lib/profile/schemas.ts`:ProfileData / education / skill / experience / careerPath 输入 Schema(唯一的服务端输入校验源)
+- tRPC `profile` 命名空间:get(最新版含 careerPaths 按匹配度降序)/ listVersions / getVersion / create(首版)/ update(更新最新数据列)/ delete(级联删除)+ careerPath.{list,create,delete};全部 protectedProcedure + `requireOwnedProfile` 归属校验(越权一律 NOT_FOUND「画像不存在」,不泄露存在性)
+- **读取边界防御**:`parseProfileData` 对 5 个 Json 列 zod safeParse,损坏/缺失回退空数组(不直接信任 DB 原始 JSON);`serializeProfile` 统一对外形状
+- 验证:13 个真实 DB 测试(CRUD/越权 userA→userB/未登录/CONFLICT/匹配度越界 BAD_REQUEST/版本倒序/级联删除)
+
+### 任务 2.2 分步采集表单(2026-08-20,commit `47a08f7`)
+
+- shadcn 补装 select/textarea/checkbox/dialog/skeleton(sonner 于 2.6 安装)
+- `stepper.tsx` 四步(标题 + 一句「为什么需要」,aria-current);`skill-selector.tsx`(30 项预设 chips + 自由输入 + ●○○/●●○/●●● 三级熟练度,上限 20);`profile-form.tsx`(必填仅学历+专业+技能,经历/目标可跳过,失焦校验,固定底部操作栏)
+- **草稿**:localStorage `careeros:profile-draft:{userId}` 随输入持久化、提交成功清除、优先级高于服务端数据(刷新不丢)
+- 验证:10 个组件测试(步进/必填拦截/跳过载荷/草稿保存恢复/initialData 预填/返回保留/失败提示)
+
+### 任务 2.3 Profile Agent(2026-08-20,commit `5c64419`)
+
+- `src/lib/agents/profile.agent.ts`:ProfileAgent(config=career-profile-analyzer,promptPath=profile-analyst.md);输入 Schema = ProfileData + feedback?;输出 Schema 严格按 agent-design 2.1(summary 1-200 字 / abilityTags 3-10 分级 / strengths 3-5 / directions 2-4 含 matchScore 0-100+理由+优劣势 / 六维雷达 0-100 / suggestions 1-5 / confidence 高-中-低+说明)
+- `src/lib/prompts/profile-analyst.md`:角色锚定 / 五步推理 / 边界限制(不编造能力、不做确定性判断、不替用户决策、不给无依据评分)/ 不确定性表达(信息完整度→置信度)/ 纠偏反馈段 / JSON 结构与数量约束
+- `src/lib/agents/index.ts` 集中注册 + `registerIntent("analyze-profile")`
+- **固定样例集**(真实 LLM 质量验证待 DeepSeek Key,遗留 #1):3 份手工标注输入(cs-grad 高置信 / liberal-to-ops 中 / minimal 低)+ 手工构造 Mock 输出;10 个测试(样例循环/schema 边界/非法 JSON→AgentOutputError/matchScore 150→输出错误/空 skills→输入错误/进度事件顺序/反馈透传/注册表路由)
+
+### 任务 2.4 分析管线与过程页(2026-08-20,commit `63b1c06`)
+
+- `src/lib/profile/pipeline.ts`:`analyzeProfile({userId, data, feedback?})` → Orchestrator(analyze-profile)→ 成功创建**新版本行**(version=max+1,parentVersion=上一版本 version,不可变快照)+ careerPaths 全量重建;失败返回友好错误 + AgentRun failed,**不创建新行**;不抛业务异常
+- 进度落库:`Orchestrator.run` 新增 `onRunProgress` 回调;pipeline 串行化写 `AgentRun.progress`(读-改-写排队,防事件连发覆盖丢失);返回前等待全部落库
+- tRPC:`profile.analyze`(等待执行完成返回新版本)/ `profile.retry`(失败重试:服务端从 AgentRun.input 重放,刷新后无需客户端回传)/ `profile.getRun`(按 runId,越权 NOT_FOUND)/ `profile.latestRun`(最近一次 analyze-profile);**stale 判据**:running 且 updatedAt > 2 分钟 → 视为中断,序列化为 failed「分析中断,请重试」
+- `analysis-view.tsx`(Agent 卡 48px 圆形图标 + 状态 badge + 4px 进度条 + 文案轮播,纯展示)+ `ai-badge.tsx`(AI 紫 pill);`profile-hub.tsx` 状态机(表单/分析中/失败/结果),轮询 latestRun 700ms,失败态「重试/修改信息」,刷新按最近 run 恢复
+- 验证:3 个管线真实 DB 测试(成功落版本+方向+AgentRun succeeded 含 5 事件/纠偏重算 version=2 旧版不可变/非法输出 failed 不落行)+ 5 个 router 护栏测试 + 5 个 AnalysisView + 7 个 hub 状态机测试
+
+### 任务 2.5 画像结果页(2026-08-20,commit `ee7c2a6`)
+
+- 安装 recharts 2.x(React 18 兼容)
+- **Schema 客户端安全化**:`analysis-schemas.ts` 从 profile.agent.ts 抽出输出 Schema(agent 模块经 base.ts 引入 node:fs 不能进客户端包);结果页渲染前对 aiAnalysis zod 校验,非法 → 「分析数据异常,请重新分析画像」
+- `profile-result.tsx`:概要卡(AiBadge + 摘要 + 能力标签分级色 + 置信度 badge)→ 优势/不足双列(优势 ✓ 绿可展开 ai-insight;不足 ✗ 红来自方向 weaknesses 并标注来源方向,2.3 Schema 无顶层不足字段)→ 六维雷达(Recharts chart.green 20% 填充 + HTML 图例文本替代)→ 推荐方向卡 2-4 张(text-num 32px 匹配度 + 理由 + 优劣势)→ 发展建议;版本选择器(>1 版本,listVersions + getVersion 查看旧版本);页面头:更新信息(2.7)/优化简历→/resume/这不是我(2.6)/规划成长路线→/navigator
+- 验证:11 个组件测试(渲染/展开/不足来源/雷达图例/方向卡/建议/版本切换/数据异常守卫/动作按钮);grep 无硬编码色值无渐变;setup.ts 补 ResizeObserver polyfill(recharts ResponsiveContainer jsdom 必需)
+
+### 任务 2.6 纠偏流程(2026-08-20,commit `6f38c8d`)
+
+- `correction-dialog.tsx`(shadcn dialog):方向/能力/优势三组 checkbox + 补充说明(≤500 字)→ 提交 → 关闭弹窗 → Toast「已记录,AI 将重新分析」(sonner 全局 Toaster 挂 root layout)→ `analyze(feedback)` 全量重算 → 新版本(implementation-plan 2.6「不采用增量重算」优先于 DesignRules Toast-only)
+- hub 纠偏状态机:重算期间展示分析过程视图(优先级高于旧结果);重算失败 → 失败视图重试**携带反馈**(会话内 lastInput 重放);刷新后 retry 从 AgentRun.input 重放(含 feedback)
+- 验证:5 个弹窗组件测试(必选拦截/载荷 note 去空格/空 note undefined/失败不关闭/取消)+ 2 个 hub 纠偏流程测试(Toast+带反馈重算+进度视图/失败重试携带反馈);管线纠偏版本测试已在 2.4 覆盖
+
+### 任务 2.7 画像主动更新 + Dashboard 提示(2026-08-20,commit `6d7b8e1`)
+
+- 结果页「更新信息」ghost → 表单预填最新版本数据(标题「更新画像信息」)→ 提交走同一分析管线 → 新版本
+- `src/components/dashboard/profile-hint.tsx`(PRD 5.2):问候行「你好,{name}」+ 画像更新状态(「画像 v2 · 已更新于 X」;无画像 → 去创建引导);最新画像 createdAt **> 7 天** → 「建议更新画像」提示(计划决策 5,常量可调);`dashboard/page.tsx` 最小接入(完整工作台属 5.1,未扩功能)
+- 验证:4 个 hint 三态测试(无画像/新鲜 6 天/过期 8 天/加载)+ hub 更新流程测试(预填→修改→提交载荷断言→invalidate);版本递增语义由 2.4 管线测试覆盖
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功
@@ -91,17 +140,19 @@
 4. Prompt 文件经 `fs` 从 `process.cwd()` 读取:本地开发无碍;若部署 Vercel Serverless 需调整为打包资源或 DB 存储(4.1 部署前评估)
 5. Git Bash 终端 curl 发中文会 mojibake(终端 GBK 编码):浏览器端 e2e 不受影响,非产品缺陷
 6. `backend/` `frontend/` 空目录保留不动(用户已确认);pgAdmin 未随安装器安装
+7. **服务端进程被杀会致 run 卡 running**:查询层将 `running 且 updatedAt > 2 分钟` 序列化为 failed「分析中断,请重试」,用户可重试恢复;跨实例持久化进度依赖 DB 轮询(production 可用),非缺陷
+8. **Recharts 在 jsdom 无尺寸**:组件测试改用 HTML 图例文本断言(已 polyfill ResizeObserver);雷达图真实渲染与响应式需浏览器人工走查
+9. **真实 DeepSeek 分析质量未验证**:样例集与 Mock 输出已固化,管线正确性已测;待用户提供 Key 后改 `.env` 做真实请求(与遗留 #1 同源)
 
 ## 下一步 Implementation Step
 
-**用户整体产品验收**(M1 验收清单见 implementation-plan 阶段 1 / 计划文档第六节):
+**用户对阶段 2(M2)的整体产品验收**(验收标准见 implementation-plan M2 节 / 计划文档第六节):
 
-- token 页与 DesignSystem 对应、无硬编码色值 ✅
-- 10 表迁移 + seed + 级联 ✅
-- 注册→登录→登出全流程、受保护路由重定向、密码只存哈希 ✅
-- 4 适配器同结构、Mock 零费用(DeepSeek 真实连通待验,遗留 #1)
-- Agent 基座:过 schema / 增量进度 / 非法输出不崩溃留日志 / AgentRun 入库 ✅
-- 应用外壳:4 路由 + 顶栏高亮/下拉/移动折叠 ✅
-- 设置页:昵称/头像/密码修改生效、简历文件空态 ✅
+- 四步表单 → AI 分析(进度可视)→ 画像结果(概要/优势不足/六维雷达/2-4 方向含匹配度/发展建议)全流程可走通;首次到画像概要 < 5 分钟
+- 「这不是我」纠偏 → 全量重算 → 新版本,旧版本可查看;「更新信息」同样生成新版本且版本号递增
+- Dashboard 问候行按决策 5 显示更新状态与提示
+- 未登录/越权访问画像数据被拒绝;所有数据视图四态齐全;DesignRules 自检清单通过;无硬编码色值/零渐变/无聊天式界面
+- 现有 91 测试不回归,新增测试全绿(基线 167/28 文件)
+- 浏览器人工走查项:雷达图真实渲染、四步表单移动端、纠偏新旧版本切换(工程测试非验收门槛)
 
-验收通过后进入 M2(任务 2.1 起);**当前不开始 M2、不开始阶段 2**。
+**验收通过后进入 M3(任务 3.1 起);当前不开始 M3、不开始阶段 3。**
