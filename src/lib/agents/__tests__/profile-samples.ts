@@ -34,6 +34,9 @@ export const profileSamples: ProfileSample[] = [
           organization: "示例科技",
           role: "后端实习生",
           description: "参与内部数据平台接口开发与联调",
+          startDate: "2025-06",
+          endDate: "2025-09",
+          duration: "3个月",
         },
         {
           type: "project",

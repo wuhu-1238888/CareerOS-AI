@@ -17,12 +17,14 @@ import {
 } from "@/components/ui/select";
 import { Stepper } from "./stepper";
 import { SkillSelector } from "./skill-selector";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DEGREE_OPTIONS,
   GRADUATION_YEARS,
   INTEREST_PRESETS,
 } from "@/lib/profile/skill-presets";
 import type { ProfileData } from "@/lib/profile/schemas";
+import { computeExperienceDuration } from "@/lib/profile/schemas";
 import type { z } from "zod";
 import type { experienceEntrySchema, skillEntrySchema } from "@/lib/profile/schemas";
 import { cn } from "@/lib/utils";
@@ -37,12 +39,15 @@ const STEPS = [
   { title: "兴趣与目标", why: "方向推荐与匹配度计算的锚点" },
 ];
 
-// 表单工作态:允许未填写字段存在(提交/步进时校验),与可序列化的 ProfileData 相互转换
+// 表单工作态:允许未填写字段存在(提交/步进时校验),与可序列化的 ProfileData 相互转换。
+// 经历条目额外带 ongoing(「至今」勾选态,UI 专属;序列化时以 endDate=null 表达,不单独落库)
+type ExperienceFormEntry = ExperienceEntry & { ongoing: boolean };
+
 type FormData = {
   education: { degree: string; major: string; school: string; graduationYear: string };
   skills: SkillEntry[];
-  internships: ExperienceEntry[];
-  projects: ExperienceEntry[];
+  internships: ExperienceFormEntry[];
+  projects: ExperienceFormEntry[];
   interests: string[];
   targets: string[];
 };
@@ -70,8 +75,13 @@ function toFormData(profile: ProfileData): FormData {
       graduationYear: edu?.graduationYear ? String(edu.graduationYear) : "",
     },
     skills: profile.skills,
-    internships: profile.experiences.filter((e) => e.type === "internship"),
-    projects: profile.experiences.filter((e) => e.type === "project"),
+    // endDate 为 null 即「至今」(仅对已有起止时间的条目成立;旧数据无日期,ongoing 为 false)
+    internships: profile.experiences
+      .filter((e) => e.type === "internship")
+      .map((e) => ({ ...e, ongoing: !!e.startDate && e.endDate === null })),
+    projects: profile.experiences
+      .filter((e) => e.type === "project")
+      .map((e) => ({ ...e, ongoing: false })),
     interests: profile.interests,
     targets: profile.targets,
   };
@@ -90,7 +100,29 @@ function toProfileData(form: FormData): ProfileData {
   return {
     education,
     skills: form.skills,
-    experiences: [...form.internships, ...form.projects],
+    experiences: [
+      // 实习/工作经历:附带起止时间与系统自动计算的时长(PRD 3.1.3);「至今」以 endDate=null 表达
+      ...form.internships.map((e) => {
+        const startDate = e.startDate || undefined;
+        const endDate = e.endDate ?? null;
+        return {
+          type: e.type,
+          organization: e.organization,
+          role: e.role,
+          description: e.description,
+          startDate,
+          endDate,
+          duration: startDate ? computeExperienceDuration(startDate, endDate) : undefined,
+        };
+      }),
+      // 项目经历:PRD 仅要求 名称/角色/成果,不附带时长
+      ...form.projects.map((e) => ({
+        type: e.type,
+        organization: e.organization,
+        role: e.role,
+        description: e.description,
+      })),
+    ],
     interests: form.interests,
     targets: form.targets,
   };
@@ -138,6 +170,8 @@ export function ProfileForm({
     draftKey ? readDraft(draftKey) ?? (initialData ? toFormData(initialData) : emptyForm()) : initialData ? toFormData(initialData) : emptyForm()
   );
   const [fieldErrors, setFieldErrors] = useState<{ degree?: string; major?: string; skills?: string }>({});
+  // 实习经历起止时间校验错误(按条目下标)
+  const [expErrors, setExpErrors] = useState<Record<number, string>>({});
   const [serverError, setServerError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [targetInput, setTargetInput] = useState("");
@@ -156,7 +190,7 @@ export function ProfileForm({
   function updateExperience(
     list: "internships" | "projects",
     index: number,
-    patch: Partial<ExperienceEntry>
+    patch: Partial<ExperienceFormEntry>
   ) {
     setData((d) => {
       const entries = [...d[list]];
@@ -169,11 +203,19 @@ export function ProfileForm({
     setData((d) => ({ ...d, [list]: d[list].filter((_, i) => i !== index) }));
   }
 
+  function clearExpError(index: number) {
+    setExpErrors((errs) => {
+      const next = { ...errs };
+      delete next[index];
+      return next;
+    });
+  }
+
   function addExperience(list: "internships" | "projects") {
-    const entry: ExperienceEntry =
+    const entry: ExperienceFormEntry =
       list === "internships"
-        ? { type: "internship", organization: "", role: "", description: "" }
-        : { type: "project", organization: "", role: "", description: "" };
+        ? { type: "internship", organization: "", role: "", description: "", ongoing: false }
+        : { type: "project", organization: "", role: "", description: "", ongoing: false };
     setData((d) => ({ ...d, [list]: [...d[list], entry] }));
   }
 
@@ -189,6 +231,21 @@ export function ProfileForm({
       const skillsError = data.skills.length === 0 ? "请至少添加一项技能" : undefined;
       setFieldErrors({ skills: skillsError });
       return !skillsError;
+    }
+    if (stepIndex === 2) {
+      // 实习/工作经历一旦添加,起止时间即必填(PRD 3.1.3 时长);未添加/仅项目经历仍可跳过
+      const errs: Record<number, string> = {};
+      data.internships.forEach((entry, i) => {
+        if (!entry.startDate) {
+          errs[i] = "请选择开始时间";
+        } else if (!entry.endDate && !entry.ongoing) {
+          errs[i] = "请选择结束时间或勾选「至今」";
+        } else if (entry.endDate && entry.endDate < entry.startDate) {
+          errs[i] = "结束时间不能早于开始时间";
+        }
+      });
+      setExpErrors(errs);
+      return Object.keys(errs).length === 0;
     }
     return true;
   }
@@ -379,6 +436,69 @@ export function ProfileForm({
                           />
                         </div>
                       </div>
+                      {/* 起止时间(PRD 3.1.3 时长):月份精度;「至今」禁用结束时间;时长由系统自动计算 */}
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`internship-start-${index}`}>开始时间</Label>
+                          <Input
+                            id={`internship-start-${index}`}
+                            type="month"
+                            value={entry.startDate ?? ""}
+                            onChange={(e) => {
+                              updateExperience("internships", index, {
+                                startDate: e.target.value || undefined,
+                              });
+                              clearExpError(index);
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`internship-end-${index}`}>结束时间</Label>
+                          <div className="flex items-center gap-3">
+                            <Input
+                              id={`internship-end-${index}`}
+                              type="month"
+                              className="flex-1"
+                              value={entry.endDate ?? ""}
+                              disabled={entry.ongoing}
+                              onChange={(e) => {
+                                updateExperience("internships", index, {
+                                  endDate: e.target.value || null,
+                                });
+                                clearExpError(index);
+                              }}
+                            />
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <Checkbox
+                                id={`internship-ongoing-${index}`}
+                                checked={entry.ongoing}
+                                onCheckedChange={(checked) => {
+                                  updateExperience("internships", index, {
+                                    ongoing: checked === true,
+                                    endDate: checked === true ? null : entry.endDate,
+                                  });
+                                  clearExpError(index);
+                                }}
+                              />
+                              <Label
+                                htmlFor={`internship-ongoing-${index}`}
+                                className="text-body-sm text-ink-muted"
+                              >
+                                至今
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {entry.startDate && (entry.ongoing || entry.endDate) ? (
+                        <p className="text-body-sm text-ink-muted">
+                          时长:
+                          {computeExperienceDuration(entry.startDate, entry.endDate ?? null)}
+                        </p>
+                      ) : null}
+                      {expErrors[index] ? (
+                        <p className="text-body-sm text-danger">{expErrors[index]}</p>
+                      ) : null}
                       <div className="space-y-2">
                         <Label htmlFor={`internship-desc-${index}`}>工作内容(选填)</Label>
                         <Textarea

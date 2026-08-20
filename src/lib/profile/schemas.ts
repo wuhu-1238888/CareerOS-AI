@@ -14,12 +14,46 @@ export const skillEntrySchema = z.object({
   level: z.enum(["基础", "熟练", "精通"], { message: "熟练度仅支持 基础/熟练/精通" }),
 });
 
-export const experienceEntrySchema = z.object({
-  type: z.enum(["internship", "project"], { message: "经历类型仅支持 实习/项目" }),
-  organization: z.string().min(1, "请填写公司或项目名称").max(50, "名称最多 50 个字符"),
-  role: z.string().min(1, "请填写你的角色").max(50, "角色最多 50 个字符"),
-  description: z.string().max(500, "描述最多 500 个字符").optional(),
-});
+export const experienceEntrySchema = z
+  .object({
+    type: z.enum(["internship", "project"], { message: "经历类型仅支持 实习/项目" }),
+    organization: z.string().min(1, "请填写公司或项目名称").max(50, "名称最多 50 个字符"),
+    role: z.string().min(1, "请填写你的角色").max(50, "角色最多 50 个字符"),
+    description: z.string().max(500, "描述最多 500 个字符").optional(),
+    // 实习/工作经历起止时间与时长(PRD 3.1.3「公司、岗位、时长、主要职责」):
+    // 月份精度 YYYY-MM;endDate 为 null 表示「至今」;duration 由系统自动计算,用户不手动填写
+    startDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "开始时间格式不正确").optional(),
+    endDate: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "结束时间格式不正确")
+      .nullable()
+      .optional(),
+    duration: z.string().max(30, "时长格式不正确").optional(),
+  })
+  .refine((e) => !(e.startDate && e.endDate && e.endDate < e.startDate), {
+    message: "结束时间不能早于开始时间",
+    path: ["endDate"],
+  });
+
+// 自动计算经历时长(PRD 3.1.3):起止月份(YYYY-MM)→「X年Y个月」;endDate 为空表示「至今」,
+// 按当前月份计算并追加「 · 至今」。仅系统使用,用户不手动填写。
+export function computeExperienceDuration(
+  startDate: string,
+  endDate: string | null | undefined
+): string {
+  const [startYear, startMonth] = startDate.split("-").map(Number);
+  const end = endDate ? endDate.split("-").map(Number) : null;
+  const endYear = end ? end[0]! : new Date().getFullYear();
+  const endMonth = end ? end[1]! : new Date().getMonth() + 1;
+  const months = (endYear - startYear!) * 12 + (endMonth - startMonth!);
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  const parts =
+    months <= 0
+      ? "不足1个月"
+      : [years > 0 ? `${years}年` : "", rest > 0 ? `${rest}个月` : ""].filter(Boolean).join("");
+  return endDate ? parts : `${parts} · 至今`;
+}
 
 // 画像输入数据:表单四步(教育背景/技能/经历/兴趣与目标)的完整载荷
 export const profileDataSchema = z.object({
