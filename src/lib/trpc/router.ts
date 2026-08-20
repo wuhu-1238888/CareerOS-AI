@@ -1,6 +1,7 @@
 // appRouter:全部业务 mutation/query 的唯一注册点(CRUD 与 Agent 调用走 tRPC,见 technical-design API 层约定)
 // user.register 为任务 1.4 注册流程;受保护过程模板 protectedProcedure 供 1.8 起使用
 import { initTRPC, TRPCError } from "@trpc/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import type { Context } from "./context";
@@ -25,6 +26,35 @@ async function requireOwnedProfile(
     throw new TRPCError({ code: "NOT_FOUND", message: "画像不存在" });
   }
   return profile;
+}
+
+// 路线图归属校验(3.1):不属于当前用户 → NOT_FOUND(不泄露他人路线图存在性)
+async function requireOwnedRoadmap(
+  ctx: { prisma: Context["prisma"]; userId: string },
+  roadmapId: string
+) {
+  const roadmap = await ctx.prisma.roadmap.findFirst({
+    where: { id: roadmapId, userId: ctx.userId },
+  });
+  if (!roadmap) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "路线图不存在" });
+  }
+  return roadmap;
+}
+
+// 任务归属校验(3.1):经 stage → roadmap 链路核对属主
+async function requireOwnedTask(
+  ctx: { prisma: Context["prisma"]; userId: string },
+  taskId: string
+) {
+  const task = await ctx.prisma.task.findUnique({
+    where: { id: taskId },
+    include: { stage: { include: { roadmap: { select: { userId: true } } } } },
+  });
+  if (!task || task.stage.roadmap.userId !== ctx.userId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+  }
+  return task;
 }
 
 // 画像数据读取边界:Json 列内容经 schema 校验后返回(不直接信任数据库原始 JSON,损坏/缺失回退空值)
@@ -73,6 +103,45 @@ function serializeProfile(row: ProfileRowShape) {
     updatedAt: row.updatedAt,
     data: parseProfileData(row),
     aiAnalysis: row.aiAnalysis,
+  };
+}
+
+// 路线图行序列化(3.1):嵌套 stages/tasks 按 order 升序返回;content/summary 原始透传(3.4 起由分析 Schema 防御解析)
+type RoadmapRowShape = {
+  id: string;
+  targetDirection: string;
+  weeklyHours: number | null;
+  currentStage: string | null;
+  summary: unknown;
+  createdAt: Date;
+  stages: {
+    id: string;
+    name: string;
+    goal: string;
+    order: number;
+    estimatedDuration: string | null;
+    content: unknown;
+    tasks: { id: string; description: string; type: string; status: string; order: number }[];
+  }[];
+};
+
+function serializeRoadmap(row: RoadmapRowShape) {
+  return {
+    id: row.id,
+    targetDirection: row.targetDirection,
+    weeklyHours: row.weeklyHours,
+    currentStage: row.currentStage,
+    summary: row.summary,
+    createdAt: row.createdAt,
+    stages: row.stages.map((stage) => ({
+      id: stage.id,
+      name: stage.name,
+      goal: stage.goal,
+      order: stage.order,
+      estimatedDuration: stage.estimatedDuration,
+      content: stage.content,
+      tasks: stage.tasks,
+    })),
   };
 }
 
@@ -393,6 +462,141 @@ export const appRouter = t.router({
           }
           await ctx.prisma.careerPath.delete({ where: { id: input.id } });
           return { ok: true };
+        }),
+    }),
+  }),
+
+  // 路线图数据层(3.1):Roadmap/Stage/Task 三层嵌套 CRUD;生成与单阶段重生成管线在 3.4/3.5 接入
+  navigator: t.router({
+    roadmap: t.router({
+      // 当前用户最新路线图(嵌套阶段与任务,按 order 升序);从未创建 → null
+      get: protectedProcedure.query(async ({ ctx }) => {
+        const row = await ctx.prisma.roadmap.findFirst({
+          where: { userId: ctx.userId },
+          orderBy: { createdAt: "desc" },
+          include: {
+            stages: {
+              orderBy: { order: "asc" },
+              include: { tasks: { orderBy: { order: "asc" } } },
+            },
+          },
+        });
+        return row ? serializeRoadmap(row) : null;
+      }),
+
+      // 创建空路线图(数据层能力;产品主路径由 3.4 生成管线一次性写入完整结构)
+      create: protectedProcedure
+        .input(
+          z.object({
+            targetDirection: z.string().min(1, "请输入目标方向").max(30, "方向名称最多 30 个字符"),
+            weeklyHours: z
+              .number()
+              .int("每周投入时间须为整数")
+              .min(1, "每周投入时间至少 1 小时")
+              .max(80, "每周投入时间最多 80 小时")
+              .optional(),
+            currentStage: z.string().max(30, "当前阶段最多 30 个字符").optional(),
+          })
+        )
+        .mutation(async ({ ctx, input }) => {
+          const row = await ctx.prisma.roadmap.create({
+            data: {
+              userId: ctx.userId,
+              targetDirection: input.targetDirection,
+              weeklyHours: input.weeklyHours ?? null,
+              currentStage: input.currentStage ?? null,
+            },
+          });
+          return { id: row.id };
+        }),
+    }),
+
+    stage: t.router({
+      // 追加阶段:order 缺省自动取当前最大 +1(从 1 起)
+      create: protectedProcedure
+        .input(
+          z.object({
+            roadmapId: z.string().min(1),
+            name: z.string().min(1, "请输入阶段名称").max(30, "阶段名称最多 30 个字符"),
+            goal: z.string().min(1, "请输入阶段目标").max(200, "阶段目标最多 200 字"),
+            order: z.number().int().min(1).optional(),
+            estimatedDuration: z.string().max(30, "预估时长最多 30 个字符").optional(),
+            content: z.record(z.string(), z.unknown()).optional(),
+          })
+        )
+        .mutation(async ({ ctx, input }) => {
+          await requireOwnedRoadmap(ctx, input.roadmapId);
+          const last = await ctx.prisma.stage.findFirst({
+            where: { roadmapId: input.roadmapId },
+            orderBy: { order: "desc" },
+            select: { order: true },
+          });
+          const row = await ctx.prisma.stage.create({
+            data: {
+              roadmapId: input.roadmapId,
+              name: input.name,
+              goal: input.goal,
+              order: input.order ?? (last ? last.order + 1 : 1),
+              estimatedDuration: input.estimatedDuration ?? null,
+              content: (input.content ?? {}) as Prisma.InputJsonValue,
+            },
+          });
+          return { id: row.id, order: row.order };
+        }),
+    }),
+
+    task: t.router({
+      // 追加任务:order 缺省自动取当前最大 +1(从 1 起)
+      create: protectedProcedure
+        .input(
+          z.object({
+            stageId: z.string().min(1),
+            description: z.string().min(1, "请输入任务描述").max(200, "任务描述最多 200 字"),
+            type: z.string().min(1, "请输入任务类型").max(20, "任务类型最多 20 个字符"),
+            order: z.number().int().min(1).optional(),
+          })
+        )
+        .mutation(async ({ ctx, input }) => {
+          const stage = await ctx.prisma.stage.findUnique({
+            where: { id: input.stageId },
+            include: { roadmap: { select: { userId: true } } },
+          });
+          if (!stage || stage.roadmap.userId !== ctx.userId) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "阶段不存在" });
+          }
+          const last = await ctx.prisma.task.findFirst({
+            where: { stageId: input.stageId },
+            orderBy: { order: "desc" },
+            select: { order: true },
+          });
+          const row = await ctx.prisma.task.create({
+            data: {
+              stageId: input.stageId,
+              description: input.description,
+              type: input.type,
+              order: input.order ?? (last ? last.order + 1 : 1),
+            },
+          });
+          return { id: row.id, order: row.order };
+        }),
+
+      // 任务三态切换(服务端持久化,3.1 数据层 / 3.5 交互闭环共用)
+      updateStatus: protectedProcedure
+        .input(
+          z.object({
+            taskId: z.string().min(1),
+            status: z.enum(["pending", "in_progress", "completed"], {
+              errorMap: () => ({ message: "任务状态不正确" }),
+            }),
+          })
+        )
+        .mutation(async ({ ctx, input }) => {
+          await requireOwnedTask(ctx, input.taskId);
+          const row = await ctx.prisma.task.update({
+            where: { id: input.taskId },
+            data: { status: input.status },
+          });
+          return { id: row.id, status: row.status };
         }),
     }),
   }),

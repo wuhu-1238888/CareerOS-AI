@@ -70,7 +70,7 @@ describe("数据库集成测试(本地 PG)", () => {
     });
     const profile = await prisma.careerProfile.create({ data: { userId: user.id } });
     const roadmap = await prisma.roadmap.create({
-      data: { profileId: profile.id, targetDirection: "后端", weeklyHours: 8 },
+      data: { userId: user.id, profileId: profile.id, targetDirection: "后端", weeklyHours: 8 },
     });
     const stage = await prisma.stage.create({
       data: { roadmapId: roadmap.id, name: "阶段一", goal: "打基础", order: 1 },

@@ -3,9 +3,11 @@
 //   1) SkillRadar 不建独立表,六维技能雷达数据并入 CareerProfile.ai_analysis JSON 列;
 //   2) CareerProfile 增加画像版本字段(version + parentVersion),任务 2.6/2.7/6.5 依赖;
 //   3) M2 批准决策:CareerPath.matchScore 统一为 0~100 整数(PRD/DesignRules 百分比口径);
-//      AgentRun 增加 progress JSON 列(1.6 生命周期事件落库,任务 2.4 分析中刷新恢复)。
+//      AgentRun 增加 progress JSON 列(1.6 生命周期事件落库,任务 2.4 分析中刷新恢复);
+//   4) M3(任务 3.1)调整:任务 3.2 支持「无画像用户手动输入方向」,而 Roadmap.profileId 原为必填外键
+//      → profileId 改为可空;同时补 userId 直连列(无画像路线图的所有权链路)与 summary JSON 列(AI 概要)。
 // 级联策略(验证要求明确):
-//   User 删除 → Cascade CareerProfile / Resume;AgentRun 观测日志保留(SetNull);
+//   User 删除 → Cascade CareerProfile / Resume / Roadmap;AgentRun 观测日志保留(SetNull);
 //   CareerProfile 删除 → Cascade CareerPath / Roadmap;Roadmap → Cascade Stage → Task;
 //   Resume 删除 → Cascade ResumeVersion → Optimization。
 
@@ -32,6 +34,7 @@ model User {
   profiles  CareerProfile[]
   resumes   Resume[]
   agentRuns AgentRun[]
+  roadmaps  Roadmap[]
 
   @@map("users")
 }
@@ -71,16 +74,20 @@ model CareerPath {
 }
 
 model Roadmap {
-  id              String   @id @default(cuid(2))
-  profileId       String   @map("profile_id")
-  profile         CareerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  targetDirection String   @map("target_direction") // 目标方向
-  weeklyHours     Int?     @map("weekly_hours") // 每周可投入小时数
-  currentStage    String?  @map("current_stage") // 当前阶段标识
-  createdAt       DateTime @default(now()) @map("created_at")
+  id              String         @id @default(cuid(2))
+  userId          String         @map("user_id") // 所有权直连列(3.1:无画像用户也可创建路线图)
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileId       String?        @map("profile_id") // 可空(3.1):有画像时关联;画像删除仍级联删路线图
+  profile         CareerProfile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  targetDirection String         @map("target_direction") // 目标方向
+  weeklyHours     Int?           @map("weekly_hours") // 每周可投入小时数
+  currentStage    String?        @map("current_stage") // 当前阶段自评(完全新手/有一定基础/接近入门)
+  summary         Json?          @map("summary") // Navigator Agent 概要(总时长/阶段数/最终目标,任务 3.4)
+  createdAt       DateTime       @default(now()) @map("created_at")
 
   stages Stage[]
 
+  @@index([userId])
   @@map("roadmaps")
 }
 

@@ -76,27 +76,28 @@ async function main() {
   assert(Array.isArray(radar?.radar) && radar.radar.length === 6, "六维雷达并入 aiAnalysis");
   console.log(`✓ CareerProfile   v1(雷达 6 维)+ v2(parentVersion=${profileV2.parentVersion})`);
 
-  // 3. CareerPath(推荐方向)
+  // 3. CareerPath(推荐方向;matchScore 为 0~100 整数,见 M2 迁移 20260820024904)
   const path = await prisma.careerPath.create({
     data: {
       profileId: profileV1.id,
       directionName: "前端开发工程师",
-      matchScore: 0.82,
+      matchScore: 82,
       strengths: ["技术栈匹配", "有实习经历"],
       weaknesses: ["项目深度不足"],
     },
   });
   const pathBack = await prisma.careerPath.findFirst({ where: { profileId: profileV1.id } });
-  assert(pathBack?.id === path.id && pathBack.matchScore === 0.82, "CareerPath 写入读回");
-  console.log(`✓ CareerPath      ${pathBack?.directionName}(${(pathBack?.matchScore ?? 0) * 100}%)`);
+  assert(pathBack?.id === path.id && pathBack.matchScore === 82, "CareerPath 写入读回");
+  console.log(`✓ CareerPath      ${pathBack?.directionName}(${pathBack?.matchScore ?? 0}%)`);
 
-  // 4. Roadmap → Stage → Task(任务三态覆盖)
+  // 4. Roadmap → Stage → Task(任务三态覆盖;3.1 起 roadmap 带 userId 直连列)
   const roadmap = await prisma.roadmap.create({
     data: {
+      userId: user.id,
       profileId: profileV1.id,
       targetDirection: "前端开发工程师",
       weeklyHours: 10,
-      currentStage: "1",
+      currentStage: "有一定基础",
     },
   });
   const stage1 = await prisma.stage.create({
