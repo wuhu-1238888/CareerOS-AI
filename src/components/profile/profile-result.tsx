@@ -91,10 +91,13 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export function ProfileResult({
   initial,
   onCorrect,
+  onUpdate,
 }: {
   initial: ResultProfile;
   /** 2.6 纠偏入口:未接线时「这不是我」按钮禁用 */
   onCorrect?: () => void;
+  /** 2.7 主动更新入口:回到表单预填最新数据;未接线时「更新信息」按钮禁用 */
+  onUpdate?: () => void;
 }) {
   const versions = trpc.profile.listVersions.useQuery();
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -156,6 +159,9 @@ export function ProfileResult({
           </Select>
         ) : null}
         <div className="flex gap-2">
+          <Button variant="ghost" disabled={!onUpdate} onClick={onUpdate}>
+            更新信息
+          </Button>
           <Button variant="ghost" asChild>
             <Link href="/resume">
               <FileText aria-hidden />

@@ -27,10 +27,10 @@ export function ProfileHub() {
   const retry = trpc.profile.retry.useMutation();
 
   // 本次会话提交状态:submitted=true 表示分析 mutation 在途;analyzeError 为失败文案(驱动失败视图);
-  // editMode=true 表示用户从失败视图选择「修改信息」,忽略历史 failed run 回到表单(刷新后仍按失败恢复)
+  // formMode:用户主动进入表单(失败视图「修改信息」/ 结果页「更新信息」),忽略历史 failed run(刷新后仍按失败恢复)
   const [submitted, setSubmitted] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState(false);
+  const [formMode, setFormMode] = useState<null | "edit" | "update">(null);
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const lastInput = useRef<{ data: ProfileData; feedback?: CorrectionFeedback } | null>(null);
   const finishedRef = useRef(false);
@@ -65,7 +65,7 @@ export function ProfileHub() {
   const draftKey = `careeros:profile-draft:${me.data.id}`;
   const recovering = !analyzeError && latestRun.data?.status === "running";
   const failedRun =
-    !editMode && !analyzeError && latestRun.data?.status === "failed" ? latestRun.data : null;
+    !formMode && !analyzeError && latestRun.data?.status === "failed" ? latestRun.data : null;
 
   // 在途提交时忽略历史 run(避免把上次失败的旧 run 当作本次状态),等待轮询发现新 run
   const runForView =
@@ -77,7 +77,7 @@ export function ProfileHub() {
     lastInput.current = { data, feedback };
     finishedRef.current = false;
     setAnalyzeError(null);
-    setEditMode(false);
+    setFormMode(null);
     setSubmitted(true);
     try {
       await analyze.mutateAsync({ ...data, feedback });
@@ -116,10 +116,11 @@ export function ProfileHub() {
     }
   }
 
-  function handleEdit() {
+  // 主动进入表单:清掉会话内提交痕迹,失败视图「修改信息」(edit)与结果页「更新信息」(update)共用
+  function enterFormMode(mode: "edit" | "update") {
     lastInput.current = null;
     setAnalyzeError(null);
-    setEditMode(true);
+    setFormMode(mode);
   }
 
   // 纠偏(2.6):Toast 确认后全量重算;失败进入分析失败视图(重试/修改信息)
@@ -141,11 +142,27 @@ export function ProfileHub() {
         run={runForView}
         error={analyzeError}
         onRetry={handleRetry}
-        onEdit={handleEdit}
+        onEdit={() => enterFormMode("edit")}
+      />
+    );
+  } else if (formMode) {
+    // 主动更新(2.7):预填最新版本数据;提交走同一分析管线产生新版本
+    view = (
+      <ProfileForm
+        initialData={profile.data?.data}
+        draftKey={draftKey}
+        onSubmit={submit}
+        title={formMode === "update" ? "更新画像信息" : undefined}
       />
     );
   } else if (hasResult && profile.data) {
-    view = <ProfileResult initial={profile.data} onCorrect={() => setCorrectionOpen(true)} />;
+    view = (
+      <ProfileResult
+        initial={profile.data}
+        onCorrect={() => setCorrectionOpen(true)}
+        onUpdate={() => enterFormMode("update")}
+      />
+    );
   } else if (failedRun) {
     // 无结果时遇历史失败 run:失败恢复视图(刷新后仍可重试)
     view = (
@@ -153,7 +170,7 @@ export function ProfileHub() {
         run={failedRun}
         error={failedRun.error}
         onRetry={handleRetry}
-        onEdit={handleEdit}
+        onEdit={() => enterFormMode("edit")}
       />
     );
   } else {

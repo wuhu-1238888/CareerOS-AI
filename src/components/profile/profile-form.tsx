@@ -125,10 +125,13 @@ export function ProfileForm({
   initialData,
   draftKey,
   onSubmit,
+  title,
 }: {
   initialData?: ProfileData | null;
   draftKey?: string;
   onSubmit: (data: ProfileData) => Promise<void>;
+  /** 表单标题(2.7 更新画像场景:「更新画像信息」);缺省不显示 */
+  title?: string;
 }) {
   const [step, setStep] = useState(0);
   const [data, setData] = useState<FormData>(() =>
@@ -218,6 +221,9 @@ export function ProfileForm({
   return (
     <>
       <div className="mx-auto w-full max-w-[640px] px-4 pb-28 pt-6">
+        {title ? (
+          <h2 className="mb-4 text-body-lg font-medium text-ink">{title}</h2>
+        ) : null}
         <Stepper steps={STEPS} current={step} />
 
         <div className="mt-8 space-y-5">

@@ -266,4 +266,41 @@ describe("ProfileHub 状态机", () => {
     );
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
   });
+
+  it("更新信息(2.7):结果页进入预填表单(标题「更新画像信息」),提交走分析管线", async () => {
+    mocks.profileData = {
+      id: "p2",
+      version: 2,
+      parentVersion: 1,
+      data: {
+        education: [{ degree: "本科", major: "软件工程" }],
+        skills: [{ name: "Python", level: "熟练" }],
+        experiences: [],
+        interests: [],
+        targets: [],
+      },
+      aiAnalysis: validAnalysis,
+      careerPaths: [],
+    };
+    render(<ProfileHub />);
+    const user = userEvent.setup();
+    expect(await screen.findByText("计算机专业应届生。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "更新信息" }));
+    expect(await screen.findByText("更新画像信息")).toBeInTheDocument();
+    expect(screen.getByLabelText("专业")).toHaveValue("软件工程");
+    await user.clear(screen.getByLabelText("专业"));
+    await user.type(screen.getByLabelText("专业"), "数据科学");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "生成我的画像" }));
+    await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(1));
+    const input = mocks.analyzeMutateAsync.mock.calls[0]![0] as {
+      education: { major?: string }[];
+      feedback?: unknown;
+    };
+    expect(input.education[0]?.major).toBe("数据科学");
+    expect(input.feedback).toBeUndefined();
+    await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+  });
 });
