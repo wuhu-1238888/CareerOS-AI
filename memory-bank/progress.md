@@ -251,6 +251,20 @@
 - 验证:resume-export 7 组件测试(clipboard 成功/execCommand 回退成功与失败/零采纳与空文本禁用+提示/PDF 加载与就绪两态/最终文本透传文档组件——mock 动态 import 的 react-pdf 与 PDF 文档、PDFDownloadLink 捕获 document prop);result 新增 2 测试(导出工具条 props 透传 + 零采纳 canExport=false);hub 版本 fixture 加 finalText + 导出 stub 断言;全套 426/426 ×2 + typecheck/lint 全绿
 - 测试基建备忘:`userEvent.setup()` 会安装自己的剪贴板桩覆盖 navigator.clipboard → clipboard/execCommand 必须在 setup 之后 stub;sonner toast store 是模块级单例跨用例存活 → 同文案 toast 用例需 afterEach `toast.dismiss()`
 
+### 任务 4.8 简历优化页面功能修复与布局优化(2026-08-21,commit `0fe2de1` + `0b59d80` + `4e66ca1`)
+
+用户报告:①核心内容区过窄两侧留白过多 ②点「开始优化」后显示「分析未完成」+「改写结果与简历原文不一致」。先排查功能链路再改 UI(Plan Mode 批准)。
+
+- **根因 = 改写 Agent 输入契约不一致**:rewriteResume 调 LLM 的 input 只含 parsedData/abilityTags/targetDirection,**不含 originalText**,而 prompt 硬约束要求「originalText 逐字摘抄原文」→ LLM 收不到原文只能从结构化数据重构引用 → 校验必失败。修复:runner input 改 `{ resumeId, originalText(截断 20000), parsedData, abilityTags, targetDirection }`;agent schema 加 `originalText: z.string().min(1).max(20000)`;buildMessages 把原文发给 LLM(resumeId 被 zod strip 剔除不进消息,与 parse 先例同构);prompt 输入描述同步,强调引用只来自提供的原文
+- **校验合理修正(不删除不绕过,用户授权)**:`validateModifications` 从「任一条不逐字命中 → 整次失败」改为**逐条过滤**——每条空白归一化后在原文找最早且不与已接受区间重叠的命中(`findRawRange` 加 `fromRawStart` 参数,统一原始下标空间定位,顺带修复同短语多处出现时 indexOf 首次命中导致的误报重叠);空白引用/未命中/重叠 → 丢弃该条;≥1 条有效 → 成功落库有效子集;0 条 → 失败,文案不变。产品目标不变:展示的「修改前」必逐字来自原文
+- **状态流转修复(B2)**:0 条有效时 `prisma.agentRun.update({status:"failed", error})` 再返回——此前校验失败 run 保持 succeeded 且 error 不写,刷新后失败视图静默消失
+- **行归属护栏(B3)**:`serializeRun` 从 run.input 防御解析透出 `resumeId`/`targetDirection`;hub 派生 `parseRun`/`rewriteRun`(`!run.resumeId || run.resumeId === resume.data?.id`,旧 run 无 resumeId 视为当前行向后兼容),恢复/失败判断全部改读——此前 latestRun 只按 userId+intent 查,重新上传建新行后旧行失败 run 驱动新行失败视图,重试还把 parsedData 写回旧行形成死循环
+- **方向回填(B4)**:initialDirection 兜底链 = `version?.targetDirection ?? lastOptimizeInput.current?.direction ?? rewriteRun?.targetDirection ?? undefined`(会话内 + 刷新后自定义方向均不丢)
+- **防双击(B5)**:hub 新增 `optimizing` state(handleStartOptimize 全程 try/finally),传给 review;「开始优化」disabled = `optimizing || saveParsed.isPending`——此前按钮 disabled 绑定表单自身 saveParsed 实例,与 Hub 实际执行实例脱节,双击并发两次保存 + 两次 LLM 改写
+- **布局(docs-first)**:DesignSystem.md:437/445 表单 640 规则修订为「宽表单页(简历上传/核对)全宽继承 1160 壳,按字段类型组织——短字段 2 列、长描述与技能文本全宽;多步采集表单保持 640」;upload/review/hub 骨架与就绪卡 wrapper `max-w-[640px]` → `w-full`;对比卡改 lg 断点「左旧右新」双列(PRD 3.3.7,小屏回退上下);p-5 → p-6 对齐卡片 token;**不新建 1200-1280 容器**——「统一」是硬要求,1160 是全站既有统一值;AnalysisView 保持 640(画像/路线图过程页同规格)
+- 验证:新增 11 测试(final-text 3:同短语多处/部分过滤/空白差异;管线 4:成功 input 断言、全部无效 → run failed+error 端到端、部分过滤 = 3 条版本、latestRun 加 resumeId;改写 agent 3:原文透传 + 缺 originalText 边界;hub 5:解析/改写跨行护栏、刷新与会话方向回填、optimizing 防双击;review 1:optimizing 禁用);全套 **437/437(52 文件)** + typecheck/lint/build 零错误
+- 已知取舍:校验部分无效仍建版本(≥1 条);retryParse 服务端仍按旧行重放(客户端护栏已断死循环,记为后续服务端加固项);「重新分析」失败且已有旧版本时刷新后显示旧结果(不新增 banner,旧结果仍可用)
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功
@@ -308,13 +322,14 @@
 | 4.5 | 修改对比视图(Resume Analysis Card 三态/折叠 ai-insight/接受拒绝撤销)+ 状态服务端持久化 | ✅ | `45ccbf5` |
 | 4.6 | ATS 评分(规则 6 子分 60% + LLM 40% 合成、显式按钮触发、stale 重评提示) | ✅ | `42317bd` |
 | 4.7 | 导出(一键复制最终文本 + 客户端 PDF 生成,Noto Sans SC 中文、零采纳禁用) | ✅ | `f96806b` |
+| 4.8 | 简历优化页面修复与布局:改写 Agent 输入契约修复(原文入参)+ 校验逐条过滤 + 状态机修复(失败落库/行归属护栏/方向回填/防双击)+ 表单全宽 + 左旧右新对比卡 | ✅ | `0fe2de1` + `0b59d80` + `4e66ca1` |
 
 ## 主要修改
 
 - **Schema**:Resume 加 fileName/mimeType/sizeBytes/storageKey/extractError、originalText 可空、userId 索引;Optimization 加 order/status/updatedAt;ResumeVersion 加 atsReport/atsScoredAt
 - **存储**:`src/lib/file/` 三层(storage 接口 / local-fs / encrypted AES-256-GCM,IV 随机信封格式,delete 幂等)
 - **Agent 三个**:parse-resume / rewrite-resume / score-ats(温度 0),prompt 三份,样例集 9 份手工标注
-- **管线**:parseResume / rewriteResume(validateModifications 失败不落行 + 事务快照)/ scoreAts(成功才落库),progressChain + adapter 注入镜像既有先例
+- **管线**:parseResume / rewriteResume(validateModifications 逐条过滤——4.8 修订,0 条有效落 run failed+error 不落行;≥1 条落有效子集 + 事务快照)/ scoreAts(成功才落库),progressChain + adapter 注入镜像既有先例
 - **tRPC**:resume 子 router 11 端点(get/list/upload 流程经 Route Handler/createFromText/pasteText/delete/parse/retryParse/saveParsedData/latestRun/rewrite/updateOptimization/acceptAll/scoreAts + 下载端点),全部归属链校验
 - **前端**:resume-hub 五阶段状态机 / resume-upload / resume-review / resume-result / resume-analysis-card / resume-ats-card / resume-export + resume-pdf-document
 - **最终文本单一事实源**:`buildFinalResumeText`(4.4)由对比视图/ATS/导出三处共用,永不漂移
@@ -325,8 +340,8 @@
 
 ## 测试结果
 
-- 全套 **426/426(52 文件)连续两次全绿**;typecheck / lint / build 零错误
-- 4.1–4.7 新增 176 个测试:存储加解密 5 / 上传纯函数 5 / 数据层与端点 12 / parser 6 / Agent 样例集 27 / 管线(真实 DB)17 / final-text 12 / ats-rules 10 / 组件 52(上传 8、files 8、review 8、hub 14、card 8、result 9、ats-card 7、export 7)
+- 全套 **437/437(52 文件)全绿**(4.8 修订后);typecheck / lint / build 零错误
+- 4.1–4.7 新增 176 个测试:存储加解密 5 / 上传纯函数 5 / 数据层与端点 12 / parser 6 / Agent 样例集 27 / 管线(真实 DB)17 / final-text 12 / ats-rules 10 / 组件 52(上传 8、files 8、review 8、hub 14、card 8、result 9、ats-card 7、export 7);4.8 新增 11 个(final-text 3 / 管线 4 / 改写 agent 3 / hub 5 / review 1)
 - 测试驱动修正 3 处实现:方向词典包含匹配、Unicode 代码点计数、userEvent.setup 剪贴板桩时序
 - grep 红线:变更文件零硬编码色值、零渐变
 
