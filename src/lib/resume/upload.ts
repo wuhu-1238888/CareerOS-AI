@@ -3,9 +3,11 @@
 // storage 可注入(测试用假实现),缺省走全局加密存储工厂。
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getFileStorage, type BlobStorage } from "@/lib/file/storage";
 import { extractResumeText } from "./parser";
+import { detectSections } from "./section-order";
 
 export const MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024; // 10MB 上限(PRD 3.3.3)
 
@@ -62,6 +64,8 @@ export async function handleResumeUpload(params: {
       data: {
         userId,
         originalText: extracted.ok ? extracted.text : null,
+        // 模块顺序快照(4.10):提取成功即写入;提取失败无原文,读取时无 plan 可建
+        sectionOrder: extracted.ok ? (detectSections(extracted.text) as unknown as Prisma.InputJsonValue) : undefined,
         fileName: file.name,
         mimeType: file.type || null,
         sizeBytes: file.size,

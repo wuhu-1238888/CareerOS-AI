@@ -72,13 +72,25 @@ describe("resume 数据层(真实写库,顺序执行)", () => {
     expect(dbRow?.fileName).toBeNull();
     expect(dbRow?.storageKey).toBeNull();
     expect(dbRow?.extractError).toBeNull();
+    // 模块顺序快照(4.10):粘贴入库时按原文检测写入
+    expect(dbRow?.sectionOrder).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "basicInfo", label: "求职意向" }),
+        expect.objectContaining({ kind: "experiences", label: "工作经历", type: "工作" }),
+      ])
+    );
   });
 
-  it("get:返回最新一行元信息(含粘贴行)", async () => {
+  it("get:返回最新一行元信息(含粘贴行)与模块顺序计划(4.10)", async () => {
     const get = await caller(userIdA).resume.get();
     expect(get?.fileName).toBeNull();
     expect(get?.extractError).toBeNull();
     expect(get?.id).toBeTruthy();
+    // sectionPlan 按原文顺序派生:未解析时仅含检测出的模块(无 items 归组)
+    expect(get?.sectionPlan).toMatchObject([
+      { kind: "basicInfo", label: "求职意向" },
+      { kind: "experiences", label: "工作经历", type: "工作" },
+    ]);
   });
 
   it("pasteText:补全提取失败行 —— 原文写入 + extractError 清空 + 旧解析结果清空", async () => {

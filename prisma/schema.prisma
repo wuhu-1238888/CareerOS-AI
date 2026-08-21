@@ -129,6 +129,7 @@ model Resume {
   sizeBytes    Int?     @map("size_bytes") // 原始文件字节数(粘贴路径为空)
   storageKey   String?  @map("storage_key") // 加密文件在 BlobStorage 中的键(粘贴路径为空)
   extractError String?  @map("extract_error") // 文本提取失败原因码(no-text/unsupported/invalid),成功为空
+  sectionOrder Json?    @map("section_order") // 模块顺序快照(4.10:detectSections 结果,读取时派生 sectionPlan;表单渲染顺序权威 = 用户原文)
   createdAt    DateTime @default(now()) @map("created_at")
 
   versions ResumeVersion[]

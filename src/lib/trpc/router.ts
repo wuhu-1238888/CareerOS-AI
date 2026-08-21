@@ -18,6 +18,7 @@ import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStag
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
 import { buildFinalResumeText, type OptimizationText } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
+import { buildSectionPlan, detectSections, parseStoredSections } from "@/lib/resume/section-order";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 import { LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
 
@@ -851,18 +852,25 @@ export const appRouter = t.router({
           createdAt: true,
           parsedData: true,
           originalText: true,
+          sectionOrder: true,
         },
       });
       if (!row) return null;
-      const { parsedData, originalText, ...meta } = row;
+      const { parsedData, originalText, sectionOrder, ...meta } = row;
       const versionRow = await ctx.prisma.resumeVersion.findFirst({
         where: { resumeId: row.id },
         orderBy: { createdAt: "desc" },
         include: { optimizations: { orderBy: { order: "asc" } } },
       });
+      // 模块顺序计划(4.10):表单渲染与最终文本统一遵循用户原文顺序;
+      // sectionOrder 落库快照优先,非法/缺失时按原文现场重算(读取时派生,无异步乱序)
+      const sectionPlan = originalText
+        ? buildSectionPlan(originalText, parseParsedData(parsedData) ?? null, parseStoredSections(sectionOrder))
+        : null;
       return {
         ...meta,
         parsedData: parseParsedData(parsedData),
+        sectionPlan,
         version: serializeVersion(versionRow, originalText),
       };
     }),
@@ -894,8 +902,14 @@ export const appRouter = t.router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const text = input.text.trim();
         const row = await ctx.prisma.resume.create({
-          data: { userId: ctx.userId, originalText: input.text.trim() },
+          data: {
+            userId: ctx.userId,
+            originalText: text,
+            // 模块顺序快照(4.10):粘贴路径同样入库,表单按原文顺序渲染
+            sectionOrder: detectSections(text) as unknown as Prisma.InputJsonValue,
+          },
         });
         return { id: row.id };
       }),
@@ -913,10 +927,13 @@ export const appRouter = t.router({
       )
       .mutation(async ({ ctx, input }) => {
         await requireOwnedResume(ctx, input.resumeId);
+        const text = input.text.trim();
         const row = await ctx.prisma.resume.update({
           where: { id: input.resumeId },
           data: {
-            originalText: input.text.trim(),
+            originalText: text,
+            // 补全新原文时重写模块顺序快照(与原文一致,防旧快照错位)
+            sectionOrder: detectSections(text) as unknown as Prisma.InputJsonValue,
             extractError: null,
             parsedData: Prisma.DbNull,
           },
