@@ -265,7 +265,8 @@ function serializeRoadmap(row: RoadmapRowShape) {
   };
 }
 
-// AgentRun 状态序列化(2.4):running 超过 2 分钟视为中断(服务端进程被杀),返回失败态供重试
+// AgentRun 状态序列化(2.4):running 超过 2 分钟视为中断(服务端进程被杀),返回失败态供重试;
+// 本次修订:从 run.input 防御解析 resumeId/targetDirection 透出(简历页按简历行归属判断/失败后回填目标方向;其他模块不受影响)
 const RUN_STALE_MS = 2 * 60 * 1000;
 
 function serializeRun(run: {
@@ -273,6 +274,7 @@ function serializeRun(run: {
   status: string;
   progress: unknown;
   error: string | null;
+  input: unknown;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -283,8 +285,17 @@ function serializeRun(run: {
     stale,
     progress: parseRunProgress(run.progress),
     error: stale ? "分析中断,请重试" : run.error,
+    resumeId: extractRunInputString(run.input, "resumeId"),
+    targetDirection: extractRunInputString(run.input, "targetDirection"),
     createdAt: run.createdAt,
   };
+}
+
+// 从 AgentRun.input(Json 列)防御提取字符串字段:损坏/缺失 → null(前端按「旧 run 视为当前行」/无回填兜底)
+function extractRunInputString(input: unknown, key: string): string | null {
+  if (!input || typeof input !== "object") return null;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function parseRunProgress(value: unknown): { stage: string; message: string }[] {

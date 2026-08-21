@@ -78,6 +78,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={vi.fn()}
+        optimizing={false}
       />
     );
     // 分区标题
@@ -104,6 +105,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={vi.fn()}
+        optimizing={false}
       />
     );
     const user = userEvent.setup();
@@ -130,6 +132,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={vi.fn()}
+        optimizing={false}
       />
     );
     const user = userEvent.setup();
@@ -154,6 +157,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={vi.fn()}
+        optimizing={false}
       />
     );
     const user = userEvent.setup();
@@ -174,6 +178,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={[]}
         onStartOptimize={onStart}
+        optimizing={false}
       />
     );
     await userEvent.setup().click(screen.getByRole("button", { name: "开始优化" }));
@@ -189,6 +194,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={onStart}
+        optimizing={false}
       />
     );
     const user = userEvent.setup();
@@ -215,10 +221,25 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={onStart}
+        optimizing={false}
       />
     );
     await userEvent.setup().click(screen.getByRole("button", { name: "开始优化" }));
     expect(await screen.findByText("服务异常")).toBeInTheDocument();
+  });
+
+  it("optimizing 在途:「开始优化」禁用(防双击并发),「保存核对结果」不受影响", () => {
+    render(
+      <ResumeReview
+        resumeId="r1"
+        initial={initialParsed}
+        careerPaths={careerPaths}
+        onStartOptimize={vi.fn()}
+        optimizing
+      />
+    );
+    expect(screen.getByRole("button", { name: "开始优化" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存核对结果" })).not.toBeDisabled();
   });
 
   it("教育/经历/项目条目可增删;经历类型可切换为实习", async () => {
@@ -228,6 +249,7 @@ describe("ResumeReview", () => {
         initial={initialParsed}
         careerPaths={careerPaths}
         onStartOptimize={vi.fn()}
+        optimizing={false}
       />
     );
     const user = userEvent.setup();

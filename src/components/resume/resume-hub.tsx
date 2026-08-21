@@ -44,6 +44,8 @@ export function ResumeHub() {
   const [backToReview, setBackToReview] = useState(false);
   const rewriteFinishedRef = useRef(false);
   const lastOptimizeInput = useRef<{ parsed: ParsedResume; direction: string } | null>(null);
+  // 优化在途(保存核对结果 + 改写全程):禁用「开始优化」防双击(本次修订)
+  const [optimizing, setOptimizing] = useState(false);
 
   const hasParsed = !!resume.data?.parsedData;
   const hasVersion = !!resume.data?.version;
@@ -68,21 +70,33 @@ export function ResumeHub() {
     }
   );
 
+  // 行归属护栏(本次修订):latestRun 按 userId+intent 查、不按 resumeId;重新上传/粘贴会创建新简历行,
+  // 旧行 run 不得驱动新行的失败/恢复视图(否则旧行失败 → 新行误显失败;重试还会把解析结果写回旧行,形成死循环)。
+  // 旧 run 无 resumeId(历史数据)→ 视为当前行,向后兼容。
+  const parseRun =
+    latestRun.data?.resumeId && latestRun.data.resumeId !== resume.data?.id
+      ? null
+      : (latestRun.data ?? null);
+  const rewriteRun =
+    latestRewrite.data?.resumeId && latestRewrite.data.resumeId !== resume.data?.id
+      ? null
+      : (latestRewrite.data ?? null);
+
   // 恢复路径(解析):刷新后 run 已 succeeded(管线已完成)→ 刷新简历进入核对视图
   useEffect(() => {
-    if (!hasParsed && latestRun.data?.status === "succeeded" && !finishedRef.current) {
+    if (!hasParsed && parseRun?.status === "succeeded" && !finishedRef.current) {
       finishedRef.current = true;
       void utils.resume.get.invalidate();
     }
-  }, [hasParsed, latestRun.data?.status, utils]);
+  }, [hasParsed, parseRun?.status, utils]);
 
   // 恢复路径(改写):刷新后 run 已 succeeded → 刷新简历进入结果视图
   useEffect(() => {
-    if (!hasVersion && latestRewrite.data?.status === "succeeded" && !rewriteFinishedRef.current) {
+    if (!hasVersion && rewriteRun?.status === "succeeded" && !rewriteFinishedRef.current) {
       rewriteFinishedRef.current = true;
       void utils.resume.get.invalidate();
     }
-  }, [hasVersion, latestRewrite.data?.status, utils]);
+  }, [hasVersion, rewriteRun?.status, utils]);
 
   // 简历行切换(重传/粘贴产生新行):清空解析与优化会话痕迹
   useEffect(() => {
@@ -97,7 +111,7 @@ export function ResumeHub() {
 
   if (me.isLoading || resume.isLoading || profile.isLoading || !me.data) {
     return (
-      <div className="mx-auto w-full max-w-[640px] space-y-4 px-4 py-6" aria-label="加载中">
+      <div className="w-full space-y-4 py-6" aria-label="加载中">
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
@@ -105,25 +119,21 @@ export function ResumeHub() {
     );
   }
 
-  const recovering = !parseError && !hasParsed && latestRun.data?.status === "running";
+  const recovering = !parseError && !hasParsed && parseRun?.status === "running";
   const failedRun =
-    !uploadMode && !parseError && latestRun.data?.status === "failed" ? latestRun.data : null;
+    !uploadMode && !parseError && parseRun?.status === "failed" ? parseRun : null;
 
-  const rewriteRecovering = !rewriteError && latestRewrite.data?.status === "running";
+  const rewriteRecovering = !rewriteError && rewriteRun?.status === "running";
   const rewriteFailedRun =
-    !backToReview && !rewriteError && !hasVersion && latestRewrite.data?.status === "failed"
-      ? latestRewrite.data
+    !backToReview && !rewriteError && !hasVersion && rewriteRun?.status === "failed"
+      ? rewriteRun
       : null;
 
   // 在途提交时忽略历史 run(避免把上次失败的旧 run 当作本次状态),等待轮询发现新 run
   const runForView =
-    submitted && latestRun.data && latestRun.data.status !== "running"
-      ? null
-      : (latestRun.data ?? null);
+    submitted && parseRun && parseRun.status !== "running" ? null : parseRun;
   const rewriteRunForView =
-    rewriteSubmitted && latestRewrite.data && latestRewrite.data.status !== "running"
-      ? null
-      : (latestRewrite.data ?? null);
+    rewriteSubmitted && rewriteRun && rewriteRun.status !== "running" ? null : rewriteRun;
 
   async function handleStartParse() {
     if (!resume.data?.id) return;
@@ -186,17 +196,24 @@ export function ResumeHub() {
     }
   }
 
-  // 「开始优化」(4.4):先落核对结果,再触发改写进入结果阶段
+  // 「开始优化」(4.4):先落核对结果,再触发改写进入结果阶段。
+  // 本次修订:全程 optimizing 禁用按钮防双击(此前按钮 disabled 绑定表单自身 saveParsed 实例,
+  // 与 Hub 实际执行的实例脱节,双击会并发两次保存 + 两次 LLM 改写)
   async function handleStartOptimize(parsed: ParsedResume, direction: string) {
     if (!resume.data?.id) return;
+    setOptimizing(true);
     try {
-      await saveParsed.mutateAsync({ resumeId: resume.data.id, parsedData: parsed });
-      await utils.resume.get.invalidate();
-    } catch (err) {
-      toast.error(friendlyError(err));
-      return;
+      try {
+        await saveParsed.mutateAsync({ resumeId: resume.data.id, parsedData: parsed });
+        await utils.resume.get.invalidate();
+      } catch (err) {
+        toast.error(friendlyError(err));
+        return;
+      }
+      await runRewrite(parsed, direction);
+    } finally {
+      setOptimizing(false);
     }
-    await runRewrite(parsed, direction);
   }
 
   // 改写失败「重试」:会话内有输入直接重跑;刷新后无输入 → 返回核对表单重新发起
@@ -290,7 +307,7 @@ export function ResumeHub() {
     } else {
       // 简历已就绪,待触发解析
       view = (
-        <div className="mx-auto w-full max-w-[640px] px-4 py-6">
+        <div className="w-full py-6">
           <div className="flex flex-col items-center gap-4 rounded-card border border-hairline bg-surface p-8 text-center shadow-card">
             <span
               aria-hidden
@@ -336,16 +353,23 @@ export function ResumeHub() {
       />
     );
   } else {
-    // 解析完成:核对修正 + 目标方向选择 + 开始优化(返回核对时回填当前版本方向)
+    // 解析完成:核对修正 + 目标方向选择 + 开始优化(返回核对时回填方向:当前版本方向 →
+    // 会话内失败前输入方向 → 失败 run 输入中的方向[刷新恢复];兜底表单回落画像首选)
     view = (
       <ResumeReview
         resumeId={resume.data.id}
         initial={resume.data.parsedData}
         initialDirection={
-          backToReview ? (resume.data.version?.targetDirection ?? undefined) : undefined
+          backToReview
+            ? (resume.data.version?.targetDirection ??
+              lastOptimizeInput.current?.direction ??
+              rewriteRun?.targetDirection ??
+              undefined)
+            : undefined
         }
         careerPaths={careerPaths}
         onStartOptimize={handleStartOptimize}
+        optimizing={optimizing}
       />
     );
   }

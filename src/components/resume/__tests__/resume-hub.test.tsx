@@ -25,6 +25,9 @@ type RunMock = {
   progress: { stage: string; message: string }[];
   error: string | null;
   createdAt: string;
+  /** 本次修订:serializeRun 透出的归属与方向字段(旧 run 可为 undefined → 视为当前行) */
+  resumeId?: string | null;
+  targetDirection?: string | null;
 };
 
 const mocks = vi.hoisted(() => ({
@@ -411,5 +414,118 @@ describe("ResumeHub 状态机", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByText("基本信息")).toBeInTheDocument();
     expect(mocks.rewriteMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("行归属护栏:旧简历行的失败解析 run 不驱动新行 → 显示「简历已就绪」而非失败视图", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.latestRunData = { ...failedRun, resumeId: "other-resume" };
+    render(<ResumeHub />);
+    expect(await screen.findByText("简历已就绪")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("行归属护栏:旧简历行的失败改写 run 不驱动新行 → 已解析无版本直接进核对表单", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.latestRewriteData = { ...failedRun, resumeId: "other-resume" };
+    render(<ResumeHub />);
+    expect(await screen.findByText("基本信息")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("刷新后失败改写 run(当前行):「返回核对」经 run 输入回填自定义目标方向", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    mocks.latestRewriteData = {
+      ...failedRun,
+      resumeId: "r1",
+      targetDirection: "AI 产品经理",
+    };
+    render(<ResumeHub />);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "返回核对" }));
+    expect(await screen.findByText("基本信息")).toBeInTheDocument();
+    expect(screen.getByLabelText("目标方向(可自定义)")).toHaveValue("AI 产品经理");
+  });
+
+  it("改写失败返回核对:会话内自定义方向经 lastOptimizeInput 回填(不回落画像首选)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    mocks.rewriteMutateAsync.mockRejectedValueOnce(
+      new Error("AI 返回了无法识别的结果,请稍后重试")
+    );
+    const user = userEvent.setup();
+    render(<ResumeHub />);
+    const directionInput = await screen.findByLabelText("目标方向(可自定义)");
+    await user.clear(directionInput);
+    await user.type(directionInput, "AI 产品经理");
+    await user.click(screen.getByRole("button", { name: "开始优化" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "返回核对" }));
+    expect(await screen.findByText("基本信息")).toBeInTheDocument();
+    expect(screen.getByLabelText("目标方向(可自定义)")).toHaveValue("AI 产品经理");
+  });
+
+  it("开始优化在途:optimizing 禁用按钮,保存与改写各只执行一次(防双击并发)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    let resolveSave!: (value: unknown) => void;
+    let resolveRewrite!: (value: unknown) => void;
+    mocks.saveMutateAsync.mockImplementation(
+      () => new Promise((resolve) => (resolveSave = resolve))
+    );
+    mocks.rewriteMutateAsync.mockImplementation(
+      () => new Promise((resolve) => (resolveRewrite = resolve))
+    );
+    const user = userEvent.setup();
+    render(<ResumeHub />);
+    await user.click(await screen.findByRole("button", { name: "开始优化" }));
+    // save 在途:按钮必须禁用(此前 disabled 绑定表单自身 mutation 实例,此阶段可再次点击)
+    expect(screen.getByRole("button", { name: "开始优化" })).toBeDisabled();
+    resolveSave({ ok: true });
+    expect(await screen.findByText("简历优化师")).toBeInTheDocument();
+    resolveRewrite({ versionId: "v1", runId: "run-rewrite" });
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+    expect(mocks.saveMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.rewriteMutateAsync).toHaveBeenCalledTimes(1);
   });
 });

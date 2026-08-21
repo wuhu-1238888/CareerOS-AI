@@ -47,6 +47,7 @@ export function ResumeReview({
   careerPaths,
   onStartOptimize,
   initialDirection,
+  optimizing,
 }: {
   resumeId: string;
   initial: ParsedResume | null;
@@ -56,6 +57,8 @@ export function ResumeReview({
   onStartOptimize: (parsed: ParsedResume, direction: string) => Promise<void>;
   /** 4.5 结果页「修改信息」返回时回填的目标方向(当前版本方向,优先于画像首选) */
   initialDirection?: string;
+  /** Hub 端优化在途(保存核对结果 + 改写全程):禁用「开始优化」防双击并发(按钮此前绑定表单自身 saveParsed 实例,不覆盖 Hub 的 save) */
+  optimizing: boolean;
 }) {
   const utils = trpc.useUtils();
   const saveParsed = trpc.resume.saveParsedData.useMutation();
@@ -103,7 +106,7 @@ export function ResumeReview({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-6 px-4 py-6">
+    <div className="w-full space-y-6 py-6">
       <div className="rounded-card border border-hairline bg-surface p-6 shadow-card">
         <p className="text-body-sm text-ink-muted">
           AI 已解析出简历结构,请逐项核对修正 —— 解析可能有偏差,修正后保存再开始优化。
@@ -539,7 +542,7 @@ export function ResumeReview({
         <Button
           type="button"
           size="lg"
-          disabled={saveParsed.isPending}
+          disabled={optimizing || saveParsed.isPending}
           onClick={() => void handleStart()}
         >
           开始优化
