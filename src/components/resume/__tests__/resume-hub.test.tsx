@@ -48,6 +48,11 @@ const mocks = vi.hoisted(() => ({
   invalidateResume: vi.fn(),
 }));
 
+// 导出工具条 stub(4.7):避免 jsdom 加载真实 react-pdf,其行为由 resume-export.test.tsx 覆盖
+vi.mock("../resume-export", () => ({
+  ResumeExport: () => <div data-testid="resume-export" />,
+}));
+
 vi.mock("@/trpc/client", () => ({
   trpc: {
     useUtils: () => ({ resume: { get: { invalidate: mocks.invalidateResume } } }),
@@ -366,6 +371,7 @@ describe("ResumeHub 状态机", () => {
         atsScore: null,
         atsReport: null,
         atsScoredAt: null,
+        finalText: "张伟\n求职意向:后端开发工程师\n\n工作经历\n负责订单系统开发",
         createdAt: "2026-08-20T11:00:00Z",
         optimizations: [
           {
@@ -385,6 +391,7 @@ describe("ResumeHub 状态机", () => {
     expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
     expect(screen.getByText("已采纳 0/1")).toBeInTheDocument();
     expect(screen.getByText("负责订单系统开发")).toBeInTheDocument();
+    expect(screen.getByTestId("resume-export")).toBeInTheDocument();
   });
 
   it("刷新后遇历史失败改写 run(无版本):失败视图;重试无会话输入 → 返回核对表单", async () => {

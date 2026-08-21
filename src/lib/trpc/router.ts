@@ -105,26 +105,30 @@ async function requireOwnedVersion(
   return version;
 }
 
-// 优化版本序列化(4.5):仅返回最新版本 + 按 order 升序的建议列表;changes/atsReport 保持 Json 原样(读取方防御解析)
-function serializeVersion(version: {
-  id: string;
-  targetDirection: string | null;
-  changes: unknown;
-  atsScore: number | null;
-  atsReport: unknown;
-  atsScoredAt: Date | null;
-  createdAt: Date;
-  optimizations: {
+// 优化版本序列化(4.5):仅返回最新版本 + 按 order 升序的建议列表;changes/atsReport 保持 Json 原样(读取方防御解析);
+// 4.7 起附带 finalText(accepted 片段合成最终文本,复制/导出的单一事实源)
+function serializeVersion(
+  version: {
     id: string;
-    category: string | null;
-    originalText: string | null;
-    optimizedText: string | null;
-    reason: string | null;
-    order: number;
-    status: string;
-    updatedAt: Date;
-  }[];
-} | null) {
+    targetDirection: string | null;
+    changes: unknown;
+    atsScore: number | null;
+    atsReport: unknown;
+    atsScoredAt: Date | null;
+    createdAt: Date;
+    optimizations: {
+      id: string;
+      category: string | null;
+      originalText: string | null;
+      optimizedText: string | null;
+      reason: string | null;
+      order: number;
+      status: string;
+      updatedAt: Date;
+    }[];
+  } | null,
+  originalText: string | null
+) {
   if (!version) return null;
   return {
     id: version.id,
@@ -134,6 +138,16 @@ function serializeVersion(version: {
     atsReport: version.atsReport,
     atsScoredAt: version.atsScoredAt,
     createdAt: version.createdAt,
+    // 文本列在 Prisma 类型上可空,但落库路径(schema min(1))保证非空;防御过滤
+    finalText: originalText
+      ? buildFinalResumeText(
+          originalText,
+          version.optimizations.filter(
+            (o): o is typeof o & OptimizationText =>
+              o.originalText !== null && o.optimizedText !== null
+          )
+        )
+      : null,
     optimizations: version.optimizations.map((o) => ({
       id: o.id,
       category: o.category,
@@ -821,10 +835,11 @@ export const appRouter = t.router({
           extractError: true,
           createdAt: true,
           parsedData: true,
+          originalText: true,
         },
       });
       if (!row) return null;
-      const { parsedData, ...meta } = row;
+      const { parsedData, originalText, ...meta } = row;
       const versionRow = await ctx.prisma.resumeVersion.findFirst({
         where: { resumeId: row.id },
         orderBy: { createdAt: "desc" },
@@ -833,7 +848,7 @@ export const appRouter = t.router({
       return {
         ...meta,
         parsedData: parseParsedData(parsedData),
-        version: serializeVersion(versionRow),
+        version: serializeVersion(versionRow, originalText),
       };
     }),
 

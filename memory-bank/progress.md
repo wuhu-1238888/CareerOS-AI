@@ -241,6 +241,16 @@
 - 测试驱动修正 2 处实现:①关键词词典由精确匹配改为方向名包含匹配(否则「后端开发工程师」等真实方向永远落通用词典)②可疑符号按 Unicode 代码点计数(emoji 代理对原计 2,现计 1)
 - 测试基建:`vitest.config.mts` 加 `testTimeout: 15000`——全套并行负载(真实 DB 用例 + 51 文件)下,阶段 2 既有 profile-hub 慢用例(userEvent 多步交互,单文件稳定通过)偶发逼近默认 5000ms 上限导致超时;仅放宽失败上限,不影响通过时长
 
+### 任务 4.7 导出(复制 + PDF)(2026-08-21,commit 见汇报)
+
+- **最终文本单一事实源下沉服务端**:`serializeVersion` 加 `originalText` 参数,get 端点 select `originalText: true`,序列化时经 `buildFinalResumeText(originalText, accepted 片段)`(4.4 唯一实现)合成 `finalText` 返回——复制/PDF 导出共用,客户端不再重复推导
+- **`resume-pdf-document.tsx`**(仅经动态 import 加载):`Font.register` Noto Sans SC(public/fonts 两个 .otf ~8MB×2,OFL 许可;react-pdf 默认字体无 CJK 字形);克制专业排版(姓名 22 bold / 联系信息 muted / 分节标题 11.5 bold + hairline 下边线 / 内容行 lineHeight 1.6),颜色全取设计 token(colors 导入),无渐变无装饰;`parseBlocks` 轻量分段(首行=姓名,空行前连续行=联系信息,空行分块、块首行=分节标题);A4 + `wrap={false}`
+- **`resume-export.tsx`**:`@react-pdf/renderer` 与 PDF 文档组件仅经 useEffect 动态 import(react-pdf 引 window/canvas,SSR 路径 import 即崩;加载失败回退禁用占位);复制 = `navigator.clipboard.writeText`,失败回退 textarea + `document.execCommand("copy")`,再失败 error toast;`PDFDownloadLink` 函数子节点(loading「准备导出…」/ 就绪 `<a href>` 下载,fileName「简历-优化版.pdf」);**零采纳(或 finalText 空)禁用复制与 PDF + 「尚未采纳任何修改」提示**(4.7「空简历导出禁用」落为「零 accepted」语义,拒绝=恢复原文,零采纳导出与原文无差异)
+- **接线** `resume-result.tsx`:ResultVersion 加 `finalText: string | null`;工具条在「全部接受」与「重新分析」之间插 `<ResumeExport finalText={version.finalText} canExport={acceptedCount > 0} />`
+- 类型桥接:react-pdf 3.4.5 自身 d.ts 的 children 类型(ReactNode | ReactElement<BlobProviderParams>)不接纳函数子节点(其实现即函数子节点)→ `as unknown as ReactNode` 桥接(项目先例)
+- 验证:resume-export 7 组件测试(clipboard 成功/execCommand 回退成功与失败/零采纳与空文本禁用+提示/PDF 加载与就绪两态/最终文本透传文档组件——mock 动态 import 的 react-pdf 与 PDF 文档、PDFDownloadLink 捕获 document prop);result 新增 2 测试(导出工具条 props 透传 + 零采纳 canExport=false);hub 版本 fixture 加 finalText + 导出 stub 断言;全套 426/426 ×2 + typecheck/lint 全绿
+- 测试基建备忘:`userEvent.setup()` 会安装自己的剪贴板桩覆盖 navigator.clipboard → clipboard/execCommand 必须在 setup 之后 stub;sonner toast store 是模块级单例跨用例存活 → 同文案 toast 用例需 afterEach `toast.dismiss()`
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功

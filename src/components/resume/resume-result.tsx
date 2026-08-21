@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/trpc/client";
 import { ResumeAnalysisCard, type AnalysisCardOptimization } from "./resume-analysis-card";
 import { ResumeAtsCard } from "./resume-ats-card";
+import { ResumeExport } from "./resume-export";
 
 export type ResultVersion = {
   id: string;
@@ -20,6 +21,8 @@ export type ResultVersion = {
   /** ATS 详细报告(Json,4.6 接入;tRPC 客户端推断为可选) */
   atsReport?: unknown;
   atsScoredAt: string | null;
+  /** 最终采纳文本(4.7 服务端合成,复制/导出共用) */
+  finalText: string | null;
   createdAt: string;
   optimizations: AnalysisCardOptimization[];
 };
@@ -106,6 +109,7 @@ export function ResumeResult({
           >
             全部接受
           </Button>
+          <ResumeExport finalText={version.finalText} canExport={acceptedCount > 0} />
           <Button type="button" variant="ghost" disabled={update.isPending} onClick={onReanalyze}>
             重新分析
           </Button>
