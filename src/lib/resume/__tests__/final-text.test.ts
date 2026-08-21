@@ -1,5 +1,6 @@
 // @vitest-environment node
-// 最终采纳文本纯函数测试(4.4):validateModifications(逐字存在/空白折叠/重叠拦截/按位置排序)
+// 最终采纳文本纯函数测试(4.4,校验修订后):validateModifications(逐字存在/空白折叠/逐条过滤——
+// 无效条目丢弃不拖垮整次,≥1 条有效即成功;同短语多处出现取下一处不重叠命中/按位置升序)
 // + buildFinalResumeText(全 pending/全 accepted/混合/乱序输入/空白归一化替换/未匹配回退/重叠防御)
 import { describe, it, expect } from "vitest";
 import { buildFinalResumeText, normalizeWhitespace, validateModifications } from "../final-text";
@@ -41,22 +42,63 @@ describe("validateModifications", () => {
     ]);
   });
 
-  it("片段不在原文 → 失败(整次拒绝)", () => {
+  it("片段不在原文 → 0 条有效,整次失败", () => {
     const result = validateModifications(original, [mod("不存在的原文片段", "改写")]);
     expect(result).toEqual({ ok: false, error: "改写结果与简历原文不一致,请重新分析" });
   });
 
-  it("空白片段 → 失败", () => {
+  it("空白片段 → 丢弃,0 条有效时整次失败(统一文案)", () => {
     const result = validateModifications(original, [mod("   ", "改写")]);
-    expect(result).toEqual({ ok: false, error: "存在空白的原文引用,请重新分析" });
+    expect(result).toEqual({ ok: false, error: "改写结果与简历原文不一致,请重新分析" });
   });
 
-  it("区间重叠 → 失败", () => {
+  it("区间重叠 → 丢弃后条,保留先接受的一条", () => {
     const result = validateModifications(original, [
       mod("Java、Spring Boot", "改写1"),
       mod("Spring Boot、MySQL", "改写2"),
     ]);
-    expect(result).toEqual({ ok: false, error: "修改建议区间重叠,请重新分析" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.modifications.map((m) => m.originalText)).toEqual(["Java、Spring Boot"]);
+  });
+
+  it("同短语多处出现:各取下一处不重叠命中,两条都保留", () => {
+    const repeated = `工作经历
+负责订单系统开发
+项目经历
+负责订单系统开发`;
+    const result = validateModifications(repeated, [
+      mod("负责订单系统开发", "改写1"),
+      mod("负责订单系统开发", "改写2"),
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.modifications).toHaveLength(2);
+  });
+
+  it("混合有效/无效/空白:过滤后保留有效子集并按位置升序", () => {
+    const result = validateModifications(original, [
+      mod("原文没有的片段", "不会出现"),
+      mod("负责电商订单系统开发,日均处理订单 50 万笔", "改写1"),
+      mod("  ", "空白"),
+      mod("Java、Spring Boot、MySQL", "改写2"),
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.modifications.map((m) => m.originalText)).toEqual([
+      "Java、Spring Boot、MySQL",
+      "负责电商订单系统开发,日均处理订单 50 万笔",
+    ]);
+  });
+
+  it("片段与原文存在空白差异(换行/多空格):空白归一化后仍命中", () => {
+    const result = validateModifications(original, [
+      mod("负责电商订单系统开发,日均处理订单  50 万笔", "改写1"),
+      mod("Java、Spring\nBoot、MySQL", "改写2"),
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.modifications).toHaveLength(2);
   });
 });
 

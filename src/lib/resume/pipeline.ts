@@ -99,7 +99,15 @@ export async function rewriteResume(params: {
   const progressChain = { current: Promise.resolve() };
   const outcome = await runner.run<RewriteAnalysis>({
     intent: "rewrite-resume",
-    input: { parsedData, abilityTags, targetDirection },
+    // resumeId 一并落 AgentRun.input 供前端按简历行归属判断;Agent inputSchema 会剔除多余字段;
+    // originalText 为引用片段逐字摘抄的唯一来源(本次修复:此前 Agent 收不到原文,引用必然校验失败)
+    input: {
+      resumeId,
+      originalText: resume.originalText.slice(0, MAX_RESUME_TEXT_FOR_LLM),
+      parsedData,
+      abilityTags,
+      targetDirection,
+    },
     context: {},
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
@@ -112,9 +120,14 @@ export async function rewriteResume(params: {
     return outcome;
   }
 
-  // 硬校验:每条 originalText 必须逐字存在于原文、区间互不重叠;失败 → 整次不落行(不产生版本)
+  // 硬校验(逐条过滤):每条 originalText 必须逐字存在于原文、区间互不重叠;无效条目丢弃,
+  // 0 条有效 → 整次失败并落 failed run(刷新后失败视图可恢复,错误原因真实可见)
   const validated = validateModifications(resume.originalText, outcome.result.data.modifications);
   if (!validated.ok) {
+    await prisma.agentRun.update({
+      where: { id: outcome.runId },
+      data: { status: "failed", error: validated.error },
+    });
     return { ok: false, error: validated.error, runId: outcome.runId };
   }
 

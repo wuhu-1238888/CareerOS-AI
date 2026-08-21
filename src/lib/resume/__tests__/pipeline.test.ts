@@ -241,6 +241,8 @@ describe("resume.parse / retryParse / saveParsedData / latestRun 护栏(router �
     const latestA = await caller(userIdA).resume.latestRun({ intent: "parse-resume" });
     expect(latestA?.status).toBe("succeeded");
     expect(latestA?.progress).toHaveLength(5);
+    // 本次修订:serializeRun 透出 input 中的 resumeId(前端按简历行归属判断)
+    expect(latestA?.resumeId).toBe(resumeIdA);
     expect(await caller(userIdA).resume.latestRun({ intent: "rewrite-resume" })).toBeNull();
     expect(await caller(userIdA).resume.latestRun({ intent: "score-ats" })).toBeNull();
     // 与画像/路线图 intent 不串台:userA 无画像 run
@@ -283,6 +285,9 @@ describe("rewriteResume 管线(4.4,真实写库)", () => {
     const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
     expect(run?.status).toBe("succeeded");
     expect(run?.intent).toBe("rewrite-resume");
+    // 契约修复断言:run.input 含 resumeId 与简历原文(供前端按简历行归属判断)
+    expect(run?.input).toMatchObject({ resumeId: resumeIdA });
+    expect((run?.input as { originalText: string }).originalText).toBe(backend.input.resumeText);
   });
 
   it("二次改写:产生新版本(不可变快照),旧版本内容不变", async () => {
@@ -312,11 +317,12 @@ describe("rewriteResume 管线(4.4,真实写库)", () => {
     expect(oldVersion?.optimizations).toHaveLength(4);
   });
 
-  it("validateModifications 失败(片段不在原文)→ 整次不落行,不产生版本", async () => {
+  it("validateModifications 全部无效(0 条)→ 整次失败:不落版本 + run 落 failed 与真实错误(刷新后可恢复失败视图)", async () => {
     const tampered = {
-      modifications: rewriteSample.mockOutput.modifications.map((m, i) =>
-        i === 1 ? { ...m, originalText: "原文中不存在的片段XYZ" } : m
-      ),
+      modifications: rewriteSample.mockOutput.modifications.map((m) => ({
+        ...m,
+        originalText: `原文中不存在的片段-${m.category}`,
+      })),
     };
     const adapter = new MockAdapter(0, () => JSON.stringify(tampered));
     const before = await prisma.resumeVersion.count({ where: { resumeId: resumeIdB } });
@@ -333,7 +339,43 @@ describe("rewriteResume 管线(4.4,真实写库)", () => {
     expect(outcome.error).toBe("改写结果与简历原文不一致,请重新分析");
     expect(await prisma.resumeVersion.count({ where: { resumeId: resumeIdB } })).toBe(before);
     const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
-    expect(run?.status).toBe("succeeded"); // run 本身成功,业务校验拦截在落行前
+    expect(run?.status).toBe("failed"); // 本次修订:业务校验失败也落 failed,刷新后失败视图持久可见
+    expect(run?.error).toBe("改写结果与简历原文不一致,请重新分析");
+    // 经 latestRun 端到端透出:失败状态 + 真实错误 + resumeId/targetDirection(刷新恢复与方向回填的数据源)
+    const latest = await caller(userIdB).resume.latestRun({ intent: "rewrite-resume" });
+    expect(latest?.status).toBe("failed");
+    expect(latest?.error).toBe("改写结果与简历原文不一致,请重新分析");
+    expect(latest?.resumeId).toBe(resumeIdB);
+    expect(latest?.targetDirection).toBe("后端开发工程师");
+  });
+
+  it("部分无效(1/4 条被过滤)→ 成功落库有效子集(order 重排,run 保持 succeeded)", async () => {
+    const tampered = {
+      modifications: rewriteSample.mockOutput.modifications.map((m, i) =>
+        i === 1 ? { ...m, originalText: "原文中不存在的片段XYZ" } : m
+      ),
+    };
+    const adapter = new MockAdapter(0, () => JSON.stringify(tampered));
+    const outcome = await rewriteResume({
+      userId: userIdB,
+      resumeId: resumeIdB,
+      parsedData: rewriteSample.input.parsedData,
+      abilityTags: [],
+      targetDirection: "后端开发工程师",
+      adapter,
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+    expect(outcome.modificationCount).toBe(3);
+    const version = await prisma.resumeVersion.findUnique({
+      where: { id: outcome.versionId },
+      include: { optimizations: { orderBy: { order: "asc" } } },
+    });
+    expect((version?.changes as { modificationCount: number }).modificationCount).toBe(3);
+    expect(version?.optimizations).toHaveLength(3);
+    expect(version!.optimizations.map((o) => o.order)).toEqual([0, 1, 2]);
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("succeeded");
   });
 
   it("原文缺失 → 失败且无 run(runId 空串)", async () => {

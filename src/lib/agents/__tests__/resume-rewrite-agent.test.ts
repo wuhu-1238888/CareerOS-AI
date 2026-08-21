@@ -1,6 +1,6 @@
 // @vitest-environment node
-// Resume Rewrite Agent 测试(4.4):固定样例集(修改数一致、originalText 逐字摘抄、
-// 无量化数据片段不虚构数字、输入透传)+ 边界用例(非法 JSON/违反 Schema/非法输入/进度事件)+ 意图注册
+// Resume Rewrite Agent 测试(4.4,契约修订后):固定样例集(修改数一致、originalText 逐字摘抄、
+// 无量化数据片段不虚构数字、原文与能力标签/目标方向透传)+ 边界用例(非法 JSON/违反 Schema/非法输入/进度事件)+ 意图注册
 import { describe, it, expect } from "vitest";
 import { MockAdapter } from "@/lib/llm/mock";
 import { normalizeWhitespace } from "@/lib/resume/final-text";
@@ -40,6 +40,9 @@ describe("Resume Rewrite Agent 固定样例集", () => {
         expect(capturedUserMessage).toContain(tag.name);
       }
       expect(capturedUserMessage).toContain(sample.input.targetDirection);
+
+      // 简历原文确实传给了模型(以仅存在于原文、不出现在 parsedData 的特征子串断言)
+      expect(capturedUserMessage).toContain(sample.originalTextOnlyMarker);
     });
   }
 
@@ -73,6 +76,12 @@ describe("Resume Rewrite Agent 边界用例", () => {
   it("输入违反 Schema(目标方向为空)→ AgentInputError", async () => {
     await expect(
       resumeRewriteAgent.execute({ ...sample.input, targetDirection: "" }, {})
+    ).rejects.toBeInstanceOf(AgentInputError);
+  });
+
+  it("输入违反 Schema(原文 originalText 为空)→ AgentInputError", async () => {
+    await expect(
+      resumeRewriteAgent.execute({ ...sample.input, originalText: "" }, {})
     ).rejects.toBeInstanceOf(AgentInputError);
   });
 

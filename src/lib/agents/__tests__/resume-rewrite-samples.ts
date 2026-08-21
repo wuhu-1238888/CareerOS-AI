@@ -11,6 +11,8 @@ export type ResumeRewriteSample = {
   input: ResumeRewriteAgentInput;
   /** 简历原文(用于断言 originalText 逐字存在) */
   originalText: string;
+  /** 仅存在于原文、不出现在 parsedData 中的特征子串(用于断言原文确实进入 user 消息) */
+  originalTextOnlyMarker: string;
   /** 「无量化数据不虚构数字」边界:这些下标处的 optimizedText 不得出现任何数字 */
   noDigitsAt: number[];
   expectedModificationCount: number;
@@ -23,6 +25,48 @@ const backendAbilityTags = [
   { name: "Spring Boot", level: "熟练" as const },
   { name: "MySQL", level: "熟练" as const },
 ];
+
+// 前端应届生样例原文(断言与输入共用)
+const frontendGradOriginalText = `李娜
+求职意向:前端开发工程师
+电话:139-1111-2222
+邮箱:lina@example.com
+
+教育经历
+2018-09 至 2022-06 武汉大学 软件工程 本科
+2022-09 至 2025-06 华中科技大学 计算机技术 硕士
+
+技能
+JavaScript、TypeScript、Vue、React、HTML/CSS、Node.js、Webpack
+
+实习经历
+2024-06 至 2024-09 深圳某互联网公司 前端开发实习生
+参与公司内部中台系统的页面开发,独立完成 12 个业务组件
+优化首屏加载,打包体积减少 30%
+
+项目经历
+2023-10 至 2024-03 校园二手交易平台(课程项目)
+负责前端整体架构与页面实现
+2024-11 至 2025-02 低代码表单引擎(个人项目)
+基于 JSON Schema 实现表单渲染,支持 8 种控件类型`;
+
+// 产品经理样例原文(断言与输入共用)
+const productManagerOriginalText = `王强
+求职意向:产品经理
+电话:137-3333-4444
+邮箱:wangqiang@example.com
+
+教育经历
+2015-09 至 2019-06 中山大学 市场营销 本科
+
+技能
+Axure、SQL、数据分析、项目管理
+
+工作经历
+2019-07 至 2022-03 广州某电商公司 产品专员
+负责订单后台的产品迭代,上线 5 个版本
+2022-04 至今 深圳某科技公司 产品经理
+主导客户管理系统从 0 到 1 建设,服务 200 家客户`;
 
 export const resumeRewriteSamples: ResumeRewriteSample[] = [
   {
@@ -66,8 +110,10 @@ export const resumeRewriteSamples: ResumeRewriteSample[] = [
       },
       abilityTags: backendAbilityTags,
       targetDirection: "后端开发工程师",
+      originalText: SAMPLE_RESUME_TEXT,
     },
     originalText: SAMPLE_RESUME_TEXT,
+    originalTextOnlyMarker: "联系电话:",
     noDigitsAt: [0, 1],
     expectedModificationCount: 4,
     mockOutput: {
@@ -157,29 +203,10 @@ export const resumeRewriteSamples: ResumeRewriteSample[] = [
         { name: "Vue", level: "熟练" as const },
       ],
       targetDirection: "前端开发工程师",
+      originalText: frontendGradOriginalText,
     },
-    originalText: `李娜
-求职意向:前端开发工程师
-电话:139-1111-2222
-邮箱:lina@example.com
-
-教育经历
-2018-09 至 2022-06 武汉大学 软件工程 本科
-2022-09 至 2025-06 华中科技大学 计算机技术 硕士
-
-技能
-JavaScript、TypeScript、Vue、React、HTML/CSS、Node.js、Webpack
-
-实习经历
-2024-06 至 2024-09 深圳某互联网公司 前端开发实习生
-参与公司内部中台系统的页面开发,独立完成 12 个业务组件
-优化首屏加载,打包体积减少 30%
-
-项目经历
-2023-10 至 2024-03 校园二手交易平台(课程项目)
-负责前端整体架构与页面实现
-2024-11 至 2025-02 低代码表单引擎(个人项目)
-基于 JSON Schema 实现表单渲染,支持 8 种控件类型`,
+    originalText: frontendGradOriginalText,
+    originalTextOnlyMarker: "(课程项目)",
     noDigitsAt: [0, 3],
     expectedModificationCount: 4,
     mockOutput: {
@@ -253,23 +280,10 @@ JavaScript、TypeScript、Vue、React、HTML/CSS、Node.js、Webpack
       },
       abilityTags: [{ name: "数据分析", level: "熟练" as const }],
       targetDirection: "产品经理",
+      originalText: productManagerOriginalText,
     },
-    originalText: `王强
-求职意向:产品经理
-电话:137-3333-4444
-邮箱:wangqiang@example.com
-
-教育经历
-2015-09 至 2019-06 中山大学 市场营销 本科
-
-技能
-Axure、SQL、数据分析、项目管理
-
-工作经历
-2019-07 至 2022-03 广州某电商公司 产品专员
-负责订单后台的产品迭代,上线 5 个版本
-2022-04 至今 深圳某科技公司 产品经理
-主导客户管理系统从 0 到 1 建设,服务 200 家客户`,
+    originalText: productManagerOriginalText,
+    originalTextOnlyMarker: "电话:",
     noDigitsAt: [0, 1],
     expectedModificationCount: 4,
     mockOutput: {

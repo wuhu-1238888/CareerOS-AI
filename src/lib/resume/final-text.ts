@@ -18,8 +18,9 @@ export function normalizeWhitespace(text: string): string {
 
 type RawRange = { start: number; end: number };
 
-/** 在原文中按空白归一化匹配片段,返回其在原始文本中的区间(未命中 → null) */
-function findRawRange(haystack: string, needle: string): RawRange | null {
+/** 在原文中按空白归一化匹配片段,返回其在原始文本中的区间(未命中 → null);
+ *  fromRawStart:从该原始下标起向后找(用于同一短语多处出现时迭代取下一命中;map 单调,归一化空间可精确映射) */
+function findRawRange(haystack: string, needle: string, fromRawStart = 0): RawRange | null {
   const normalizedNeedle = normalizeWhitespace(needle);
   if (!normalizedNeedle) return null;
 
@@ -41,7 +42,15 @@ function findRawRange(haystack: string, needle: string): RawRange | null {
 
   const trimmed = collapsed.trim();
   const leadingSpaces = collapsed.length - collapsed.trimStart().length;
-  const index = trimmed.indexOf(normalizedNeedle);
+  // fromRawStart → 归一化空间搜索起点:第一个 map 值 ≥ fromRawStart 的下标(map 严格单调)
+  let searchFrom = 0;
+  if (fromRawStart > 0) {
+    let i = 0;
+    while (i < map.length && map[i]! < fromRawStart) i++;
+    searchFrom = i - leadingSpaces;
+    if (searchFrom < 0) searchFrom = 0;
+  }
+  const index = trimmed.indexOf(normalizedNeedle, searchFrom);
   if (index === -1) return null;
 
   const normStart = index + leadingSpaces;
@@ -51,34 +60,38 @@ function findRawRange(haystack: string, needle: string): RawRange | null {
   return { start, end };
 }
 
-// 校验规则(4.4):每条 originalText 空白归一化后须逐字存在于原文;区间互不重叠;按位置升序返回
+// 校验规则(4.4,本次修订):逐条过滤——每条 originalText 空白归一化后须逐字存在于原文,且区间互不重叠;
+// 无效条目(空白引用/未命中/与已接受区间重叠)丢弃,不拖垮整次;≥1 条有效即成功,0 条才失败(产品目标不变:
+// 凡展示给用户的「修改前」必逐字来自原文)。定位与 buildFinalResumeText 共用 findRawRange(统一原始下标空间),
+// 同一短语多处出现时取下一处不重叠命中(修复此前 indexOf 首次命中导致的误报重叠)。
 export function validateModifications(
   originalText: string,
   modifications: Modification[]
 ): { ok: true; modifications: Modification[] } | { ok: false; error: string } {
-  const normalizedOriginal = normalizeWhitespace(originalText);
-  const located: { modification: Modification; start: number; end: number }[] = [];
+  const accepted: { modification: Modification; start: number; end: number }[] = [];
 
   for (const modification of modifications) {
     const needle = normalizeWhitespace(modification.originalText);
-    if (!needle) {
-      return { ok: false, error: "存在空白的原文引用,请重新分析" };
-    }
-    const index = normalizedOriginal.indexOf(needle);
-    if (index === -1) {
-      return { ok: false, error: "改写结果与简历原文不一致,请重新分析" };
-    }
-    located.push({ modification, start: index, end: index + needle.length });
-  }
+    if (!needle) continue; // 空白引用 → 丢弃该条
 
-  located.sort((a, b) => a.start - b.start);
-  for (let i = 1; i < located.length; i++) {
-    if (located[i]!.start < located[i - 1]!.end) {
-      return { ok: false, error: "修改建议区间重叠,请重新分析" };
+    // 迭代取下一命中(原始下标空间),跳过与已接受区间重叠的候选;取最早的不重叠命中
+    let range = findRawRange(originalText, needle);
+    while (range) {
+      const overlaps = accepted.some((a) => range!.start < a.end && range!.end > a.start);
+      if (!overlaps) break;
+      range = findRawRange(originalText, needle, range.start + 1);
+    }
+    if (range) {
+      accepted.push({ modification, start: range.start, end: range.end });
     }
   }
 
-  return { ok: true, modifications: located.map((l) => l.modification) };
+  if (accepted.length === 0) {
+    return { ok: false, error: "改写结果与简历原文不一致,请重新分析" };
+  }
+
+  accepted.sort((a, b) => a.start - b.start);
+  return { ok: true, modifications: accepted.map((a) => a.modification) };
 }
 
 /** 按 accepted 修改在原文中做精确替换(pending/rejected 保持原文);未命中的片段回退保留原文 */

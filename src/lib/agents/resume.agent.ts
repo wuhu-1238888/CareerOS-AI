@@ -38,8 +38,9 @@ export class ResumeParseAgent extends BaseAgent<ResumeParseAgentInput, ParsedRes
   }
 }
 
-// 改写输入(4.4):核对后解析结果 + 画像能力标签 + 目标方向
+// 改写输入(4.4,本次修订):简历原文(引用片段逐字摘抄的唯一来源)+ 核对后解析结果 + 画像能力标签 + 目标方向
 export const resumeRewriteAgentInputSchema = z.object({
+  originalText: z.string().min(1, "简历原文不能为空").max(20000, "简历内容最多 20000 字"),
   parsedData: parsedResumeSchema,
   abilityTags: z
     .array(z.object({ name: z.string().min(1).max(50), level: z.enum(["基础", "熟练", "精通"]) }))
@@ -65,6 +66,7 @@ export class ResumeRewriteAgent extends BaseAgent<ResumeRewriteAgentInput, Rewri
         role: "user",
         content: JSON.stringify(
           {
+            originalText: input.originalText,
             parsedData: input.parsedData,
             abilityTags: input.abilityTags,
             targetDirection: input.targetDirection,
