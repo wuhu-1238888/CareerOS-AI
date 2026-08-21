@@ -187,6 +187,30 @@
 - **测试结果**:新增 4 个用例(多阶段展开/概览带两区/全部完成不显示当前阶段/阶段序号与任务计数),全套 250/250(34 文件)+ typecheck/lint/build 零错误;grep 自检零硬编码色值零渐变;dev server 登录态 5 页面 200、未登录 307 中间件保护正常;临时检查用户与脚本已清理
 - 说明:DesignRules 行 140 与 DesignSystem 行 507 的 ☑/○ 任务状态符号在文档间含义不一致(实现遵循 DesignSystem:☑=完成、○=待开始);本次未改文档,留待用户裁决
 
+## 阶段 4(M4:Resume Intelligence)
+
+### 任务 4.1 简历数据模型与文件上传 + 4.2 文本解析(2026-08-21,commit `607f288`)
+
+- **Schema 迁移**(计划批准的列调整):Resume 加 `fileName/mimeType/sizeBytes/storageKey/extractError` + `originalText` 改可空 + `@@index([userId])`;Optimization 加 `order/status(pending|accepted|rejected)/updatedAt`;ResumeVersion 加 `atsReport Json?/atsScoredAt`(ATS stale 判定列);全部加列/改可空,现有数据无损
+- **存储三层** `src/lib/file/`:BlobStorage 接口 + EncryptedStorage 装饰器(AES-256-GCM,信封 MAGIC 2B+IV 12B+TAG 16B+密文,IV 随机)+ LocalFSStorage(rootDir 注入,键防穿越,delete 幂等);factory 按 `FILE_STORAGE_PROVIDER` 返回;生产缺 `FILE_ENCRYPTION_KEY` → 首次使用抛错 fail closed,开发缺 key → SHA-256(NEXTAUTH_SECRET) 派生;`.env.example` 增量三行、`.gitignore` 加 `/storage/`
+- **上传/下载**:`handleResumeUpload` 纯业务函数(扩展名 .pdf/.docx ≤10MB 校验、.doc 明确文案、建行失败补偿删文件);Route Handler `/api/resume/upload`(auth 自鉴权,413/400 分码)与 `/api/resume/download`(归属校验 + 解密流式 + `filename*=UTF-8''`)
+- **文本提取** `parser.ts`:pdf-parse 子路径导入 + 3 次重试退避 / mammoth(.docx);图片型 PDF(无文本层)→ `no-text` 引导粘贴;next.config `serverComponentsExternalPackages: ["pdf-parse"]`;fixture 生成脚本(pdfkit+jszip,devDependencies)+ 中文 PDF/docx/图片型 PDF 三份 fixture 产物
+- **tRPC `resume` 子 router**:get/list/createFromText(粘贴建行)/pasteText(提取失败后补文本清 extractError)/delete(级联 + 存储清理);`requireOwnedResume` 归属校验
+- **组件**:`resume-upload.tsx`(640px 拖拽+粘贴+Banner,40px 主按钮,无画像提示);`resume-files.tsx` 设置页真实列表(下载/删除确认);resume/page 接入 ResumeUpload
+- 验证:storage 13 / parser 7 / upload 9 / resume tRPC 8 / resume-upload 9 / resume-files 5 = 51 新增;全套 302/302 + typecheck/lint/build 全绿
+
+### 任务 4.3 解析 Agent + 核对修正 UI(2026-08-21,commit `275f5d3`)
+
+- **Prompt** `resume-parse.md`:简历解析师角色,只提取不评价不改写、description 逐字摘抄原文语句、禁虚构、时间格式「YYYY-MM」/「YYYY」/「至今」、JSON 结构与数量约束(教育≤10/技能≤30/经历≤15/项目≤15)
+- **Schema** `analysis-schemas.ts`(客户端安全,仅 import zod):`parsedResumeSchema`(basicInfo + education/skills/experiences/projects 全带 `.default([])`)+ 预置 rewrite/ats schema(4.4/4.6 用)
+- **Agent** `resume.agent.ts`:ResumeParseAgent(intent `parse-resume`,inputSchema 只收 resumeText ≤20000)+ ResumeRewriteAgent/ResumeAtsAgent 类(注册 4.4/4.6 追加);`agents/index.ts` 注册 parse agent
+- **管线** `pipeline.ts`(镜像画像管线):progressChain 串行进度落库 + adapter 测试注入 + 成功才写 Resume.parsedData/失败不落行 + 送 LLM 文本截断 20000(DB 存全文);AgentRun.input 存 `{ resumeText, resumeId }` 供 retryParse 重放定位
+- **tRPC**:`parse`(原文缺失 → BAD_REQUEST 友好文案)/ `retryParse`(run 不存在/非本人/垃圾 input/已删简历护栏)/ `saveParsedData`(核对结果保存)/ `latestRun({ intent: parse-resume|rewrite-resume|score-ats })` 参数化隔离;get 加 `parsedData`(防御解析回退 null)
+- **前端状态机** `resume-hub.tsx`(镜像 profile-hub):无简历→ResumeUpload;提取失败行→粘贴降级;待解析卡(「开始解析」)→ 解析中 AnalysisView(简历解析师/FileText/专属文案,`editLabel="重新上传"`)→ 失败恢复(会话内重跑 parse / 刷新后 retryParse 重放)→ 核对视图;latestRun 轮询 700ms + finishedRef + 简历行切换重置会话痕迹
+- **核对表单** `resume-review.tsx`(640px):基本信息/教育/技能(行或逗号拆分)/工作实习(类型切换)/项目 分区逐项编辑增删;「保存核对结果」(saveParsedData)+ 目标方向(画像 careerPaths chips 默认首选 + 自定义)+ 40px「开始优化」(4.4 起触发改写,当前保存+提示);careerPaths 深递归类型经 `as unknown as` 桥接(镜像 navigator-hub,TS2589)
+- `analysis-view.tsx` 仅新增可选 `editLabel` prop(默认「修改信息」),画像/路线图既有行为零变化
+- 验证:Agent 样例集 3 份手工标注(后端/前端应届/产品)+ 9 测试;管线真实 DB 9 测试(成功落库/失败不落/截断/防御解析/router 护栏/latestRun intent 隔离);review 8 + hub 10 组件测试;全套 338/338 + typecheck/lint 全绿
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功
