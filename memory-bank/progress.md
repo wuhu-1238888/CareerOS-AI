@@ -325,6 +325,7 @@
 | 4.8 | 简历优化页面修复与布局:改写 Agent 输入契约修复(原文入参)+ 校验逐条过滤 + 状态机修复(失败落库/行归属护栏/方向回填/防双击)+ 表单全宽 + 左旧右新对比卡 | ✅ | `0fe2de1` + `0b59d80` + `4e66ca1` |
 | 4.9 | 简历改写状态卡死修复:完成判定改由轮询权威数据驱动 + LLM 3 分钟超时(可重试失败)+ stale 阈值 = 超时 + 1 分钟余量 | ✅ | `4834aa3` + `847f651` |
 | 4.10 | 简历模块顺序保真:detectSections/buildSectionPlan 确定性检测 + Resume.sectionOrder 快照 + 表单按原文顺序渲染(自定义只读/工作实习分开)+ 结果页最终文本预览面板 | ✅ | `30de79b` + `70f8bb1` + `47d2eb7` |
+| 4.10-fix | 提取层视觉排序:验收发现真实 .docx(文本框模板)与 z-order PDF 的 finalText 乱序 → 断点在提取层 → parser 按坐标重建阅读顺序(PDF items y/x 排序 + DOCX wp:anchor positionV/H 排序) | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -343,8 +344,9 @@
 
 ## 测试结果
 
-- 全套 **470/470(53 文件)全绿**(4.10 修订后);typecheck / lint / build 零错误
+- 全套 **490/490(55 文件)全绿**(4.10-fix 修订后);typecheck / lint 零错误
 - 4.10 新增 27 个测试:section-order 22(标准顺序/归一化/同行标题/自定义切片/同形误判/无标题锚定/工作实习拆分/合并标题/多项目分区/stored 优先/兜底)+ 数据层 2(sectionOrder 入库 + sectionPlan 返回)+ review plan 模式 3 + result 预览面板 2
+- 4.10-fix 新增 20 个测试:pdf-position-sort 7(PDF 内容流 z-order → 视觉坐标排序)+ docx-extract 8(文本框 XML 逆序 → 坐标排序 / DECOY 忽略 / 流式段定位 / 无框退化)+ parser 集成 3(乱序 PDF / 文本框 DOCX / 无框 DOCX 回退 mammoth)+ upload 链路 2(乱序 PDF 与文本框 DOCX 上传 → originalText 以视觉顺序落库)
 - 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
 - 4.1–4.7 新增 176 个测试:存储加解密 5 / 上传纯函数 5 / 数据层与端点 12 / parser 6 / Agent 样例集 27 / 管线(真实 DB)17 / final-text 12 / ats-rules 10 / 组件 52(上传 8、files 8、review 8、hub 14、card 8、result 9、ats-card 7、export 7);4.8 新增 11 个(final-text 3 / 管线 4 / 改写 agent 3 / hub 5 / review 1)
 - 测试驱动修正 3 处实现:方向词典包含匹配、Unicode 代码点计数、userEvent.setup 剪贴板桩时序
@@ -410,3 +412,33 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 2. 两个同 type 经历分区(如两段「工作经历」标题)罕见场景:条目按 type 归入首个同 type 分区,后一分区为空编辑器 —— 分区卡片仍按原文位置渲染,顺序不破坏
 3. 多技能分区合并为单编辑器(置于首个出现),多基本信息取首个出现 —— 已文档化简化
 4. parse 阶段(解析)状态机沿用 submitted 驱动(4.9 遗留,未对称修复)
+
+## 2026-08 修订:提取层视觉排序(任务 4.10 验收修复)
+
+### 现象与根因(真实数据定位)
+
+用户以真实 `.docx`(七牛云上的真实简历,仅本地诊断、不入库不落仓库)验收:「最终文本预览」模块顺序仍与原始简历不一致。用真实文件端到端定位(解包 DB 落库原文 + 本地存储解密原件 + 逐环节顺序指纹):
+
+1. **断点在最上游提取层,不在 finalText 构造**:`buildFinalResumeText` 原位替换构造性保序,已核无固定字段拼接;指纹显示 originalText(提取产物)本身即乱序,sectionPlan / finalText / 预览 / 复制全部忠实继承。
+2. **DOCX 根因 = 文本框模板 XML 逆序**:该 .docx 是绝对定位文本框排版(24 个 mc:AlternateContent 绘制对象、13 个 wp:anchor 文本框),文本框在 document.xml 中按反视觉顺序书写(第一个绘制对象位于页面底部 10.49 英寸);mammoth 按文档顺序提取(body-reader.js 按序读 txbxContent)→ 输出近似视觉倒序(荣誉证书在前、基本信息在末尾)。
+3. **PDF 同构根因**:pdf-parse 默认 pagerender 按内容流顺序拼接 items(无坐标排序)→ z-order 写入的 PDF 提取乱序。
+4. 修复方向确认:两种格式统一在提取层按视觉坐标重建阅读顺序;下游(sectionOrder/sectionPlan/finalText)零改动。
+
+### 修复
+
+- **PDF**(`parser.ts`):`sortPdfItemsByPosition` 纯函数 —— items 按 y 降序(PDF y 向上)、同行按 x 升序,同行 y 容差 3pt 归组,相邻 CJK 直接拼接、否则补空格;自定义 `pagerender` 传入 pdfParse(替换默认 render_page,getTextContent 选项不变)。d.ts 补 pagerender 类型。
+- **DOCX**(`docx-extract.ts` 新建):jszip 解包 + saxes 单遍解析 —— 按文档顺序收集流式段落与 wp:anchor 文本框(positionV/H posOffset 坐标 + txbxContent 文本,mc:Fallback VML 诱饵跳过,锚点段自带文本丢弃防重复);组装 = 首个锚点之前的流式段落 + 文本框按 y 升序/x 升序 + 其余流式段落;无文本框 → no-textboxes 回退 mammoth(普通文档行为不变)。
+- **依赖**:jszip ^3.10.1 + saxes ^6.0.0 显式声明(mammoth 传递依赖已存在,零新装)。
+
+### 验证
+
+- 真实 .docx 本地验证:新提取器输出 基本信息 → 教育背景 → 个人技能 → 项目经历 → 校园经历 → 荣誉证书,与 Word 视觉顺序一致;流式段落 0、13 文本框全捕获、无 DECOY 重复。
+- 测试:PDF 排序纯函数 7 用例(标准五模块/用户反例/实习在前+自定义穿插/同行 x+拉丁空格/CJK 无空格/y 容差/空条目兜底)+ DOCX 解析 8 用例(逆序还原/反例顺序/同 y 按 x/align 兜底/框内多段落/流式前后/锚点段丢弃/无文本框退化)+ 集成(乱序 PDF fixture、文本框逆序 DOCX fixture、普通 DOCX mammoth 回归)+ 上传链路(乱序 PDF / DOCX → originalText 视觉顺序落库)。
+
+### 已知取舍
+
+1. DOCX 文本框 positionV/H 为相对锚点段落的偏移(relativeFrom=paragraph);锚点不在同一段时跨框坐标比较是近似 —— 模板文档锚点集中在首段,实际场景成立
+2. 文本框与流式文本混排时,锚点之间的流式段落统置于文本框之后(近似);锚点段自带文本丢弃(视觉内容在框内)
+3. 竖排/旋转文本(PDF)与多栏排版不在支持范围
+4. 存量已乱序行不迁移:重新上传即按新提取器生成正确原文(与用户确认)
+5. 真实简历文件不进测试仓库(含个人信息),测试用合成 fixture 模拟同构结构

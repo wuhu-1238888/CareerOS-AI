@@ -1,6 +1,7 @@
 // @vitest-environment node
 // 上传业务函数测试(4.1,真实写库 + 真实解析器 + 假存储):
-// 校验分支/成功落库/每次上传新行新键/提取失败行保留/存储失败/建行失败补偿删除
+// 校验分支/成功落库/每次上传新行新键/提取失败行保留/存储失败/建行失败补偿删除;
+// 4.10:乱序 PDF / 文本框逆序 DOCX 上传 → originalText 以视觉顺序落库
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,8 @@ import { prisma } from "@/lib/db/prisma";
 import { FileNotFoundError } from "@/lib/file/local-fs";
 import type { BlobStorage } from "@/lib/file/storage";
 import { MAX_RESUME_SIZE_BYTES, handleResumeUpload, type UploadFile } from "../upload";
+import { buildSimplePdf } from "./fixtures/build-pdf";
+import { buildTextboxDocx } from "./fixtures/build-textbox-docx";
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const email = `resume-upload-${suffix}@test.local`;
@@ -97,6 +100,55 @@ describe("handleResumeUpload", () => {
     expect(outcome.extractError).toBeNull();
     const row = await prisma.resume.findUnique({ where: { id: outcome.resumeId } });
     expect(row?.storageKey?.endsWith(".docx")).toBe(true);
+  });
+
+  it("4.10:z-order 乱序 PDF 上传 → originalText 以视觉顺序落库", async () => {
+    // 内容流逆序:Projects/Experience/Skills/Education/Zhang Wei Engineer(同行右侧条目在前)
+    const buffer = buildSimplePdf([
+      { x: 72, y: 580, text: "Projects" },
+      { x: 72, y: 620, text: "Experience" },
+      { x: 72, y: 660, text: "Skills" },
+      { x: 72, y: 700, text: "Education" },
+      { x: 180, y: 740, text: "Engineer" },
+      { x: 72, y: 740, text: "Zhang Wei" },
+    ]);
+    const storage = new FakeStorage();
+    const outcome = await handleResumeUpload({
+      userId,
+      file: makeFile("乱序.pdf", buffer),
+      storage,
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const row = await prisma.resume.findUnique({ where: { id: outcome.resumeId } });
+    const lines = (row?.originalText ?? "").split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    expect(lines).toEqual(["Zhang Wei Engineer", "Education", "Skills", "Experience", "Projects"]);
+  });
+
+  it("4.10:文本框逆序 DOCX 上传 → originalText 以视觉顺序落库", async () => {
+    // XML 逆序写入的文本框模板;视觉顺序:基本信息 → 项目经历 → 教育经历 → 技能 → 实习经历
+    const buffer = await buildTextboxDocx([
+      { yIn: 5.5, xIn: 0.4, text: "实习经历" },
+      { yIn: 4.0, xIn: 0.4, text: "技能" },
+      { yIn: 2.8, xIn: 0.4, text: "教育经历" },
+      { yIn: 2.0, xIn: 0.4, text: "项目经历" },
+      { yIn: 0.5, xIn: 0.4, text: "基本信息" },
+    ]);
+    const storage = new FakeStorage();
+    const outcome = await handleResumeUpload({
+      userId,
+      file: makeFile("模板简历.docx", buffer),
+      storage,
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const row = await prisma.resume.findUnique({ where: { id: outcome.resumeId } });
+    const order = (row?.originalText ?? "")
+      .split("\n\n")
+      .map((p) => p.trim())
+      .filter((p) => p !== "");
+    expect(order).toEqual(["基本信息", "项目经历", "教育经历", "技能", "实习经历"]);
+    expect(row?.originalText).not.toContain("DECOY");
   });
 
   it("两次上传 → 两个独立数据行与存储键(每次上传新行,不覆盖)", async () => {

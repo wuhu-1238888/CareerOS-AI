@@ -1,11 +1,14 @@
 // @vitest-environment node
 // 简历文本提取测试(4.2):中文 PDF / DOCX fixture 提取一致且无乱码、图片型 PDF → no-text、
-// .doc → doc-not-supported、其他类型 → unsupported、损坏文件 → invalid
+// .doc → doc-not-supported、其他类型 → unsupported、损坏文件 → invalid;
+// 4.10 修复:z-order 乱序 PDF / 文本框逆序 DOCX → 提取为视觉顺序
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { extractResumeText } from "../parser";
 import { SAMPLE_RESUME_TEXT } from "./fixtures/expected";
+import { buildSimplePdf } from "./fixtures/build-pdf";
+import { buildTextboxDocx } from "./fixtures/build-textbox-docx";
 
 const fixturesDir = path.join(__dirname, "fixtures");
 
@@ -88,5 +91,59 @@ describe("extractResumeText", () => {
       buffer: readFixture("sample-resume-cn.pdf"),
     });
     expect(result.ok).toBe(true);
+  });
+
+  it("4.10:z-order 乱序 PDF(内容流逆序)→ 提取为视觉顺序,同行按 x 拼接", async () => {
+    // 视觉顺序(上→下):Zhang Wei Engineer / Education / Skills / Experience / Projects;
+    // 内容流故意整体逆序(含同行条目逆序)写入,模拟简历工具按层叠序导出
+    const visualLines = [
+      { x: 72, y: 740, text: "Zhang Wei" },
+      { x: 180, y: 740, text: "Engineer" },
+      { x: 72, y: 700, text: "Education" },
+      { x: 72, y: 660, text: "Skills" },
+      { x: 72, y: 620, text: "Experience" },
+      { x: 72, y: 580, text: "Projects" },
+    ];
+    const result = await extractResumeText({
+      fileName: "乱序.pdf",
+      buffer: buildSimplePdf([...visualLines].reverse()),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const extracted = result.text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    expect(extracted).toEqual([
+      "Zhang Wei Engineer",
+      "Education",
+      "Skills",
+      "Experience",
+      "Projects",
+    ]);
+  });
+
+  it("4.10:文本框逆序 DOCX → 提取为视觉顺序,Fallback 诱饵不重复", async () => {
+    // 视觉顺序(上→下):基本信息 → 项目经历 → 教育经历 → 技能 → 实习经历;XML 故意逆序
+    const buffer = await buildTextboxDocx([
+      { yIn: 5.5, xIn: 0.4, text: "实习经历" },
+      { yIn: 4.0, xIn: 0.4, text: "技能" },
+      { yIn: 2.8, xIn: 0.4, text: "教育经历" },
+      { yIn: 2.0, xIn: 0.4, text: "项目经历" },
+      { yIn: 0.5, xIn: 0.4, text: "基本信息" },
+    ]);
+    const result = await extractResumeText({ fileName: "模板简历.docx", buffer });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const order = result.text.split("\n\n").map((p) => p.trim()).filter((p) => p !== "");
+    expect(order).toEqual(["基本信息", "项目经历", "教育经历", "技能", "实习经历"]);
+    expect(result.text).not.toContain("DECOY");
+  });
+
+  it("4.10:无文本框的普通 DOCX → 回退 mammoth,行为不变(回归)", async () => {
+    const result = await extractResumeText({
+      fileName: "简历.docx",
+      buffer: readFixture("sample-resume.docx"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(normalize(result.text)).toBe(normalize(SAMPLE_RESUME_TEXT));
   });
 });

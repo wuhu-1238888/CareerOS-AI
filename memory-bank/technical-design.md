@@ -737,3 +737,21 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 **前端消费**:核对表单按 sectionPlan 顺序渲染(工作/实习分开、自定义模块只读、缺失 kind → 虚拟分区置于已定位模块之后/目标方向之前);结果页「最终文本预览」直接渲染 version.finalText(与复制/导出同字符串)。plan 为 null 时回退固定 Schema 顺序(向后兼容)。
 
 **防乱序纪律**:finalText 合成内部按位置重排;sectionOrder 全程有序数组,不经过 Object.entries/Map 中转;顺序判定不依赖任何异步结果与 DB 查询顺序。
+
+## 十、M4 修订:提取层视觉排序(2026-08-22,任务 4.10 验收修复)
+
+**验收发现(真实 .docx)**:用户以真实 Word 简历验收,「最终文本预览」仍与原始简历模块顺序不一致。端到端定位证实:**乱序发生在提取层 A(originalText),sectionPlan/finalText/表单/复制/导出全部忠实继承**——构建链路无罪,是输入本身已乱序。
+
+**PDF 根因**:pdf-parse 默认 render_page 按内容流(z-order)顺序遍历 items,只在 y 精确相等时换行,无坐标排序;模板生成的 PDF 内容流与视觉顺序不一致 → 提取乱序。
+
+**DOCX 根因(实锤)**:简历模板用绝对定位文本框(wp:anchor)排版,document.xml 中文本框按反视觉顺序书写;mammoth 按文档顺序读 txbxContent → 乱序。真实文件解包:13 个 wp:anchor 文本框、XML 首框 y=10.49in(页面底部),按坐标排序后与视觉完全一致。
+
+**修复(提取层按视觉坐标重建阅读顺序,两种格式同构一次完成)**:
+
+- `src/lib/resume/parser.ts`:`sortPdfItemsByPosition`(y 降序、同行 x 升序、容差 3pt、CJK 相邻不补空格)+ 自定义 `pagerender` 传入 pdf-parse。
+- `src/lib/resume/docx-extract.ts`(新增):jszip 解包 + saxes 单遍解析 document.xml;每个 wp:anchor 记录 positionV/H(EMU 坐标),按 y 升序、x 升序组装;mc:Fallback 诱饵文本忽略;锚点前流式段落保持在文本框之前;无文本框 → no-textboxes → 回退 mammoth(既有行为不变)。
+- 依赖:jszip / saxes 显式写入 package.json dependencies(零新装)。
+
+**验证**:新增 20 个测试(pdf-position-sort 7 + docx-extract 8 + parser 集成 3 + upload 链路 2),全套 490/490(55 文件);真实 .docx spike 验证输出 = 视觉顺序(13 boxes、无重复、无 DECOY)。
+
+**已知取舍**:仅按框级坐标排序,框内多行按文档序(文本框内部分行罕见);align 型无 posOffset → y=null 置尾按文档序兜底;存量乱序行(4.10-fix 前上传)originalText 已落库乱序,不迁移,需重新上传。
