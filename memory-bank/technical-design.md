@@ -711,7 +711,9 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 ### 8.2 分析管线:进度落库 + 客户端轮询 + stale 判失败
 
-`profile.analyze` 为一次等待执行完成的 tRPC mutation:创建 AgentRun(running)→ Orchestrator 执行,进度事件经新增的 `onRunProgress` 回调**实时写入 `AgentRun.progress`(Json)**(管线内以 promise 链串行化读-改-写,防事件连发覆盖丢失;返回前等待全部落库)→ 完成写 succeeded/failed 并返回结果。客户端轮询 `profile.latestRun`(约 700ms)渲染进度条与文案轮播;页面刷新后按 run 恢复。**stale 判据**:`running 且 updatedAt > 2 分钟`(服务端进程被杀等中断)在查询层序列化为 failed「分析中断,请重试」,保证任何中断都有恢复路径。失败重试双通道:会话内用最近一次提交数据重放;刷新后 `profile.retry` 从 AgentRun.input 服务端重放(无需客户端回传数据)。
+`profile.analyze` 为一次等待执行完成的 tRPC mutation:创建 AgentRun(running)→ Orchestrator 执行,进度事件经新增的 `onRunProgress` 回调**实时写入 `AgentRun.progress`(Json)**(管线内以 promise 链串行化读-改-写,防事件连发覆盖丢失;返回前等待全部落库)→ 完成写 succeeded/failed 并返回结果。客户端轮询 `profile.latestRun`(约 700ms)渲染进度条与文案轮播;页面刷新后按 run 恢复。**stale 判据**(4.9 修订):`running 且 updatedAt > LLM_TIMEOUT_MS + 60s`(单次 LLM 调用已统一 3 分钟超时,超时即落 failed;健康 run 停更间隙不会超过超时,超过阈值仍 running 只可能是进程死亡)在查询层序列化为 failed「分析中断,请重试」,保证任何中断都有恢复路径。失败重试双通道:会话内用最近一次提交数据重放;刷新后 `profile.retry` 从 AgentRun.input 服务端重放(无需客户端回传数据)。
+
+**4.9 修订(简历改写状态卡死修复)**:mutation 响应不再是完成信号,视图完成判定改由轮询权威数据驱动(run 终态 + 落库版本,`resume-hub.tsx`);mutation 仅作触发与本次会话错误提示(且仅在权威无终态时展示)。`adapter.complete` 非流式阻塞调用统一 3 分钟超时(`createTimeoutSignal`,SDK 中止错误转 `LlmTimeoutError`「AI 响应超时,请重试」)。
 
 ### 8.3 纠偏交互:弹窗选择 + Toast + 全量重算(合并两文档要求)
 

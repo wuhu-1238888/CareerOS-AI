@@ -323,6 +323,7 @@
 | 4.6 | ATS 评分(规则 6 子分 60% + LLM 40% 合成、显式按钮触发、stale 重评提示) | ✅ | `42317bd` |
 | 4.7 | 导出(一键复制最终文本 + 客户端 PDF 生成,Noto Sans SC 中文、零采纳禁用) | ✅ | `f96806b` |
 | 4.8 | 简历优化页面修复与布局:改写 Agent 输入契约修复(原文入参)+ 校验逐条过滤 + 状态机修复(失败落库/行归属护栏/方向回填/防双击)+ 表单全宽 + 左旧右新对比卡 | ✅ | `0fe2de1` + `0b59d80` + `4e66ca1` |
+| 4.9 | 简历改写状态卡死修复:完成判定改由轮询权威数据驱动 + LLM 3 分钟超时(可重试失败)+ stale 阈值 = 超时 + 1 分钟余量 | ✅ | `4834aa3` + `847f651` |
 
 ## 主要修改
 
@@ -340,7 +341,8 @@
 
 ## 测试结果
 
-- 全套 **437/437(52 文件)全绿**(4.8 修订后);typecheck / lint / build 零错误
+- 全套 **443/443(52 文件)全绿**(4.9 修订后);typecheck / lint / build 零错误
+- 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
 - 4.1–4.7 新增 176 个测试:存储加解密 5 / 上传纯函数 5 / 数据层与端点 12 / parser 6 / Agent 样例集 27 / 管线(真实 DB)17 / final-text 12 / ats-rules 10 / 组件 52(上传 8、files 8、review 8、hub 14、card 8、result 9、ats-card 7、export 7);4.8 新增 11 个(final-text 3 / 管线 4 / 改写 agent 3 / hub 5 / review 1)
 - 测试驱动修正 3 处实现:方向词典包含匹配、Unicode 代码点计数、userEvent.setup 剪贴板桩时序
 - grep 红线:变更文件零硬编码色值、零渐变
@@ -352,3 +354,27 @@
 3. Noto Sans SC ~8MB×2 字体 commit(中文 PDF 渲染必需,OFL 许可,MVP 取舍,后续可子集化)
 4. 上传无流式(Route Handler formData 全量进内存,≤10MB 兜底)
 5. 真实 DeepSeek 连通与简历分析质量验证待用户提供 Key 后进行(与既有遗留 #1/#9 同源)
+
+## 2026-08 修订:简历改写状态卡死修复(任务 4.9)
+
+### 现象与根因
+
+「开始优化」后进度事件停在「正在分析…」不完成,刷新浏览器后结果正常出现。排查结论:
+
+1. **直接卡点**:rewrite 端点同步等待整条管线(`router.ts` `await rewriteResume` → Orchestrator → BaseAgent → `adapter.complete()` 非流式阻塞,base.ts:101 第 3 条事件「正在分析…」在调用前发出、之后无事件无心跳)。DeepSeek 大请求(20K 字输入 + 3-8 条长 JSON 输出)需数分钟,且 openai SDK 默认 10 分钟超时 + 2 次重试。
+2. **状态不同步机制**:完成信号唯一绑定 mutation promise(`rewriteSubmitted` 钉死分析视图分支);轮询有权威数据却只渲染进度、不参与完成判定。
+3. **刷新后正常的原因**:刷新 abort 前端请求,但 Next dev route handler 不监听 request.signal → 服务端管线继续跑完并落库;新页面从 DB 读最新 run/版本 → 恢复视图。时序证据(刷新时事件仍在轮播)表明管线在刷新时仍在执行,而非「早已完成但响应丢失」。
+4. **连带隐患**:serializeRun 固定 2 分钟 stale 阈值会把健康长 LLM 任务误报「分析中断」(只改显示不改 DB)。
+
+### 修复(方案 A 1+2+3)
+
+- **A1 权威状态驱动完成判定**(`resume-hub.tsx`):视图判定改由轮询数据驱动——run succeeded + 版本落库 → 结果视图;run failed → 权威失败视图(不等 mutation 返回);会话内 mutation 错误仅在权威无终态时展示;mutation 仅作触发。
+- **A2 LLM 超时**(`adapter.ts` + 三个适配器):`LLM_TIMEOUT_MS = 3 分钟`,`createTimeoutSignal`(AbortController + finally 释放),SDK 中止错误(APIUserAbortError/AbortError/TimeoutError)统一转 `LlmTimeoutError`(文案「AI 响应超时,请重试」)→ Orchestrator 映射 → run 落 failed 可重试。
+- **A3 stale 阈值**(`router.ts`):`RUN_STALE_MS = LLM_TIMEOUT_MS + 60s`。健康 run 的 updatedAt 停更间隙不会超过 LLM 超时(超时即落 failed),超过阈值仍 running 只可能是进程死亡。
+
+### 已知取舍(后续项)
+
+1. parse 流程(解析)沿用同一模式(submitted 驱动),本轮未对称修复,列为后续对称加固项
+2. A4 流式心跳(LLM 调用期间持续更新 run.updatedAt / 推送事件)未做——3 分钟超时内前端仍无新进度事件,靠超时 + stale 兜底
+3. 重新分析起点:旧 succeeded run + 版本存在时,点击「重新分析」到新 run 落库 running 之间,视图会短暂显示旧结果(≤1 个轮询周期,已接受)
+4. 测试发现:JS Date 经 Prisma `$executeRaw` 参数会在 UTC+8 机器上被按本地时区序列化(+8h 偏移);stale 测试改用 SQL 区间运算(相对行自身回拨)规避
