@@ -31,6 +31,9 @@ yarn-error.log*
 .env.*
 !.env.example
 
+# 简历文件本地存储(4.1,加密文件,不入库)
+/storage/
+
 # IDE / local tooling
 .idea/
 .vscode/

@@ -4,6 +4,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { getFileStorage } from "@/lib/file/storage";
 import type { Context } from "./context";
 import {
   profileDataSchema,
@@ -56,6 +57,20 @@ async function requireOwnedTask(
     throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
   }
   return task;
+}
+
+// 简历归属校验(4.1):不属于当前用户 → NOT_FOUND(不泄露他人简历存在性)
+async function requireOwnedResume(
+  ctx: { prisma: Context["prisma"]; userId: string },
+  resumeId: string
+) {
+  const resume = await ctx.prisma.resume.findFirst({
+    where: { id: resumeId, userId: ctx.userId },
+  });
+  if (!resume) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "简历不存在" });
+  }
+  return resume;
 }
 
 // 运行时读取最新画像的能力标签(3.4 路线图生成输入):aiAnalysis.abilityTags 防御解析,无画像/损坏 → []
@@ -715,6 +730,94 @@ export const appRouter = t.router({
           return { id: row.id, status: row.status };
         }),
     }),
+  }),
+
+  // 简历数据层(4.1):文件上传走 /api/resume/upload(自鉴权 Route Handler);解析/改写/评分管线 4.3 起接入
+  resume: t.router({
+    // 当前用户最新一份简历(元信息);从未上传 → null
+    get: protectedProcedure.query(async ({ ctx }) => {
+      return ctx.prisma.resume.findFirst({
+        where: { userId: ctx.userId },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          extractError: true,
+          createdAt: true,
+        },
+      });
+    }),
+
+    // 简历文件列表(设置页「简历文件管理」):仅元信息,下载走 /api/resume/download
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return ctx.prisma.resume.findMany({
+        where: { userId: ctx.userId },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          extractError: true,
+          createdAt: true,
+        },
+      });
+    }),
+
+    // 粘贴创建简历(4.1,PRD 3.3.3 粘贴路径):无文件建行;与上传一致,每次粘贴新增一行
+    createFromText: protectedProcedure
+      .input(
+        z.object({
+          text: z
+            .string()
+            .min(10, "简历内容至少 10 个字符")
+            .max(20000, "简历内容最多 20000 字"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const row = await ctx.prisma.resume.create({
+          data: { userId: ctx.userId, originalText: input.text.trim() },
+        });
+        return { id: row.id };
+      }),
+
+    // 提取失败后粘贴补全(4.2):写入原文并清除 extractError;清空旧解析结果防残留
+    pasteText: protectedProcedure
+      .input(
+        z.object({
+          resumeId: z.string().min(1),
+          text: z
+            .string()
+            .min(10, "简历内容至少 10 个字符")
+            .max(20000, "简历内容最多 20000 字"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireOwnedResume(ctx, input.resumeId);
+        const row = await ctx.prisma.resume.update({
+          where: { id: input.resumeId },
+          data: {
+            originalText: input.text.trim(),
+            extractError: null,
+            parsedData: Prisma.DbNull,
+          },
+        });
+        return { id: row.id };
+      }),
+
+    // 删除简历(4.1):先删 DB 行(版本/修改级联),再删存储文件(幂等,失败不阻断删除结果)
+    delete: protectedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const resume = await requireOwnedResume(ctx, input.id);
+        await ctx.prisma.resume.delete({ where: { id: input.id } });
+        if (resume.storageKey) {
+          await getFileStorage().delete(resume.storageKey).catch(() => undefined);
+        }
+        return { ok: true };
+      }),
   }),
 });
 

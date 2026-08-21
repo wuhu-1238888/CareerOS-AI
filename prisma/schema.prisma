@@ -122,24 +122,32 @@ model Resume {
   id           String   @id @default(cuid(2))
   userId       String   @map("user_id")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  originalText String   @map("original_text") @db.Text // 上传简历解析出的原文
+  originalText String?  @map("original_text") @db.Text // 上传简历解析出的原文(4.1:提取失败(如图片型 PDF)时为空,待粘贴补全)
   parsedData   Json?    @map("parsed_data") // 简历解析结果(Resume Agent parse 阶段)
+  fileName     String?  @map("file_name") // 原始文件名(粘贴路径为空)
+  mimeType     String?  @map("mime_type") // 原始文件 MIME(粘贴路径为空)
+  sizeBytes    Int?     @map("size_bytes") // 原始文件字节数(粘贴路径为空)
+  storageKey   String?  @map("storage_key") // 加密文件在 BlobStorage 中的键(粘贴路径为空)
+  extractError String?  @map("extract_error") // 文本提取失败原因码(no-text/unsupported/invalid),成功为空
   createdAt    DateTime @default(now()) @map("created_at")
 
   versions ResumeVersion[]
 
+  @@index([userId])
   @@map("resumes")
 }
 
 model ResumeVersion {
-  id              String   @id @default(cuid(2))
-  resumeId        String   @map("resume_id")
-  resume          Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  targetDirection String?  @map("target_direction") // 本次优化目标方向
-  optimizedText   String?  @map("optimized_text") @db.Text // 优化后全文
-  changes         Json     @default("{}") // 变更摘要(结构化,供前后对比)
-  atsScore        Int?     @map("ats_score") // ATS 评分(0~100)
-  createdAt       DateTime @default(now()) @map("created_at")
+  id              String    @id @default(cuid(2))
+  resumeId        String    @map("resume_id")
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  targetDirection String?   @map("target_direction") // 本次优化目标方向
+  optimizedText   String?   @map("optimized_text") @db.Text // 优化后全文(4.4 起:最终采纳文本由 accepted 片段合成,此列保留为快照)
+  changes         Json      @default("{}") // 变更摘要(结构化,供前后对比)
+  atsScore        Int?      @map("ats_score") // ATS 评分(0~100)
+  atsReport       Json?     @map("ats_report") // ATS 详细报告(规则子分/LLM 子分/建议/等级,4.6)
+  atsScoredAt     DateTime? @map("ats_scored_at") // ATS 评分时间(接受/拒绝改动后据此判定「需重新评分」)
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   optimizations Optimization[]
 
@@ -154,7 +162,10 @@ model Optimization {
   originalText    String?       @map("original_text")
   optimizedText   String?       @map("optimized_text")
   reason          String? // 修改理由(AI 解释,设计原则「可信」)
+  order           Int           @default(0) @map("order") // 展示顺序(按原文出现位置升序,4.4 落库)
+  status          String        @default("pending") @map("status") // pending / accepted / rejected(4.5 接受拒绝可撤销)
   createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
   @@map("optimizations")
 }
