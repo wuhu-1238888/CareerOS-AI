@@ -220,6 +220,14 @@
 - **tRPC `resume.rewrite`**:归属校验 → 原文缺失 BAD_REQUEST → rewriteResume → BAD_GATEWAY;返回 versionId/runId
 - 验证:改写样例集 3 份(含「无量化数据不虚构数字」边界标注)+ Agent 9 测试;final-text 12 纯函数测试(全 pending/全 accepted/混合/乱序/空白归一化替换/未匹配回退/重叠防御);管线 5 新增测试(事务落库/二次改写新版本快照/校验失败不落行/原文缺失/router 护栏);全套 364/364 + typecheck/lint 全绿
 
+### 任务 4.5 修改对比视图 + 状态持久化(2026-08-21,commit 见汇报)
+
+- **`resume-analysis-card.tsx`**(DesignSystem Resume Analysis Card 规格):修改前 sunken 底 + 左 3px hairline-strong 边(灰色引用块);修改后 green-50 底 + 左 3px green-600 边(绿边 = 建议采纳视觉语言),已拒绝态回灰(sunken + hairline-strong,恢复原文态);「为什么这样改」折叠 ai-insight(紫底 violet-50 + 左 3px violet-400 + AiBadge);状态徽章 待处理/已采纳/已拒绝;操作:待处理 → 接受(primary)/拒绝(ghost),已采纳/已拒绝 → 撤销(回 pending);AI 标记仅待处理态显示(DesignSystem L582 用户采纳后不再展示);全态零 danger 色/删除线
+- **`resume-result.tsx`**(全宽,画像结果页先例):Hero 行(AiBadge + 目标方向 + 更新时间)+ 采纳计数 + 工具条(全部接受 secondary,全部已采纳时禁用 / 重新分析 ghost / 修改信息 ghost);对比卡列表;单条状态变更与全部接受均走 mutation + 失效 resume.get,失败 toast
+- **tRPC**:`updateOptimization({ optimizationId, status: pending|accepted|rejected })`(归属链 optimization→resumeVersion→resume 校验,NOT_FOUND「修改建议不存在」)/ `acceptAll({ versionId })`(updateMany 整版 accepted,NOT_FOUND「优化版本不存在」);`get` 加 `version` 字段(最新 ResumeVersion + optimizations 按 order 升序,serializeVersion 防御序列化,Json 列保持原样读取方防御解析)
+- **状态机接入** `resume-hub.tsx`:开始优化 = saveParsedData + rewrite 触发改写 AnalysisView(简历优化师/Sparkles/editLabel「返回核对」);latestRun(intent: rewrite-resume) 独立轮询;会话内失败重试 = lastOptimizeInput 重跑改写;刷新后失败 run 重试无会话输入 → 返回核对表单(无 retryRewrite 端点,计划已定);「重新分析」用已保存核对结果 + 当前版本 targetDirection 再跑改写生成新版本;`resume-review.tsx` 加 `initialDirection` prop(返回核对时回填当前版本方向)
+- 验证:analysis-card 8 测试(三态/折叠 ai-insight/接受拒绝撤销回调/AI 标记时机/全态无红删除线与 danger 色);result 7 测试(渲染/全部接受成功失败/全部已采纳禁用/重新分析修改信息回调/单条接受/失败 toast);hub 新增 4 测试(开始优化→改写中/失败重试重跑/返回核对回填方向/结果视图/刷新恢复);管线 router 护栏 2 新增(updateOptimization 三态 + 越权、acceptAll + get.version 同步);全套 385/385 + typecheck/lint 全绿
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功

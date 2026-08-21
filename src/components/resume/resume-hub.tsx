@@ -2,15 +2,17 @@
 // 简历页状态枢纽(4.3):上传/粘贴 → AI 解析 → 核对修正。镜像 profile-hub 状态机:
 // 解析态统一轮询 resume.latestRun(intent: "parse-resume")(700ms,进度事件已随执行落库),刷新页面按最近 run 恢复;
 // 失败态「重试」:会话内直接重跑 parse(原文在库),刷新后服务端从 AgentRun.input 重放(retryParse);「重新上传」返回上传视图。
-// 4.4 起「开始优化」触发改写管线并进入结果阶段;4.5 接入 resume-result。
+// 4.4-4.5 优化阶段:「开始优化」保存核对结果并触发改写管线 → 改写中 AnalysisView(简历优化师)→ 成功后结果对比视图;
+// 会话内改写失败重试 = 用 lastOptimizeInput 重跑;刷新后无会话输入 → 重试返回核对表单(无 retryRewrite 端点,计划已定)。
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { FileText } from "lucide-react";
+import { FileText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { ResumeUpload } from "./resume-upload";
 import { ResumeReview } from "./resume-review";
+import { ResumeResult } from "./resume-result";
 import { AnalysisView } from "@/components/profile/analysis-view";
 import type { ParsedResume } from "@/lib/resume/analysis-schemas";
 
@@ -26,15 +28,25 @@ export function ResumeHub() {
   const parse = trpc.resume.parse.useMutation();
   const retryParse = trpc.resume.retryParse.useMutation();
   const saveParsed = trpc.resume.saveParsedData.useMutation();
+  const rewrite = trpc.resume.rewrite.useMutation();
 
-  // 本次会话提交状态:submitted=true 表示解析 mutation 在途;parseError 为失败文案(驱动失败视图);
+  // 解析会话状态:submitted=true 表示解析 mutation 在途;parseError 为失败文案(驱动失败视图);
   // uploadMode:用户主动返回上传视图(失败视图「重新上传」),忽略历史 failed run(刷新后仍按失败恢复)
   const [submitted, setSubmitted] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [uploadMode, setUploadMode] = useState(false);
   const finishedRef = useRef(false);
 
+  // 优化会话状态:rewriteSubmitted=改写 mutation 在途;rewriteError=失败文案;backToReview=返回核对表单;
+  // lastOptimizeInput 供会话内失败重试重跑(刷新后为 null → 重试回到核对表单)
+  const [rewriteSubmitted, setRewriteSubmitted] = useState(false);
+  const [rewriteError, setRewriteError] = useState<string | null>(null);
+  const [backToReview, setBackToReview] = useState(false);
+  const rewriteFinishedRef = useRef(false);
+  const lastOptimizeInput = useRef<{ parsed: ParsedResume; direction: string } | null>(null);
+
   const hasParsed = !!resume.data?.parsedData;
+  const hasVersion = !!resume.data?.version;
 
   // 跟踪最近一次解析 run:无解析结果(首建/恢复)或提交在途时启用;仅 running/在途时轮询 700ms
   const latestRun = trpc.resume.latestRun.useQuery(
@@ -46,7 +58,17 @@ export function ResumeHub() {
     }
   );
 
-  // 恢复路径:刷新后 run 已 succeeded(管线已完成)→ 刷新简历进入核对视图
+  // 跟踪最近一次改写 run:无优化版本或提交在途时启用
+  const latestRewrite = trpc.resume.latestRun.useQuery(
+    { intent: "rewrite-resume" },
+    {
+      enabled: !resume.isLoading && !!resume.data && (!hasVersion || rewriteSubmitted),
+      refetchInterval: (query) =>
+        rewriteSubmitted || query.state.data?.status === "running" ? 700 : false,
+    }
+  );
+
+  // 恢复路径(解析):刷新后 run 已 succeeded(管线已完成)→ 刷新简历进入核对视图
   useEffect(() => {
     if (!hasParsed && latestRun.data?.status === "succeeded" && !finishedRef.current) {
       finishedRef.current = true;
@@ -54,11 +76,23 @@ export function ResumeHub() {
     }
   }, [hasParsed, latestRun.data?.status, utils]);
 
-  // 简历行切换(重传/粘贴产生新行):清空解析会话痕迹
+  // 恢复路径(改写):刷新后 run 已 succeeded → 刷新简历进入结果视图
+  useEffect(() => {
+    if (!hasVersion && latestRewrite.data?.status === "succeeded" && !rewriteFinishedRef.current) {
+      rewriteFinishedRef.current = true;
+      void utils.resume.get.invalidate();
+    }
+  }, [hasVersion, latestRewrite.data?.status, utils]);
+
+  // 简历行切换(重传/粘贴产生新行):清空解析与优化会话痕迹
   useEffect(() => {
     finishedRef.current = false;
+    rewriteFinishedRef.current = false;
+    lastOptimizeInput.current = null;
     setParseError(null);
+    setRewriteError(null);
     setUploadMode(false);
+    setBackToReview(false);
   }, [resume.data?.id]);
 
   if (me.isLoading || resume.isLoading || profile.isLoading || !me.data) {
@@ -75,11 +109,21 @@ export function ResumeHub() {
   const failedRun =
     !uploadMode && !parseError && latestRun.data?.status === "failed" ? latestRun.data : null;
 
+  const rewriteRecovering = !rewriteError && latestRewrite.data?.status === "running";
+  const rewriteFailedRun =
+    !backToReview && !rewriteError && !hasVersion && latestRewrite.data?.status === "failed"
+      ? latestRewrite.data
+      : null;
+
   // 在途提交时忽略历史 run(避免把上次失败的旧 run 当作本次状态),等待轮询发现新 run
   const runForView =
     submitted && latestRun.data && latestRun.data.status !== "running"
       ? null
       : (latestRun.data ?? null);
+  const rewriteRunForView =
+    rewriteSubmitted && latestRewrite.data && latestRewrite.data.status !== "running"
+      ? null
+      : (latestRewrite.data ?? null);
 
   async function handleStartParse() {
     if (!resume.data?.id) return;
@@ -120,12 +164,68 @@ export function ResumeHub() {
     }
   }
 
-  // 「开始优化」(4.3):先把核对结果落库;4.4 起在此触发改写管线进入结果阶段
+  // 触发改写管线:保存会话输入供失败重试,轮询 latestRun(rewrite-resume) 直至落版本
+  async function runRewrite(parsed: ParsedResume, direction: string) {
+    if (!resume.data?.id) return;
+    rewriteFinishedRef.current = false;
+    lastOptimizeInput.current = { parsed, direction };
+    setBackToReview(false);
+    setRewriteError(null);
+    setRewriteSubmitted(true);
+    try {
+      await rewrite.mutateAsync({
+        resumeId: resume.data.id,
+        parsedData: parsed,
+        targetDirection: direction,
+      });
+      await utils.resume.get.invalidate();
+    } catch (err) {
+      setRewriteError(friendlyError(err));
+    } finally {
+      setRewriteSubmitted(false);
+    }
+  }
+
+  // 「开始优化」(4.4):先落核对结果,再触发改写进入结果阶段
   async function handleStartOptimize(parsed: ParsedResume, direction: string) {
     if (!resume.data?.id) return;
-    await saveParsed.mutateAsync({ resumeId: resume.data.id, parsedData: parsed });
-    await utils.resume.get.invalidate();
-    toast.info(`已保存(目标方向:${direction}),优化能力即将在下一步接入`);
+    try {
+      await saveParsed.mutateAsync({ resumeId: resume.data.id, parsedData: parsed });
+      await utils.resume.get.invalidate();
+    } catch (err) {
+      toast.error(friendlyError(err));
+      return;
+    }
+    await runRewrite(parsed, direction);
+  }
+
+  // 改写失败「重试」:会话内有输入直接重跑;刷新后无输入 → 返回核对表单重新发起
+  function handleRewriteRetry() {
+    const input = lastOptimizeInput.current;
+    if (input) {
+      void runRewrite(input.parsed, input.direction);
+      return;
+    }
+    setRewriteError(null);
+    setBackToReview(true);
+  }
+
+  // 「返回核对」:从改写失败视图回核对表单(回填当前版本目标方向,initialDirection)
+  function handleBackToReview() {
+    setRewriteError(null);
+    setBackToReview(true);
+  }
+
+  // 「重新分析」:用已保存的核对结果 + 当前版本目标方向再跑改写(生成新版本)
+  function handleReanalyze() {
+    const parsed = resume.data?.parsedData;
+    const version = resume.data?.version;
+    if (!parsed || !version) return;
+    if (!version.targetDirection) {
+      handleBackToReview();
+      return;
+    }
+    void runRewrite(parsed, version.targetDirection);
   }
 
   // careerPaths 为 Prisma Json 列(tRPC 序列化后为深递归类型),经 unknown 桥接避免 TS2589
@@ -141,6 +241,21 @@ export function ResumeHub() {
   } else if (!hasParsed && resume.data.extractError) {
     // 提取失败行(无原文,无法解析):粘贴补全或重传
     view = <ResumeUpload />;
+  } else if (rewriteSubmitted || rewriteRecovering || rewriteError) {
+    // 改写流程:提交在途 / 轮询 running / 本次会话失败(优先级高于解析与核对视图)
+    view = (
+      <AnalysisView
+        run={rewriteRunForView}
+        error={rewriteError}
+        onRetry={handleRewriteRetry}
+        onEdit={handleBackToReview}
+        agentName="简历优化师"
+        icon={Sparkles}
+        runningDescription="正在逐段优化你的简历表达,围绕目标方向重建叙事"
+        failedDescription="这次优化没有完成,你可以重试或返回核对信息"
+        editLabel="返回核对"
+      />
+    );
   } else if (submitted || recovering || parseError) {
     // 解析在途或本次会话失败:优先级高于核对视图
     view = (
@@ -196,12 +311,39 @@ export function ResumeHub() {
         </div>
       );
     }
+  } else if (rewriteFailedRun) {
+    // 刷新后恢复历史失败改写 run(无版本):失败视图;重试无会话输入 → 返回核对表单
+    view = (
+      <AnalysisView
+        run={rewriteFailedRun}
+        error={rewriteFailedRun.error}
+        onRetry={handleRewriteRetry}
+        onEdit={handleBackToReview}
+        agentName="简历优化师"
+        icon={Sparkles}
+        runningDescription="正在逐段优化你的简历表达,围绕目标方向重建叙事"
+        failedDescription="这次优化没有完成,你可以重试或返回核对信息"
+        editLabel="返回核对"
+      />
+    );
+  } else if (resume.data.version && !backToReview) {
+    // 优化结果:对比卡列表 + 工具条(4.5)
+    view = (
+      <ResumeResult
+        version={resume.data.version}
+        onReanalyze={handleReanalyze}
+        onEdit={handleBackToReview}
+      />
+    );
   } else {
-    // 解析完成:核对修正 + 目标方向选择 + 开始优化
+    // 解析完成:核对修正 + 目标方向选择 + 开始优化(返回核对时回填当前版本方向)
     view = (
       <ResumeReview
         resumeId={resume.data.id}
         initial={resume.data.parsedData}
+        initialDirection={
+          backToReview ? (resume.data.version?.targetDirection ?? undefined) : undefined
+        }
         careerPaths={careerPaths}
         onStartOptimize={handleStartOptimize}
       />

@@ -76,6 +76,76 @@ async function requireOwnedResume(
   return resume;
 }
 
+// 修改建议归属校验(4.5):optimization → resumeVersion → resume 链路属于当前用户
+async function requireOwnedOptimization(
+  ctx: { prisma: Context["prisma"]; userId: string },
+  optimizationId: string
+) {
+  const optimization = await ctx.prisma.optimization.findFirst({
+    where: { id: optimizationId, resumeVersion: { resume: { userId: ctx.userId } } },
+  });
+  if (!optimization) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "修改建议不存在" });
+  }
+  return optimization;
+}
+
+// 优化版本归属校验(4.5):resumeVersion → resume 链路属于当前用户
+async function requireOwnedVersion(
+  ctx: { prisma: Context["prisma"]; userId: string },
+  versionId: string
+) {
+  const version = await ctx.prisma.resumeVersion.findFirst({
+    where: { id: versionId, resume: { userId: ctx.userId } },
+  });
+  if (!version) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "优化版本不存在" });
+  }
+  return version;
+}
+
+// 优化版本序列化(4.5):仅返回最新版本 + 按 order 升序的建议列表;changes/atsReport 保持 Json 原样(读取方防御解析)
+function serializeVersion(version: {
+  id: string;
+  targetDirection: string | null;
+  changes: unknown;
+  atsScore: number | null;
+  atsReport: unknown;
+  atsScoredAt: Date | null;
+  createdAt: Date;
+  optimizations: {
+    id: string;
+    category: string | null;
+    originalText: string | null;
+    optimizedText: string | null;
+    reason: string | null;
+    order: number;
+    status: string;
+    updatedAt: Date;
+  }[];
+} | null) {
+  if (!version) return null;
+  return {
+    id: version.id,
+    targetDirection: version.targetDirection,
+    changes: version.changes,
+    atsScore: version.atsScore,
+    atsReport: version.atsReport,
+    atsScoredAt: version.atsScoredAt,
+    createdAt: version.createdAt,
+    optimizations: version.optimizations.map((o) => ({
+      id: o.id,
+      category: o.category,
+      originalText: o.originalText,
+      optimizedText: o.optimizedText,
+      reason: o.reason,
+      order: o.order,
+      status: o.status,
+      updatedAt: o.updatedAt,
+    })),
+  };
+}
+
 // 运行时读取最新画像的能力标签(3.4 路线图生成输入):aiAnalysis.abilityTags 防御解析,无画像/损坏 → []
 async function readAbilityTags(ctx: { prisma: Context["prisma"]; userId: string }) {
   const profile = await ctx.prisma.careerProfile.findFirst({
@@ -737,7 +807,7 @@ export const appRouter = t.router({
 
   // 简历数据层(4.1):文件上传走 /api/resume/upload(自鉴权 Route Handler);解析/改写/评分管线 4.3 起接入
   resume: t.router({
-    // 当前用户最新一份简历(元信息 + 解析结果,防御解析);从未上传 → null
+    // 当前用户最新一份简历(元信息 + 解析结果 + 最新优化版本,防御解析);从未上传 → null
     get: protectedProcedure.query(async ({ ctx }) => {
       const row = await ctx.prisma.resume.findFirst({
         where: { userId: ctx.userId },
@@ -754,7 +824,16 @@ export const appRouter = t.router({
       });
       if (!row) return null;
       const { parsedData, ...meta } = row;
-      return { ...meta, parsedData: parseParsedData(parsedData) };
+      const versionRow = await ctx.prisma.resumeVersion.findFirst({
+        where: { resumeId: row.id },
+        orderBy: { createdAt: "desc" },
+        include: { optimizations: { orderBy: { order: "asc" } } },
+      });
+      return {
+        ...meta,
+        parsedData: parseParsedData(parsedData),
+        version: serializeVersion(versionRow),
+      };
     }),
 
     // 简历文件列表(设置页「简历文件管理」):仅元信息,下载走 /api/resume/download
@@ -906,6 +985,35 @@ export const appRouter = t.router({
           throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
         }
         return { versionId: outcome.versionId, runId: outcome.runId };
+      }),
+
+    // 单条修改建议状态(4.5):pending/accepted/rejected 三态切换(接受/拒绝/撤销),归属链校验
+    updateOptimization: protectedProcedure
+      .input(
+        z.object({
+          optimizationId: z.string().min(1),
+          status: z.enum(["pending", "accepted", "rejected"]),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireOwnedOptimization(ctx, input.optimizationId);
+        const row = await ctx.prisma.optimization.update({
+          where: { id: input.optimizationId },
+          data: { status: input.status },
+        });
+        return { id: row.id, status: row.status };
+      }),
+
+    // 全部接受(4.5):用户显式操作,整版置为 accepted(最终采纳文本由 accepted 片段合成)
+    acceptAll: protectedProcedure
+      .input(z.object({ versionId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireOwnedVersion(ctx, input.versionId);
+        await ctx.prisma.optimization.updateMany({
+          where: { resumeVersionId: input.versionId },
+          data: { status: "accepted" },
+        });
+        return { ok: true };
       }),
 
     // 最近一次简历任务 run(4.3):页面轮询(700ms)与刷新恢复的统一入口;按 intent 参数化,与画像/路线图 latestRun 同构

@@ -46,6 +46,7 @@ export function ResumeReview({
   initial,
   careerPaths,
   onStartOptimize,
+  initialDirection,
 }: {
   resumeId: string;
   initial: ParsedResume | null;
@@ -53,12 +54,14 @@ export function ResumeReview({
   careerPaths: string[];
   /** 「开始优化」:已保存的核对结果 + 目标方向交由 Hub 触发改写(4.4 起) */
   onStartOptimize: (parsed: ParsedResume, direction: string) => Promise<void>;
+  /** 4.5 结果页「修改信息」返回时回填的目标方向(当前版本方向,优先于画像首选) */
+  initialDirection?: string;
 }) {
   const utils = trpc.useUtils();
   const saveParsed = trpc.resume.saveParsedData.useMutation();
   const [data, setData] = useState<ParsedResume>(() => initial ?? emptyParsed());
   const [skillsText, setSkillsText] = useState(() => (initial?.skills ?? []).join("\n"));
-  const [direction, setDirection] = useState(() => careerPaths[0] ?? "");
+  const [direction, setDirection] = useState(() => initialDirection ?? careerPaths[0] ?? "");
   const [directionError, setDirectionError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);

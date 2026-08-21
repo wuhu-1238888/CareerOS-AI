@@ -366,3 +366,66 @@ describe("resume.rewrite 护栏(router 层,4.4)", () => {
     });
   });
 });
+
+describe("resume.updateOptimization / acceptAll(router 层,4.5)", () => {
+  it("updateOptimization:接受/撤销三态切换;未登录/越权/不存在 → 护栏", async () => {
+    // A 的第二个版本(「Java 后端」)已由 4.4 测试建立,取其一建议操作
+    const version = await prisma.resumeVersion.findFirst({
+      where: { resumeId: resumeIdA },
+      orderBy: { createdAt: "desc" },
+    });
+    const opt = await prisma.optimization.findFirst({
+      where: { resumeVersionId: version!.id },
+      orderBy: { order: "asc" },
+    });
+    const accepted = await caller(userIdA).resume.updateOptimization({
+      optimizationId: opt!.id,
+      status: "accepted",
+    });
+    expect(accepted.status).toBe("accepted");
+    // 撤销:回到 pending
+    const undone = await caller(userIdA).resume.updateOptimization({
+      optimizationId: opt!.id,
+      status: "pending",
+    });
+    expect(undone.status).toBe("pending");
+
+    await expect(
+      caller(null).resume.updateOptimization({ optimizationId: opt!.id, status: "accepted" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    // 他人建议 → NOT_FOUND(不泄露存在性)
+    await expect(
+      caller(userIdB).resume.updateOptimization({ optimizationId: opt!.id, status: "accepted" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: "修改建议不存在" });
+    await expect(
+      caller(userIdA).resume.updateOptimization({ optimizationId: "nonexistent", status: "accepted" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: "修改建议不存在" });
+  });
+
+  it("acceptAll:整版置 accepted 且 get.version 同步;未登录/越权/不存在 → 护栏", async () => {
+    const version = await prisma.resumeVersion.findFirst({
+      where: { resumeId: resumeIdA },
+      orderBy: { createdAt: "desc" },
+    });
+    expect((await caller(userIdA).resume.acceptAll({ versionId: version!.id })).ok).toBe(true);
+    const opts = await prisma.optimization.findMany({ where: { resumeVersionId: version!.id } });
+    expect(opts.every((o) => o.status === "accepted")).toBe(true);
+    // get 返回 version 且状态同步(前端结果视图数据源)
+    const get = await caller(userIdA).resume.get();
+    expect(get?.version?.id).toBe(version!.id);
+    expect(get?.version?.targetDirection).toBe(version!.targetDirection);
+    expect(get?.version?.optimizations.every((o) => o.status === "accepted")).toBe(true);
+
+    await expect(caller(null).resume.acceptAll({ versionId: version!.id })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(caller(userIdB).resume.acceptAll({ versionId: version!.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "优化版本不存在",
+    });
+    await expect(caller(userIdA).resume.acceptAll({ versionId: "nonexistent" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "优化版本不存在",
+    });
+  });
+});
