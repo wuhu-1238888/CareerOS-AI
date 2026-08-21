@@ -211,6 +211,15 @@
 - `analysis-view.tsx` 仅新增可选 `editLabel` prop(默认「修改信息」),画像/路线图既有行为零变化
 - 验证:Agent 样例集 3 份手工标注(后端/前端应届/产品)+ 9 测试;管线真实 DB 9 测试(成功落库/失败不落/截断/防御解析/router 护栏/latestRun intent 隔离);review 8 + hub 10 组件测试;全套 338/338 + typecheck/lint 全绿
 
+### 任务 4.4 改写 Agent(2026-08-21,commit `a82fb39`)
+
+- **Prompt** `resume-rewrite.md`:简历优化师角色;硬约束优先级最高——①originalText 必须逐字摘抄原文连续片段(系统逐字校验,失败丢弃全部建议)②不改事实只重建叙事 ③无量化数据时禁止虚构数字(原文已有数字可复用,不得改变数值)④不夸大不杜撰不承诺就业;category 六类(基本信息/教育经历/技能/工作经历/实习经历/项目经历);3-8 条
+- **final-text.ts**(纯函数无 node 依赖,前后端共用):`validateModifications`(逐字存在/空白归一化/区间互不重叠/按位置升序)与 `buildFinalResumeText`(原文中按 status=accepted 片段精确替换,pending/rejected 保持原文;空白归一化定位 + 重叠防御跳过;未命中回退原文)——对比视图/ATS/导出全链路共用,杜绝三份推导漂移
+- **ResumeRewriteAgent**(intent `rewrite-resume`):输入 = 核对后 parsedData + 画像能力标签(router 侧 readAbilityTags)+ 目标方向;`agents/index.ts` 注册
+- **rewriteResume 管线**:原文缺失兜底失败;Agent 输出 → validateModifications 失败整次不落行;事务内建不可变 ResumeVersion(targetDirection/changes 摘要)+ Optimization 批量(order 按原文位置升序,status 默认 pending)——重新分析 = 新版本
+- **tRPC `resume.rewrite`**:归属校验 → 原文缺失 BAD_REQUEST → rewriteResume → BAD_GATEWAY;返回 versionId/runId
+- 验证:改写样例集 3 份(含「无量化数据不虚构数字」边界标注)+ Agent 9 测试;final-text 12 纯函数测试(全 pending/全 accepted/混合/乱序/空白归一化替换/未匹配回退/重叠防御);管线 5 新增测试(事务落库/二次改写新版本快照/校验失败不落行/原文缺失/router 护栏);全套 364/364 + typecheck/lint 全绿
+
 ## 已解决的问题
 
 - EDB 安装器中文用户名路径 bug → `TEMP=C:\pgtmp` 后安装成功
