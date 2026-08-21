@@ -723,3 +723,17 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 `Orchestrator.run` 的 RunAgentParams 新增 `onRunProgress?: (runId, progress) => void`,在既有 `onProgress` 链路上挂接,由 runId 定位 AgentRun 行写进度(见 8.2)。此为 Agent 框架面向「进度持久化」的最小扩展点;后续模块(3.x/4.x)复用同一机制。
 
+
+## 九、M4 补记:简历模块顺序保真(2026-08-22,任务 4.10)
+
+**设计原则(用户确认)**:Schema 定义「模块是什么」;sectionOrder/originalIndex 定义「用户原本放在哪里」;AI 决定「内容如何优化」;最终文本生成器「按用户原始顺序输出」。最终文本顺序严格 = 用户原始简历模块顺序,Schema 顺序只用于内部结构定义,不用于排序。
+
+**三层各司其职**:
+
+1. **顺序权威 = 原文物理顺序**:`buildFinalResumeText` 在 originalText 上按位置升序原位替换 —— 顺序构造性保真,零排序逻辑,AI 输出不参与顺序判定。
+2. **检测层(纯函数,确定性)**:`src/lib/resume/section-order.ts` —— `detectSections` 行级扫描(整行标题 + 同行冒号前缀两种形式;归一化后精确匹配词典,防「办公软件技能」类误判;自定义模块词典 + 原文逐字切片)→ `buildSectionPlan`(无标题模块用字段值经 findRawRange 在原文锚定;条目按内容位置归组到各出现;锚定失败 UNLOCATED 哨兵置尾)。
+3. **存储与读取**:`Resume.sectionOrder` Json 快照(3 入库点:upload/createFromText/pasteText 写入检测结果);`resume.get` 读取时派生 `sectionPlan`(防御解析,快照非法 → 现场重算兜底)。content/items/锚定均为读取时派生,快照只存结构。
+
+**前端消费**:核对表单按 sectionPlan 顺序渲染(工作/实习分开、自定义模块只读、缺失 kind → 虚拟分区置于已定位模块之后/目标方向之前);结果页「最终文本预览」直接渲染 version.finalText(与复制/导出同字符串)。plan 为 null 时回退固定 Schema 顺序(向后兼容)。
+
+**防乱序纪律**:finalText 合成内部按位置重排;sectionOrder 全程有序数组,不经过 Object.entries/Map 中转;顺序判定不依赖任何异步结果与 DB 查询顺序。

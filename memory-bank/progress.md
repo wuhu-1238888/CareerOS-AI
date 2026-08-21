@@ -324,6 +324,7 @@
 | 4.7 | 导出(一键复制最终文本 + 客户端 PDF 生成,Noto Sans SC 中文、零采纳禁用) | ✅ | `f96806b` |
 | 4.8 | 简历优化页面修复与布局:改写 Agent 输入契约修复(原文入参)+ 校验逐条过滤 + 状态机修复(失败落库/行归属护栏/方向回填/防双击)+ 表单全宽 + 左旧右新对比卡 | ✅ | `0fe2de1` + `0b59d80` + `4e66ca1` |
 | 4.9 | 简历改写状态卡死修复:完成判定改由轮询权威数据驱动 + LLM 3 分钟超时(可重试失败)+ stale 阈值 = 超时 + 1 分钟余量 | ✅ | `4834aa3` + `847f651` |
+| 4.10 | 简历模块顺序保真:detectSections/buildSectionPlan 确定性检测 + Resume.sectionOrder 快照 + 表单按原文顺序渲染(自定义只读/工作实习分开)+ 结果页最终文本预览面板 | ✅ | `30de79b` + `70f8bb1` + `47d2eb7` |
 
 ## 主要修改
 
@@ -334,6 +335,7 @@
 - **tRPC**:resume 子 router 11 端点(get/list/upload 流程经 Route Handler/createFromText/pasteText/delete/parse/retryParse/saveParsedData/latestRun/rewrite/updateOptimization/acceptAll/scoreAts + 下载端点),全部归属链校验
 - **前端**:resume-hub 五阶段状态机 / resume-upload / resume-review / resume-result / resume-analysis-card / resume-ats-card / resume-export + resume-pdf-document
 - **最终文本单一事实源**:`buildFinalResumeText`(4.4)由对比视图/ATS/导出三处共用,永不漂移
+- **模块顺序保真**(4.10):`detectSections` 行级标题检测(整行 + 同行冒号前缀,归一化精确匹配词典)/ `buildSectionPlan`(无标题模块按字段值锚定 + 条目归组)/ `Resume.sectionOrder` Json 快照(3 入库点)/ 表单按 plan 渲染 / 结果页最终文本预览面板(与复制同字符串)
 
 ## 修改文件
 
@@ -341,7 +343,8 @@
 
 ## 测试结果
 
-- 全套 **443/443(52 文件)全绿**(4.9 修订后);typecheck / lint / build 零错误
+- 全套 **470/470(53 文件)全绿**(4.10 修订后);typecheck / lint / build 零错误
+- 4.10 新增 27 个测试:section-order 22(标准顺序/归一化/同行标题/自定义切片/同形误判/无标题锚定/工作实习拆分/合并标题/多项目分区/stored 优先/兜底)+ 数据层 2(sectionOrder 入库 + sectionPlan 返回)+ review plan 模式 3 + result 预览面板 2
 - 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
 - 4.1–4.7 新增 176 个测试:存储加解密 5 / 上传纯函数 5 / 数据层与端点 12 / parser 6 / Agent 样例集 27 / 管线(真实 DB)17 / final-text 12 / ats-rules 10 / 组件 52(上传 8、files 8、review 8、hub 14、card 8、result 9、ats-card 7、export 7);4.8 新增 11 个(final-text 3 / 管线 4 / 改写 agent 3 / hub 5 / review 1)
 - 测试驱动修正 3 处实现:方向词典包含匹配、Unicode 代码点计数、userEvent.setup 剪贴板桩时序
@@ -378,3 +381,32 @@
 2. A4 流式心跳(LLM 调用期间持续更新 run.updatedAt / 推送事件)未做——3 分钟超时内前端仍无新进度事件,靠超时 + stale 兜底
 3. 重新分析起点:旧 succeeded run + 版本存在时,点击「重新分析」到新 run 落库 running 之间,视图会短暂显示旧结果(≤1 个轮询周期,已接受)
 4. 测试发现:JS Date 经 Prisma `$executeRaw` 参数会在 UTC+8 机器上被按本地时区序列化(+8h 偏移);stale 测试改用 SQL 区间运算(相对行自身回拨)规避
+
+## 2026-08 修订:简历模块顺序保真(任务 4.10)
+
+### 现象与根因
+
+简历优化完成后点「复制最终文本」,复制出的模块顺序与用户原始简历不一致(如原始 基本信息→教育→技能→工作/实习→项目,复制出来变成 项目→工作/实习→技能→教育)。排查结论:
+
+1. **复制文本顺序 = originalText 原文顺序**:`buildFinalResumeText` 在原文上按位置升序原位替换(构造性保序);顺序错乱来自 PDF 提取阶段(pdf-parse 按内容流顺序,可能≠视觉顺序)。
+2. **页面表单顺序 = parsedData 固定 Schema 顺序**:核对表单按 schema 写死顺序渲染;两套数据源互不约束 → 脱节。AI 层/后端排序层无罪(validateModifications 按位置排序,不改变模块相对顺序)。
+3. 附带发现:目标方向不入 finalText、表单修正不回写 originalText。
+
+### 产品规则(用户确认)
+
+Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放在哪里」;AI 决定「如何优化内容」;最终文本生成器「按用户原始顺序输出」。最终文本顺序必须严格 = 用户原始简历模块顺序,Schema 顺序不用于排序。
+
+### 修复(方案 A′)
+
+- **finalText 零改动**:继续原文原位替换,顺序天然保真。
+- **确定性检测(纯函数,不靠 AI 报顺序)**:`detectSections`(行级扫描,整行 + 同行冒号前缀两种标题形式,归一化后精确匹配词典防「办公软件技能」误判;自定义模块词典 + 原文切片)→ `buildSectionPlan`(无标题模块按字段值 findRawRange 锚定;条目按内容位置归组到各出现;锚定失败置已定位模块之后 UNLOCATED 兜底)。
+- **落库快照**:`Resume.sectionOrder` Json 列,3 个入库点(upload/createFromText/pasteText)写入;`resume.get` 读取时派生 `sectionPlan`(快照非法 → 现场重算兜底,`parseStoredSections` 防御解析)。
+- **表单按 plan 渲染**:`resume-review.tsx` buildBlocks 按 plan 顺序(缺失 kind → 虚拟分区置于已定位模块之后、目标方向之前,唯一例外已文档化);自定义模块只读(标题 + 原文);工作/实习经历分开展示(条目按 plan.items 归组,index-groups 本地 state:删除平移/添加追加);多技能分区合并为单编辑器置首个出现;多基本信息取首个出现;plan 为 null → 回退固定 Schema 顺序(向后兼容)。
+- **结果页预览面板**:`resume-result.tsx` Hero 下新增「最终文本预览」直接渲染 `version.finalText`(与复制/导出同一字符串,用户复制前可见实际输出)。
+
+### 已知取舍(后续项)
+
+1. 同一学校/公司/项目名在原文多次出现(如同一大学两段学历)时,归组取首次命中位置 —— 罕见且仅影响表单分区归属,不破坏原文顺序
+2. 两个同 type 经历分区(如两段「工作经历」标题)罕见场景:条目按 type 归入首个同 type 分区,后一分区为空编辑器 —— 分区卡片仍按原文位置渲染,顺序不破坏
+3. 多技能分区合并为单编辑器(置于首个出现),多基本信息取首个出现 —— 已文档化简化
+4. parse 阶段(解析)状态机沿用 submitted 驱动(4.9 遗留,未对称修复)
