@@ -5,9 +5,17 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
-import { MAX_RESUME_TEXT_FOR_LLM, parseParsedData, parseResume, rewriteResume } from "../pipeline";
+import {
+  MAX_RESUME_TEXT_FOR_LLM,
+  parseParsedData,
+  parseResume,
+  rewriteResume,
+  scoreAts,
+} from "../pipeline";
+import { scoreRuleSubscores, synthesizeAtsScore } from "../ats-rules";
 import { resumeParseSamples } from "@/lib/agents/__tests__/resume-parse-samples";
 import { resumeRewriteSamples } from "@/lib/agents/__tests__/resume-rewrite-samples";
+import { resumeAtsSamples } from "@/lib/agents/__tests__/resume-ats-samples";
 import { createCaller } from "@/lib/trpc/router";
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -426,6 +434,147 @@ describe("resume.updateOptimization / acceptAll(router 层,4.5)", () => {
     await expect(caller(userIdA).resume.acceptAll({ versionId: "nonexistent" })).rejects.toMatchObject({
       code: "NOT_FOUND",
       message: "优化版本不存在",
+    });
+  });
+});
+
+describe("scoreAts 管线(4.6,真实写库)", () => {
+  const atsSample = resumeAtsSamples.find((s) => s.id === "backend-engineer")!;
+  // 4.4 已为 A 建立两个版本:旧版(后端开发工程师,建议全 pending)与新版(Java 后端,已被 4.5 acceptAll)
+  let versionId = "";
+  const adapter = () => new MockAdapter(0, () => JSON.stringify(atsSample.mockOutput));
+  const expectedReport = () => {
+    const rule = scoreRuleSubscores(atsSample.input.finalText, atsSample.input.targetDirection);
+    return synthesizeAtsScore(rule, atsSample.mockOutput.llmSubscores);
+  };
+
+  it("成功:合成总分与报告落库(规则分确定性 + LLM 5/5)+ run succeeded 含 5 条进度", async () => {
+    const version = await prisma.resumeVersion.findFirst({
+      where: { resumeId: resumeIdA },
+      orderBy: { createdAt: "asc" },
+    });
+    versionId = version!.id;
+    const outcome = await scoreAts({
+      userId: userIdA,
+      versionId,
+      finalText: atsSample.input.finalText,
+      targetDirection: atsSample.input.targetDirection,
+      adapter: adapter(),
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+
+    const expected = expectedReport();
+    expect(outcome.report.total).toBe(expected.total);
+    expect(outcome.report.ruleScore).toBe(expected.ruleScore);
+    expect(outcome.report.level).toBe(expected.level);
+
+    const row = await prisma.resumeVersion.findUnique({ where: { id: versionId } });
+    expect(row?.atsScore).toBe(expected.total);
+    expect(row?.atsScoredAt).not.toBeNull();
+    const report = row?.atsReport as {
+      total: number;
+      level: string;
+      ruleScore: number;
+      suggestions: unknown[];
+    } | null;
+    expect(report?.total).toBe(expected.total);
+    expect(report?.level).toBe(expected.level);
+    expect(report?.ruleScore).toBe(expected.ruleScore);
+    expect(report?.suggestions).toHaveLength(atsSample.expectedSuggestionCount);
+
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("succeeded");
+    expect(run?.intent).toBe("score-ats");
+    expect((run?.progress as { stage: string }[]).map((p) => p.stage)).toEqual([
+      "start",
+      "prompt",
+      "llm",
+      "parse",
+      "done",
+    ]);
+    expect((run?.input as { finalText: string }).finalText).toBe(atsSample.input.finalText);
+  });
+
+  it("同一输入两次评分:分差 0(≤10 验收;规则确定性 + Mock 同回放)", async () => {
+    const first = await scoreAts({
+      userId: userIdA,
+      versionId,
+      finalText: atsSample.input.finalText,
+      targetDirection: atsSample.input.targetDirection,
+      adapter: adapter(),
+    });
+    const second = await scoreAts({
+      userId: userIdA,
+      versionId,
+      finalText: atsSample.input.finalText,
+      targetDirection: atsSample.input.targetDirection,
+      adapter: adapter(),
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) throw new Error("unreachable");
+    expect(Math.abs(second.report.total - first.report.total)).toBe(0);
+    // 两次均落库为同一总分
+    const row = await prisma.resumeVersion.findUnique({ where: { id: versionId } });
+    expect(row?.atsScore).toBe(first.report.total);
+  });
+
+  it("LLM 失败:不覆盖旧评分(atsScore/atsReport 保持上次值)", async () => {
+    const before = await prisma.resumeVersion.findUnique({ where: { id: versionId } });
+    const junk = new MockAdapter(0, () => "这不是 JSON");
+    const outcome = await scoreAts({
+      userId: userIdA,
+      versionId,
+      finalText: atsSample.input.finalText,
+      targetDirection: atsSample.input.targetDirection,
+      adapter: junk,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.error).toBe("AI 返回了无法识别的结果,请稍后重试");
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("failed");
+    const after = await prisma.resumeVersion.findUnique({ where: { id: versionId } });
+    expect(after?.atsScore).toBe(before?.atsScore);
+    expect(after?.atsReport).toEqual(before?.atsReport);
+  });
+});
+
+describe("resume.scoreAts 护栏(router 层,4.6)", () => {
+  it("未登录 → UNAUTHORIZED;越权/不存在 → NOT_FOUND;无方向/原文缺失 → BAD_REQUEST", async () => {
+    const versionA = await prisma.resumeVersion.findFirst({
+      where: { resumeId: resumeIdA },
+      orderBy: { createdAt: "asc" },
+    });
+    await expect(caller(null).resume.scoreAts({ versionId: versionA!.id })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(caller(userIdB).resume.scoreAts({ versionId: versionA!.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "优化版本不存在",
+    });
+    await expect(caller(userIdA).resume.scoreAts({ versionId: "nonexistent" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "优化版本不存在",
+    });
+    // 目标方向缺失的版本(直接造行,随用户级联删除清理)
+    const noDirection = await prisma.resumeVersion.create({
+      data: { resumeId: resumeIdA, targetDirection: null },
+    });
+    await expect(caller(userIdA).resume.scoreAts({ versionId: noDirection.id })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "优化版本缺少目标方向,请重新分析",
+    });
+    // 原文缺失的简历上的版本 → 原文缺失 BAD_REQUEST
+    const brokenResume = await prisma.resume.findFirst({ where: { userId: userIdD } });
+    const brokenVersion = await prisma.resumeVersion.create({
+      data: { resumeId: brokenResume!.id, targetDirection: "后端开发工程师" },
+    });
+    await expect(
+      caller(userIdD).resume.scoreAts({ versionId: brokenVersion.id })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "简历原文缺失,请重新上传或粘贴简历内容",
     });
   });
 });

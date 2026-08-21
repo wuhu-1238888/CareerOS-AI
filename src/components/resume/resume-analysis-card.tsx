@@ -16,6 +16,8 @@ export type AnalysisCardOptimization = {
   optimizedText: string | null;
   reason: string | null;
   status: string;
+  /** 状态最后变更时间(ISO 字符串,服务端落库);ATS stale 判定(改动晚于评分)在结果视图使用 */
+  updatedAt: string;
 };
 
 export function ResumeAnalysisCard({

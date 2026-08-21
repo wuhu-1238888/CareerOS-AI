@@ -9,6 +9,7 @@ import { ResumeResult, type ResultVersion } from "../resume-result";
 const mocks = vi.hoisted(() => ({
   updateMutateAsync: vi.fn(),
   acceptAllMutateAsync: vi.fn(),
+  scoreAtsMutateAsync: vi.fn(),
   invalidateResume: vi.fn(),
 }));
 
@@ -18,6 +19,7 @@ vi.mock("@/trpc/client", () => ({
     resume: {
       updateOptimization: { useMutation: () => ({ mutateAsync: mocks.updateMutateAsync }) },
       acceptAll: { useMutation: () => ({ mutateAsync: mocks.acceptAllMutateAsync }) },
+      scoreAts: { useMutation: () => ({ mutateAsync: mocks.scoreAtsMutateAsync }) },
     },
   },
 }));
@@ -38,6 +40,7 @@ const version: ResultVersion = {
       optimizedText: "主导日均 50 万笔订单系统研发",
       reason: "量化成果更具说服力",
       status: "pending",
+      updatedAt: "2026-08-20T10:00:00Z",
     },
     {
       id: "o2",
@@ -46,6 +49,7 @@ const version: ResultVersion = {
       optimizedText: "主导新功能设计与落地",
       reason: null,
       status: "accepted",
+      updatedAt: "2026-08-20T10:00:00Z",
     },
   ],
 };
@@ -66,6 +70,12 @@ beforeEach(() => {
   mocks.invalidateResume.mockResolvedValue(undefined);
   mocks.updateMutateAsync.mockResolvedValue({ id: "o1", status: "accepted" });
   mocks.acceptAllMutateAsync.mockResolvedValue({ ok: true });
+  mocks.scoreAtsMutateAsync.mockResolvedValue({
+    versionId: "v1",
+    total: 72,
+    level: "良好",
+    runId: "run-ats",
+  });
 });
 
 describe("ResumeResult 结果视图", () => {

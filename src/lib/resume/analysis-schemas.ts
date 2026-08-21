@@ -68,7 +68,7 @@ export const rewriteAnalysisSchema = z.object({
 });
 export type RewriteAnalysis = z.infer<typeof rewriteAnalysisSchema>;
 
-/** ATS LLM 分项(4.6):内容质量与岗位相关度,量化到 5 分档(建议列表在报告层,4.7 起共用) */
+/** ATS LLM 分项(4.6):内容质量与岗位相关度,量化到 5 分档(5 分档 + 温度 0 = 评分稳定性的 LLM 侧保证) */
 export const atsLlmSubscoresSchema = z.object({
   contentQuality: z.number().int().min(1, "内容质量 1-5").max(5, "内容质量 1-5"),
   relevance: z.number().int().min(1, "岗位相关度 1-5").max(5, "岗位相关度 1-5"),
@@ -81,6 +81,13 @@ export const atsSuggestionSchema = z.object({
   detail: z.string().min(1, "建议说明不能为空").max(300),
 });
 export type AtsSuggestion = z.infer<typeof atsSuggestionSchema>;
+
+/** ATS LLM 分析结果(4.6,Agent 输出):分项 + 改进建议;分项量化 5 分档保证评分稳定 */
+export const atsLlmAnalysisSchema = z.object({
+  llmSubscores: atsLlmSubscoresSchema,
+  suggestions: z.array(atsSuggestionSchema).min(2, "建议至少 2 条").max(5, "建议最多 5 条"),
+});
+export type AtsLlmAnalysis = z.infer<typeof atsLlmAnalysisSchema>;
 
 /** ATS 规则分项(4.6,TS 确定性计算):固定 6 子分 */
 export const atsRuleSubscoresSchema = z.object({

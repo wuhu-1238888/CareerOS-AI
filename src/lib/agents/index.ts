@@ -1,9 +1,9 @@
 // Agent 集中注册(2.3 起):应用启动路径(trpc router)引入本模块即完成登记,Orchestrator 按 intent 路由。
-// 3.3 起注册路线 Agent(全量 + 单阶段重生成);4.3 注册简历解析 Agent,4.4 改写(4.6 追加 ATS)。
+// 3.3 起注册路线 Agent(全量 + 单阶段重生成);4.3 注册简历解析 Agent,4.4 改写,4.6 ATS。
 import { registry } from "./registry";
 import { profileAgent } from "./profile.agent";
 import { navigatorAgent, navigatorStageAgent } from "./navigator.agent";
-import { resumeParseAgent, resumeRewriteAgent } from "./resume.agent";
+import { resumeAtsAgent, resumeParseAgent, resumeRewriteAgent } from "./resume.agent";
 
 registry.register(profileAgent);
 registry.registerIntent("analyze-profile", "career-profile-analyzer");
@@ -15,6 +15,8 @@ registry.register(resumeParseAgent);
 registry.registerIntent("parse-resume", "resume-parse-agent");
 registry.register(resumeRewriteAgent);
 registry.registerIntent("rewrite-resume", "resume-rewrite-agent");
+registry.register(resumeAtsAgent);
+registry.registerIntent("score-ats", "resume-ats-agent");
 
 export { registry };
 export { profileAgent, profileAnalysisSchema, profileRadarSchema } from "./profile.agent";

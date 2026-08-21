@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   rewriteMutateAsync: vi.fn(),
   updateOptimizationMutateAsync: vi.fn(),
   acceptAllMutateAsync: vi.fn(),
+  scoreAtsMutateAsync: vi.fn(),
   createMutateAsync: vi.fn(),
   pasteMutateAsync: vi.fn(),
   invalidateResume: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@/trpc/client", () => ({
         useMutation: () => ({ mutateAsync: mocks.updateOptimizationMutateAsync }),
       },
       acceptAll: { useMutation: () => ({ mutateAsync: mocks.acceptAllMutateAsync }) },
+      scoreAts: { useMutation: () => ({ mutateAsync: mocks.scoreAtsMutateAsync }) },
       createFromText: {
         useMutation: () => ({ mutateAsync: mocks.createMutateAsync, isPending: false }),
       },
@@ -115,6 +117,12 @@ beforeEach(() => {
   mocks.rewriteMutateAsync.mockResolvedValue({ versionId: "v1", runId: "run-rewrite" });
   mocks.updateOptimizationMutateAsync.mockResolvedValue({ id: "o1", status: "accepted" });
   mocks.acceptAllMutateAsync.mockResolvedValue({ ok: true });
+  mocks.scoreAtsMutateAsync.mockResolvedValue({
+    versionId: "v1",
+    total: 72,
+    level: "良好",
+    runId: "run-ats",
+  });
 });
 
 describe("ResumeHub 状态机", () => {

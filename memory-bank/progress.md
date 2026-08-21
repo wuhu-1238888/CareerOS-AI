@@ -220,13 +220,26 @@
 - **tRPC `resume.rewrite`**:归属校验 → 原文缺失 BAD_REQUEST → rewriteResume → BAD_GATEWAY;返回 versionId/runId
 - 验证:改写样例集 3 份(含「无量化数据不虚构数字」边界标注)+ Agent 9 测试;final-text 12 纯函数测试(全 pending/全 accepted/混合/乱序/空白归一化替换/未匹配回退/重叠防御);管线 5 新增测试(事务落库/二次改写新版本快照/校验失败不落行/原文缺失/router 护栏);全套 364/364 + typecheck/lint 全绿
 
-### 任务 4.5 修改对比视图 + 状态持久化(2026-08-21,commit 见汇报)
+### 任务 4.5 修改对比视图 + 状态持久化(2026-08-21,commit `45ccbf5`)
 
 - **`resume-analysis-card.tsx`**(DesignSystem Resume Analysis Card 规格):修改前 sunken 底 + 左 3px hairline-strong 边(灰色引用块);修改后 green-50 底 + 左 3px green-600 边(绿边 = 建议采纳视觉语言),已拒绝态回灰(sunken + hairline-strong,恢复原文态);「为什么这样改」折叠 ai-insight(紫底 violet-50 + 左 3px violet-400 + AiBadge);状态徽章 待处理/已采纳/已拒绝;操作:待处理 → 接受(primary)/拒绝(ghost),已采纳/已拒绝 → 撤销(回 pending);AI 标记仅待处理态显示(DesignSystem L582 用户采纳后不再展示);全态零 danger 色/删除线
 - **`resume-result.tsx`**(全宽,画像结果页先例):Hero 行(AiBadge + 目标方向 + 更新时间)+ 采纳计数 + 工具条(全部接受 secondary,全部已采纳时禁用 / 重新分析 ghost / 修改信息 ghost);对比卡列表;单条状态变更与全部接受均走 mutation + 失效 resume.get,失败 toast
 - **tRPC**:`updateOptimization({ optimizationId, status: pending|accepted|rejected })`(归属链 optimization→resumeVersion→resume 校验,NOT_FOUND「修改建议不存在」)/ `acceptAll({ versionId })`(updateMany 整版 accepted,NOT_FOUND「优化版本不存在」);`get` 加 `version` 字段(最新 ResumeVersion + optimizations 按 order 升序,serializeVersion 防御序列化,Json 列保持原样读取方防御解析)
 - **状态机接入** `resume-hub.tsx`:开始优化 = saveParsedData + rewrite 触发改写 AnalysisView(简历优化师/Sparkles/editLabel「返回核对」);latestRun(intent: rewrite-resume) 独立轮询;会话内失败重试 = lastOptimizeInput 重跑改写;刷新后失败 run 重试无会话输入 → 返回核对表单(无 retryRewrite 端点,计划已定);「重新分析」用已保存核对结果 + 当前版本 targetDirection 再跑改写生成新版本;`resume-review.tsx` 加 `initialDirection` prop(返回核对时回填当前版本方向)
 - 验证:analysis-card 8 测试(三态/折叠 ai-insight/接受拒绝撤销回调/AI 标记时机/全态无红删除线与 danger 色);result 7 测试(渲染/全部接受成功失败/全部已采纳禁用/重新分析修改信息回调/单条接受/失败 toast);hub 新增 4 测试(开始优化→改写中/失败重试重跑/返回核对回填方向/结果视图/刷新恢复);管线 router 护栏 2 新增(updateOptimization 三态 + 越权、acceptAll + get.version 同步);全套 385/385 + typecheck/lint 全绿
+
+### 任务 4.6 ATS 评分(2026-08-21,commit 见汇报)
+
+- **规则引擎** `ats-rules.ts`(纯 TS 确定性,不依赖 LLM):6 子分各 0-100——分节完整性(五节各 20 分)/ 量化密度(数字+单位行占比,30% 以上满分)/ 关键词覆盖(8 个方向词典 × 15 词,方向名与词典键做包含匹配——「后端开发工程师」命中「后端开发」词典;未命中回退 23 词通用词典)/ 动词开头(去项目符号后以 29 个动作动词开头的行占比)/ 长度篇幅(500-1200 字符满分带,带外线性衰减)/ 格式可解析性(可疑字符按 Unicode 代码点 ×5、3+ 连续空行 ×10、Tab ×5 扣分,下限 0);固定权重 sections/quantified/keywords 各 0.2 + actionVerbs 0.15 + length 0.1 + parseability 0.15
+- **合成**:`final = round(0.6×规则分 + 0.4×LLM 分)`,LLM 两子分(contentQuality/relevance,1-5 整数)平均后 ×20 量化;等级 ≥80 优秀 / 60-79 良好 / <60 需改进。稳定性:规则侧纯函数方差 0;LLM 侧温度 0 + 5 分档(MockAdapter 两次评分分差恒 0,远低于「分差 ≤10」验收线)
+- **ResumeAtsAgent**(intent `score-ats`,temperature 0):输入 = 最终采纳文本 + 目标方向;`atsLlmAnalysisSchema` 输出(llmSubscores 1-5 整数 + suggestions 2-5 条 title≤50/detail≤300);prompt `resume-ats.md` 只评内容质量与岗位相关度,硬指标由系统确定性计算不重复评
+- **scoreAts 管线**:runner.run(intent score-ats)→ 规则分 + LLM 分项合成 → ResumeVersion 落库 atsScore/atsReport(含 ruleSubscores/llmSubscores/suggestions/level)/atsScoredAt;成功才落库,LLM 失败不覆盖旧评分
+- **tRPC `resume.scoreAts`**:requireOwnedVersion(NOT_FOUND「优化版本不存在」)→ 原文缺失 BAD_REQUEST → 目标方向缺失 BAD_REQUEST「优化版本缺少目标方向,请重新分析」→ accepted 片段合成最终文本(buildFinalResumeText,单一事实源)→ 管线 → BAD_GATEWAY;返回 { versionId, total, level, runId }
+- **`resume-ats-card.tsx`**(接 result 工具条之下):未评分空态 = sunken 说明块 + primary「生成 ATS 评分」(显式按钮触发,用户拍板决策);评分中卡内进度态(Loader2 + aria-live);报告态 = 12px 描边进度环(DesignSystem)+ typography.num 大数字 + 等级徽章(优秀 bg-green-100/text-green-700、良好 bg-warning-bg/text-warning、需改进 bg-danger-bg/text-danger)+ 规则/LLM 分项说明 + 建议列表;stale(建议 updatedAt > atsScoredAt)→ text-warning「修改后需重新评分」+ ghost「重新评分」;报告防御解析(zod safeParse 损坏回退空态)
+- **stale 判定**:`atsScoredAt` 持久化列比较(评分后接受/拒绝/撤销任一建议 → 提示重评,刷新后仍准确;atsScoredAt 已在 4.1 迁移中建列)
+- 验证:ats-rules 10 测试(同输入两次恒等/六子分边界/方向词典包含匹配与通用回退/权重合成/三档等级边界 80-60);ATS Agent 样例集 3 份手工标注(后端高分/前端中等/跨行低分)+ 9 测试(分档一致/建议数/输入透传/温度 0 传给适配器/非法 JSON/违反 Schema/5 事件/注册);管线 3 新增(合成落库 + 两次评分分差 0 + LLM 失败不覆盖旧评分)+ router 护栏 1(未登录/越权/无方向/原文缺失);ats-card 7 组件测试(空态触发/评分中/报告渲染/stale 重评/失败 toast/损坏报告回退);全套 417/417 + typecheck/lint 全绿
+- 测试驱动修正 2 处实现:①关键词词典由精确匹配改为方向名包含匹配(否则「后端开发工程师」等真实方向永远落通用词典)②可疑符号按 Unicode 代码点计数(emoji 代理对原计 2,现计 1)
+- 测试基建:`vitest.config.mts` 加 `testTimeout: 15000`——全套并行负载(真实 DB 用例 + 51 文件)下,阶段 2 既有 profile-hub 慢用例(userEvent 多步交互,单文件稳定通过)偶发逼近默认 5000ms 上限导致超时;仅放宽失败上限,不影响通过时长
 
 ## 已解决的问题
 

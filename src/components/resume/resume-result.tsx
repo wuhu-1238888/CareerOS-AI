@@ -1,14 +1,15 @@
 "use client";
 // 简历优化结果视图(4.5):全宽布局(画像结果页先例)。顶部 Hero 行(AI 标识 + 目标方向 + 采纳计数)
-// + 工具条(全部接受 secondary / 重新分析 ghost / 修改信息 ghost)+ 对比卡列表(ResumeAnalysisCard)。
+// + 工具条(全部接受 secondary / 重新分析 ghost / 修改信息 ghost)+ ATS 评分卡(4.6)+ 对比卡列表(ResumeAnalysisCard)。
 // 状态持久化走 resume.updateOptimization / resume.acceptAll;成功后失效 resume.get 以刷新采纳计数与最终文本。
-// 4.6 接 ATS 卡(atsReport/atsScoredAt),4.7 接复制与导出 PDF。
+// 4.7 接复制与导出 PDF。
 import { useState } from "react";
 import { toast } from "sonner";
 import { AiBadge } from "@/components/shared/ai-badge";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/trpc/client";
 import { ResumeAnalysisCard, type AnalysisCardOptimization } from "./resume-analysis-card";
+import { ResumeAtsCard } from "./resume-ats-card";
 
 export type ResultVersion = {
   id: string;
@@ -52,6 +53,13 @@ export function ResumeResult({
 
   const total = version.optimizations.length;
   const acceptedCount = version.optimizations.filter((o) => o.status === "accepted").length;
+
+  // ATS stale:评分后有建议状态变更(接受/拒绝/撤销)→ 提示重新评分(atsScoredAt 持久化列,刷新后仍准确)
+  const atsStale =
+    !!version.atsScoredAt &&
+    version.optimizations.some(
+      (o) => new Date(o.updatedAt).getTime() > new Date(version.atsScoredAt!).getTime()
+    );
 
   async function handleStatusChange(id: string, status: "pending" | "accepted" | "rejected") {
     setPendingId(id);
@@ -119,6 +127,14 @@ export function ResumeResult({
           </li>
         ))}
       </ul>
+
+      {/* ATS 评分卡(4.6):显式按钮触发;改动后提示重新评分 */}
+      <ResumeAtsCard
+        versionId={version.id}
+        atsScore={version.atsScore}
+        atsReport={version.atsReport ?? null}
+        stale={atsStale}
+      />
     </div>
   );
 }

@@ -15,7 +15,8 @@ import {
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
-import { parseParsedData, parseResume, rewriteResume } from "@/lib/resume/pipeline";
+import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
+import { buildFinalResumeText, type OptimizationText } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 
@@ -1014,6 +1015,56 @@ export const appRouter = t.router({
           data: { status: "accepted" },
         });
         return { ok: true };
+      }),
+
+    // ATS 评分(4.6):显式按钮触发(用户拍板决策);服务端由 accepted 片段合成最终文本(单一事实源)→ 规则分 + LLM 分项合成落库
+    scoreAts: protectedProcedure
+      .input(z.object({ versionId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const version = await requireOwnedVersion(ctx, input.versionId);
+        const resume = await ctx.prisma.resume.findFirst({
+          where: { id: version.resumeId },
+          select: { originalText: true },
+        });
+        if (!resume?.originalText) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "简历原文缺失,请重新上传或粘贴简历内容",
+          });
+        }
+        if (!version.targetDirection) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "优化版本缺少目标方向,请重新分析",
+          });
+        }
+        const optimizations = await ctx.prisma.optimization.findMany({
+          where: { resumeVersionId: version.id },
+          orderBy: { order: "asc" },
+        });
+        // 文本列在 Prisma 类型上可空,但落库路径(schema min(1))保证非空;防御过滤
+        const finalText = buildFinalResumeText(
+          resume.originalText,
+          optimizations.filter(
+            (o): o is typeof o & OptimizationText =>
+              o.originalText !== null && o.optimizedText !== null
+          )
+        );
+        const outcome = await scoreAts({
+          userId: ctx.userId,
+          versionId: version.id,
+          finalText,
+          targetDirection: version.targetDirection,
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return {
+          versionId: version.id,
+          total: outcome.report.total,
+          level: outcome.report.level,
+          runId: outcome.runId,
+        };
       }),
 
     // 最近一次简历任务 run(4.3):页面轮询(700ms)与刷新恢复的统一入口;按 intent 参数化,与画像/路线图 latestRun 同构

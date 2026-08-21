@@ -1,16 +1,22 @@
 // 简历解析管线(4.3):原文 → Orchestrator(Resume Parse Agent)→ 写 Resume.parsedData。
 // 关键决策(与画像/路线图管线一致):生命周期进度事件经 onRunProgress 实时写入 AgentRun.progress(客户端轮询/刷新恢复);
 // 成功才写 parsedData,失败不落(保留旧解析结果);送 LLM 文本截断 20000 字符(DB 存全文)。
-// 4.4 起追加 rewriteResume,4.6 起追加 scoreAts。
+// 4.4 起追加 rewriteResume,4.6 起追加 scoreAts(规则分 + LLM 分项合成落库)。
 import type { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
-import type { ParsedResume, RewriteAnalysis } from "@/lib/resume/analysis-schemas";
+import type {
+  AtsLlmAnalysis,
+  AtsReport,
+  ParsedResume,
+  RewriteAnalysis,
+} from "@/lib/resume/analysis-schemas";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
+import { scoreRuleSubscores, synthesizeAtsScore } from "@/lib/resume/ats-rules";
 import { validateModifications } from "@/lib/resume/final-text";
-import "@/lib/agents"; // 副作用:登记简历 Agent(parse-resume / rewrite-resume)
+import "@/lib/agents"; // 副作用:登记简历 Agent(parse-resume / rewrite-resume / score-ats)
 
 export type { ParsedResume };
 
@@ -147,6 +153,65 @@ export async function rewriteResume(params: {
     runId: outcome.runId,
     modificationCount: validated.modifications.length,
   };
+}
+
+export type ScoreAtsOutcome =
+  | { ok: true; versionId: string; runId: string; report: AtsReport }
+  | { ok: false; error: string; runId: string };
+
+export async function scoreAts(params: {
+  userId: string;
+  versionId: string;
+  /** 最终采纳文本(服务端由 accepted 片段合成,单一事实源) */
+  finalText: string;
+  targetDirection: string;
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<ScoreAtsOutcome> {
+  const { userId, versionId, finalText, targetDirection, adapter } = params;
+  const runner: Orchestrator = adapter ? new Orchestrator(prisma, adapter) : orchestrator;
+
+  // 进度写库串行化(同解析/改写管线)
+  const progressChain = { current: Promise.resolve() };
+  const outcome = await runner.run<AtsLlmAnalysis>({
+    intent: "score-ats",
+    input: { finalText: finalText.slice(0, MAX_RESUME_TEXT_FOR_LLM), targetDirection },
+    context: {},
+    userId,
+    onRunProgress: (runId, progress: AgentProgress) => {
+      progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
+    },
+  });
+  await progressChain.current;
+
+  if (!outcome.ok) {
+    return outcome;
+  }
+
+  // 规则分(TS 确定性)+ LLM 分项(5 分档)合成;成功才落库(失败不覆盖旧评分)
+  const ruleSubscores = scoreRuleSubscores(finalText, targetDirection);
+  const { ruleScore, total, level } = synthesizeAtsScore(
+    ruleSubscores,
+    outcome.result.data.llmSubscores
+  );
+  const report: AtsReport = {
+    total,
+    level,
+    ruleSubscores,
+    ruleScore,
+    llmSubscores: outcome.result.data.llmSubscores,
+    suggestions: outcome.result.data.suggestions,
+  };
+  await prisma.resumeVersion.update({
+    where: { id: versionId },
+    data: {
+      atsScore: total,
+      atsReport: report as unknown as Prisma.InputJsonValue,
+      atsScoredAt: new Date(),
+    },
+  });
+
+  return { ok: true, versionId, runId: outcome.runId, report };
 }
 
 // 进度追加落库:同一 run 的事件顺序到达,读-改-写安全(唯一写入方为当前管线调用)

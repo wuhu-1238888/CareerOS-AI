@@ -8,14 +8,15 @@ import type { AgentContext } from "./types";
 import type { ChatMessage } from "@/lib/llm/adapter";
 // 输出 Schema 位于 analysis-schemas(客户端安全);此处转发保持与 Profile/Navigator Agent 相同的导入惯例
 import {
+  atsLlmAnalysisSchema,
   atsLlmSubscoresSchema,
   parsedResumeSchema,
   rewriteAnalysisSchema,
 } from "@/lib/resume/analysis-schemas";
-import type { AtsLlmSubscores, ParsedResume, RewriteAnalysis } from "@/lib/resume/analysis-schemas";
+import type { AtsLlmAnalysis, AtsLlmSubscores, ParsedResume, RewriteAnalysis } from "@/lib/resume/analysis-schemas";
 
-export { atsLlmSubscoresSchema, parsedResumeSchema, rewriteAnalysisSchema };
-export type { AtsLlmSubscores, ParsedResume, RewriteAnalysis };
+export { atsLlmAnalysisSchema, atsLlmSubscoresSchema, parsedResumeSchema, rewriteAnalysisSchema };
+export type { AtsLlmAnalysis, AtsLlmSubscores, ParsedResume, RewriteAnalysis };
 
 export const resumeParseAgentInputSchema = z.object({
   resumeText: z.string().min(10, "简历内容至少 10 个字符").max(20000, "简历内容最多 20000 字"),
@@ -83,13 +84,13 @@ export const resumeAtsAgentInputSchema = z.object({
 });
 export type ResumeAtsAgentInput = z.infer<typeof resumeAtsAgentInputSchema>;
 
-export class ResumeAtsAgent extends BaseAgent<ResumeAtsAgentInput, AtsLlmSubscores> {
+export class ResumeAtsAgent extends BaseAgent<ResumeAtsAgentInput, AtsLlmAnalysis> {
   readonly config = {
     name: "resume-ats-agent",
-    description: "ATS 评分师:评估简历内容质量与岗位相关度(1-5 分档),温度 0 保证评分稳定",
+    description: "ATS 评分师:评估简历内容质量与岗位相关度(1-5 分档)并给出改进建议,温度 0 保证评分稳定",
     promptPath: "resume/resume-ats.md",
     inputSchema: resumeAtsAgentInputSchema,
-    outputSchema: atsLlmSubscoresSchema,
+    outputSchema: atsLlmAnalysisSchema,
     temperature: 0,
   };
 

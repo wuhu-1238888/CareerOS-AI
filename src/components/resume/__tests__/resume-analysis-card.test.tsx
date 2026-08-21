@@ -12,6 +12,7 @@ const base: AnalysisCardOptimization = {
   optimizedText: "主导日均 50 万笔订单系统研发",
   reason: "动词开头更抓人,量化成果更具说服力",
   status: "pending",
+  updatedAt: "2026-08-20T10:00:00Z",
 };
 
 function renderCard(
