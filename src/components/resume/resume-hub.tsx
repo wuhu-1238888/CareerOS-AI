@@ -384,6 +384,7 @@ export function ResumeHub() {
         careerPaths={careerPaths}
         onStartOptimize={handleStartOptimize}
         optimizing={optimizing}
+        sectionPlan={resume.data.sectionPlan ?? null}
       />
     );
   }

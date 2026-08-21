@@ -149,6 +149,30 @@ describe("ResumeResult 结果视图", () => {
     expect(screen.getByRole("button", { name: "全部接受" })).toBeDisabled();
   });
 
+  it("最终文本预览(4.10):渲染与复制/导出同源的 finalText 字符串", () => {
+    renderResult();
+    expect(screen.getByText("最终文本预览")).toBeInTheDocument();
+    expect(
+      screen.getByText("与「复制最终文本」完全一致,按你原始简历的模块顺序输出")
+    ).toBeInTheDocument();
+    const pre = screen.getByLabelText("最终文本预览");
+    expect(pre.textContent).toBe(version.finalText);
+    // 与导出工具条同源
+    expect(mocks.exportProps?.finalText).toBe(version.finalText);
+  });
+
+  it("finalText 为空:预览面板显示占位文案", () => {
+    render(
+      <ResumeResult
+        version={{ ...version, finalText: null }}
+        onReanalyze={() => {}}
+        onEdit={() => {}}
+      />
+    );
+    expect(screen.queryByLabelText("最终文本预览")).toBeNull();
+    expect(screen.getByText("采纳建议后,此处将显示最终简历全文")).toBeInTheDocument();
+  });
+
   it("重新分析 / 修改信息:触发回调", async () => {
     const { user, onReanalyze, onEdit } = renderResult();
     await user.click(screen.getByRole("button", { name: "重新分析" }));

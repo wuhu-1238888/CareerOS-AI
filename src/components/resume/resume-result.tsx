@@ -119,6 +119,28 @@ export function ResumeResult({
         </div>
       </div>
 
+      {/* 最终文本预览(4.10):与「复制最终文本」同一字符串,按用户原始简历模块顺序输出 */}
+      <section className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">
+        <div>
+          <h3 className="text-h3 text-ink">最终文本预览</h3>
+          <p className="mt-0.5 text-caption text-ink-muted">
+            与「复制最终文本」完全一致,按你原始简历的模块顺序输出
+          </p>
+        </div>
+        {version.finalText ? (
+          <pre
+            aria-label="最终文本预览"
+            className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-control border border-hairline bg-sunken/50 p-4 text-body-sm text-ink"
+          >
+            {version.finalText}
+          </pre>
+        ) : (
+          <p className="rounded-control border border-hairline bg-sunken/50 p-4 text-body-sm text-ink-muted">
+            采纳建议后,此处将显示最终简历全文
+          </p>
+        )}
+      </section>
+
       {/* 对比卡列表:逐条接受/拒绝/撤销 */}
       <ul className="space-y-4" aria-label="修改建议列表">
         {version.optimizations.map((optimization) => (
