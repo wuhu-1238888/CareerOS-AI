@@ -7,9 +7,10 @@ import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
-import type { ParsedResume } from "@/lib/resume/analysis-schemas";
+import type { ParsedResume, RewriteAnalysis } from "@/lib/resume/analysis-schemas";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
-import "@/lib/agents"; // 副作用:登记 Resume Parse Agent(intent: parse-resume)
+import { validateModifications } from "@/lib/resume/final-text";
+import "@/lib/agents"; // 副作用:登记简历 Agent(parse-resume / rewrite-resume)
 
 export type { ParsedResume };
 
@@ -60,6 +61,92 @@ export async function parseResume(params: {
   });
 
   return { ok: true, resumeId, runId: outcome.runId, parsed: outcome.result.data };
+}
+
+export type RewriteResumeOutcome =
+  | { ok: true; versionId: string; runId: string; modificationCount: number }
+  | { ok: false; error: string; runId: string };
+
+export async function rewriteResume(params: {
+  userId: string;
+  resumeId: string;
+  /** 核对后的解析结果(用户修正优先,已由 router 侧 saveParsedData 落库) */
+  parsedData: ParsedResume;
+  abilityTags: { name: string; level: string }[];
+  targetDirection: string;
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<RewriteResumeOutcome> {
+  const { userId, resumeId, parsedData, abilityTags, targetDirection, adapter } = params;
+  const runner: Orchestrator = adapter ? new Orchestrator(prisma, adapter) : orchestrator;
+
+  const resume = await prisma.resume.findUnique({
+    where: { id: resumeId },
+    select: { originalText: true },
+  });
+  if (!resume?.originalText) {
+    // router 侧已挡 BAD_REQUEST;此处兜底(管线直调场景),无 run 时 runId 为空串(同 Orchestrator 契约)
+    return { ok: false, error: "简历原文缺失,请重新上传或粘贴简历内容", runId: "" };
+  }
+
+  // 进度写库串行化(同解析管线)
+  const progressChain = { current: Promise.resolve() };
+  const outcome = await runner.run<RewriteAnalysis>({
+    intent: "rewrite-resume",
+    input: { parsedData, abilityTags, targetDirection },
+    context: {},
+    userId,
+    onRunProgress: (runId, progress: AgentProgress) => {
+      progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
+    },
+  });
+  await progressChain.current;
+
+  if (!outcome.ok) {
+    return outcome;
+  }
+
+  // 硬校验:每条 originalText 必须逐字存在于原文、区间互不重叠;失败 → 整次不落行(不产生版本)
+  const validated = validateModifications(resume.originalText, outcome.result.data.modifications);
+  if (!validated.ok) {
+    return { ok: false, error: validated.error, runId: outcome.runId };
+  }
+
+  // 不可变快照:重新分析 = 新版本;事务内建版本 + 批量建议(order 按原文位置升序,status 默认 pending)
+  const version = await prisma.$transaction(async (tx) => {
+    const created = await tx.resumeVersion.create({
+      data: {
+        resumeId,
+        targetDirection,
+        changes: {
+          modificationCount: validated.modifications.length,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await Promise.all(
+      validated.modifications.map((modification, index) =>
+        tx.optimization.create({
+          data: {
+            resumeVersionId: created.id,
+            category: modification.category,
+            originalText: modification.originalText,
+            optimizedText: modification.optimizedText,
+            reason: modification.reason,
+            order: index,
+            status: "pending",
+          },
+        })
+      )
+    );
+    return created;
+  });
+
+  return {
+    ok: true,
+    versionId: version.id,
+    runId: outcome.runId,
+    modificationCount: validated.modifications.length,
+  };
 }
 
 // 进度追加落库:同一 run 的事件顺序到达,读-改-写安全(唯一写入方为当前管线调用)

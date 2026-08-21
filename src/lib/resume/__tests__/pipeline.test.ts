@@ -5,8 +5,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
-import { MAX_RESUME_TEXT_FOR_LLM, parseParsedData, parseResume } from "../pipeline";
+import { MAX_RESUME_TEXT_FOR_LLM, parseParsedData, parseResume, rewriteResume } from "../pipeline";
 import { resumeParseSamples } from "@/lib/agents/__tests__/resume-parse-samples";
+import { resumeRewriteSamples } from "@/lib/agents/__tests__/resume-rewrite-samples";
 import { createCaller } from "@/lib/trpc/router";
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -238,5 +239,130 @@ describe("resume.parse / retryParse / saveParsedData / latestRun 护栏(router �
     expect(await caller(userIdA).profile.latestRun()).toBeNull();
     // 从未解析 → null
     expect(await caller(userIdD).resume.latestRun({ intent: "parse-resume" })).toBeNull();
+  });
+});
+
+describe("rewriteResume 管线(4.4,真实写库)", () => {
+  const rewriteSample = resumeRewriteSamples.find((s) => s.id === "backend-engineer")!;
+  const rewriteAdapter = () => new MockAdapter(0, () => JSON.stringify(rewriteSample.mockOutput));
+
+  it("成功:事务建版本(targetDirection/changes 摘要)+ 建议批量落库(order 升序/status pending)", async () => {
+    const outcome = await rewriteResume({
+      userId: userIdA,
+      resumeId: resumeIdA,
+      parsedData: rewriteSample.input.parsedData,
+      abilityTags: rewriteSample.input.abilityTags,
+      targetDirection: rewriteSample.input.targetDirection,
+      adapter: rewriteAdapter(),
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+
+    const version = await prisma.resumeVersion.findUnique({
+      where: { id: outcome.versionId },
+      include: { optimizations: { orderBy: { order: "asc" } } },
+    });
+    expect(version?.targetDirection).toBe("后端开发工程师");
+    expect((version?.changes as { modificationCount: number }).modificationCount).toBe(4);
+    expect(version?.optimizations).toHaveLength(4);
+    expect(version!.optimizations.map((o) => o.status)).toEqual([
+      "pending",
+      "pending",
+      "pending",
+      "pending",
+    ]);
+    expect(version!.optimizations.map((o) => o.order)).toEqual([0, 1, 2, 3]);
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("succeeded");
+    expect(run?.intent).toBe("rewrite-resume");
+  });
+
+  it("二次改写:产生新版本(不可变快照),旧版本内容不变", async () => {
+    const first = await rewriteResume({
+      userId: userIdA,
+      resumeId: resumeIdA,
+      parsedData: rewriteSample.input.parsedData,
+      abilityTags: [],
+      targetDirection: "Java 后端",
+      adapter: rewriteAdapter(),
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error("unreachable");
+    const versions = await prisma.resumeVersion.findMany({
+      where: { resumeId: resumeIdA },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(versions).toHaveLength(2);
+    expect(versions[0]!.id).not.toBe(versions[1]!.id);
+    expect(versions[0]!.targetDirection).toBe("后端开发工程师");
+    expect(versions[1]!.targetDirection).toBe("Java 后端");
+    // 旧版本快照不受影响
+    const oldVersion = await prisma.resumeVersion.findUnique({
+      where: { id: versions[0]!.id },
+      include: { optimizations: true },
+    });
+    expect(oldVersion?.optimizations).toHaveLength(4);
+  });
+
+  it("validateModifications 失败(片段不在原文)→ 整次不落行,不产生版本", async () => {
+    const tampered = {
+      modifications: rewriteSample.mockOutput.modifications.map((m, i) =>
+        i === 1 ? { ...m, originalText: "原文中不存在的片段XYZ" } : m
+      ),
+    };
+    const adapter = new MockAdapter(0, () => JSON.stringify(tampered));
+    const before = await prisma.resumeVersion.count({ where: { resumeId: resumeIdB } });
+    const outcome = await rewriteResume({
+      userId: userIdB,
+      resumeId: resumeIdB,
+      parsedData: rewriteSample.input.parsedData,
+      abilityTags: [],
+      targetDirection: "后端开发工程师",
+      adapter,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.error).toBe("改写结果与简历原文不一致,请重新分析");
+    expect(await prisma.resumeVersion.count({ where: { resumeId: resumeIdB } })).toBe(before);
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("succeeded"); // run 本身成功,业务校验拦截在落行前
+  });
+
+  it("原文缺失 → 失败且无 run(runId 空串)", async () => {
+    const broken = await prisma.resume.findFirst({ where: { userId: userIdD } });
+    const outcome = await rewriteResume({
+      userId: userIdD,
+      resumeId: broken!.id,
+      parsedData: rewriteSample.input.parsedData,
+      abilityTags: [],
+      targetDirection: "后端开发工程师",
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.error).toBe("简历原文缺失,请重新上传或粘贴简历内容");
+    expect(outcome.runId).toBe("");
+  });
+});
+
+describe("resume.rewrite 护栏(router 层,4.4)", () => {
+  const rewriteSample = resumeRewriteSamples.find((s) => s.id === "backend-engineer")!;
+  const payload = {
+    parsedData: rewriteSample.input.parsedData,
+    targetDirection: "后端开发工程师",
+  };
+
+  it("未登录 → UNAUTHORIZED;越权 → NOT_FOUND;原文缺失 → BAD_REQUEST", async () => {
+    await expect(caller(null).resume.rewrite({ resumeId: resumeIdA, ...payload })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(caller(userIdB).resume.rewrite({ resumeId: resumeIdA, ...payload })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "简历不存在",
+    });
+    const broken = await prisma.resume.findFirst({ where: { userId: userIdD } });
+    await expect(caller(userIdD).resume.rewrite({ resumeId: broken!.id, ...payload })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "简历原文缺失,请重新上传或粘贴简历内容",
+    });
   });
 });

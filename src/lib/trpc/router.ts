@@ -15,7 +15,7 @@ import {
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
-import { parseParsedData, parseResume } from "@/lib/resume/pipeline";
+import { parseParsedData, parseResume, rewriteResume } from "@/lib/resume/pipeline";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 
@@ -875,6 +875,37 @@ export const appRouter = t.router({
           data: { parsedData: input.parsedData as Prisma.InputJsonValue },
         });
         return { ok: true };
+      }),
+
+    // 生成修改建议(4.4):核对后解析结果 + 画像能力标签 + 目标方向 → 新建不可变版本(3-8 条建议,状态 pending)
+    rewrite: protectedProcedure
+      .input(
+        z.object({
+          resumeId: z.string().min(1),
+          parsedData: parsedResumeSchema,
+          targetDirection: z.string().min(1, "目标方向不能为空").max(30),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const resume = await requireOwnedResume(ctx, input.resumeId);
+        if (!resume.originalText) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "简历原文缺失,请重新上传或粘贴简历内容",
+          });
+        }
+        const abilityTags = await readAbilityTags(ctx);
+        const outcome = await rewriteResume({
+          userId: ctx.userId,
+          resumeId: resume.id,
+          parsedData: input.parsedData,
+          abilityTags,
+          targetDirection: input.targetDirection,
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { versionId: outcome.versionId, runId: outcome.runId };
       }),
 
     // 最近一次简历任务 run(4.3):页面轮询(700ms)与刷新恢复的统一入口;按 intent 参数化,与画像/路线图 latestRun 同构
