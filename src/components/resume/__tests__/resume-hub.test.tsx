@@ -108,6 +108,45 @@ const failedRun: RunMock = {
   createdAt: "2026-08-20T10:00:00Z",
 };
 
+// 2026-08 修复用例:权威成功 run(5 条生命周期事件,模拟后端已完成而 mutation 未返回)
+const succeededRewriteRun: RunMock = {
+  id: "run-rewrite-ok",
+  status: "succeeded",
+  stale: false,
+  progress: [
+    { stage: "start", message: "正在启动「resume-rewrite-agent」…" },
+    { stage: "prompt", message: "正在理解你的背景与目标…" },
+    { stage: "llm", message: "正在分析…" },
+    { stage: "parse", message: "正在整理分析结果…" },
+    { stage: "done", message: "分析完成" },
+  ],
+  error: null,
+  createdAt: "2026-08-20T10:00:00Z",
+};
+
+const optimizedVersion = {
+  id: "v1",
+  targetDirection: "后端开发工程师",
+  changes: {},
+  atsScore: null,
+  atsReport: null,
+  atsScoredAt: null,
+  finalText: "张伟\n求职意向:后端开发工程师\n\n工作经历\n负责订单系统开发",
+  createdAt: "2026-08-20T11:00:00Z",
+  optimizations: [
+    {
+      id: "o1",
+      category: "量化表达",
+      originalText: "负责订单系统开发",
+      optimizedText: "主导订单系统研发",
+      reason: null,
+      order: 0,
+      status: "pending",
+      updatedAt: "2026-08-20T11:00:00Z",
+    },
+  ],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.meData = { id: "u1", name: "甲", avatarColor: null };
@@ -367,28 +406,7 @@ describe("ResumeHub 状态机", () => {
       extractError: null,
       parsedData,
       createdAt: "2026-08-20T10:00:00Z",
-      version: {
-        id: "v1",
-        targetDirection: "后端开发工程师",
-        changes: {},
-        atsScore: null,
-        atsReport: null,
-        atsScoredAt: null,
-        finalText: "张伟\n求职意向:后端开发工程师\n\n工作经历\n负责订单系统开发",
-        createdAt: "2026-08-20T11:00:00Z",
-        optimizations: [
-          {
-            id: "o1",
-            category: "量化表达",
-            originalText: "负责订单系统开发",
-            optimizedText: "主导订单系统研发",
-            reason: null,
-            order: 0,
-            status: "pending",
-            updatedAt: "2026-08-20T11:00:00Z",
-          },
-        ],
-      },
+      version: optimizedVersion,
     };
     render(<ResumeHub />);
     expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
@@ -527,5 +545,80 @@ describe("ResumeHub 状态机", () => {
     await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
     expect(mocks.saveMutateAsync).toHaveBeenCalledTimes(1);
     expect(mocks.rewriteMutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  // —— 2026-08 修复用例(方案 A1):完成判定以轮询权威数据(run 终态 + 落库版本)为准,
+  // mutation 只作触发;被刷新中断/长期未返回的 mutation 不再把视图钉死在分析中。
+  it("改写 mutation 长期不返回但权威 run 已成功 + 版本落库:直接进结果视图(不被钉死)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    // 模拟「mutation 在途但后端早已完成、轮询带回终态与版本」(刷新前场景)
+    mocks.rewriteMutateAsync.mockImplementation(() => new Promise(() => undefined));
+    const { rerender } = render(<ResumeHub />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "开始优化" }));
+    expect(await screen.findByText("简历优化师")).toBeInTheDocument();
+    mocks.latestRewriteData = { ...succeededRewriteRun, resumeId: "r1" };
+    mocks.resumeData = { ...mocks.resumeData, version: optimizedVersion };
+    rerender(<ResumeHub />);
+    expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
+    expect(screen.queryByText("简历优化师")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("改写 mutation 长期不返回但权威 run 已 failed:失败视图展示 run.error(不等 mutation 返回)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    mocks.rewriteMutateAsync.mockImplementation(() => new Promise(() => undefined));
+    const { rerender } = render(<ResumeHub />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "开始优化" }));
+    expect(await screen.findByText("简历优化师")).toBeInTheDocument();
+    mocks.latestRewriteData = { ...failedRun, resumeId: "r1" };
+    rerender(<ResumeHub />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "AI 返回了无法识别的结果,请稍后重试"
+    );
+    expect(screen.getByText("分析未完成")).toBeInTheDocument();
+  });
+
+  it("会话内改写报错但权威 run 已成功:错误被权威状态抑制,展示完成过渡并自动刷新简历", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    // 会话内 mutation 拒绝(如请求中断),但后端实际已完成并落终态
+    mocks.rewriteMutateAsync.mockRejectedValueOnce(new Error("AI 响应超时,请重试"));
+    const { rerender } = render(<ResumeHub />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "开始优化" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("AI 响应超时,请重试");
+    // 权威数据显示成功:会话错误让位(不误显失败),停留完成过渡(版本未落库),恢复 effect 自动刷新
+    mocks.latestRewriteData = { ...succeededRewriteRun, resumeId: "r1" };
+    rerender(<ResumeHub />);
+    // 第 1 次 invalidate 来自 save 成功,第 2 次来自恢复 effect(run succeeded 触发)
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("简历优化师")).toBeInTheDocument();
+    expect(screen.getByText("分析完成")).toBeInTheDocument();
   });
 });

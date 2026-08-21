@@ -123,17 +123,31 @@ export function ResumeHub() {
   const failedRun =
     !uploadMode && !parseError && parseRun?.status === "failed" ? parseRun : null;
 
-  const rewriteRecovering = !rewriteError && rewriteRun?.status === "running";
+  // —— 改写视图判定(2026-08 修复,方案 A1):完成判定以权威数据(run 终态 + 落库版本)为准,
+  // mutation 仅作触发与本次会话错误提示。此前 rewriteSubmitted 会把视图钉死在分析中:
+  // 一次被刷新中断/长时间未返回的 mutation 会让「后端已完成、前端仍分析中」永久卡住(轮询数据不参与完成判定)。
+  const rewriteRunning = rewriteRun?.status === "running";
+  const rewriteFailed = rewriteRun?.status === "failed";
+  const rewriteSucceeded = rewriteRun?.status === "succeeded";
+  // 权威完成态:run succeeded 且版本已落库(version 经恢复 effect invalidate 后由 resume.get 带回)
+  const rewriteDone = rewriteSucceeded && hasVersion;
+  // 会话内 mutation 错误:仅当权威状态既未失败也未成功、且不在 running 时展示(权威优先)
+  const showRewriteError =
+    !!rewriteError && !rewriteRunning && !rewriteFailed && !rewriteSucceeded;
+  // 分析中:run 确在 running,或 mutation 在途且尚无权威终态(新 run 未创建/未落终态)
+  const showRewriting =
+    (rewriteSubmitted || rewriteRunning) && !rewriteFailed && !rewriteDone && !rewriteSucceeded;
+  // 已成功但版本尚未刷新到位:停留分析视图展示已完成事件(防核对表单闪现),refetch 到位后自动进结果视图
+  const showRewriteFinishing = !showRewriting && rewriteSucceeded && !hasVersion && !showRewriteError;
+  // 失败视图:权威失败(刷新后恢复 / mutation 在途即已落 failed,不等 mutation 返回)
   const rewriteFailedRun =
-    !backToReview && !rewriteError && !hasVersion && rewriteRun?.status === "failed"
-      ? rewriteRun
-      : null;
+    !backToReview && !hasVersion && rewriteFailed ? rewriteRun : null;
+  // 分析视图的 run 数据:仅在确在 running 或成功过渡时展示事件列表(在途尚无 run/会话错误为 null)
+  const rewriteViewRun = rewriteRunning || showRewriteFinishing ? rewriteRun : null;
 
   // 在途提交时忽略历史 run(避免把上次失败的旧 run 当作本次状态),等待轮询发现新 run
   const runForView =
     submitted && parseRun && parseRun.status !== "running" ? null : parseRun;
-  const rewriteRunForView =
-    rewriteSubmitted && rewriteRun && rewriteRun.status !== "running" ? null : rewriteRun;
 
   async function handleStartParse() {
     if (!resume.data?.id) return;
@@ -258,12 +272,12 @@ export function ResumeHub() {
   } else if (!hasParsed && resume.data.extractError) {
     // 提取失败行(无原文,无法解析):粘贴补全或重传
     view = <ResumeUpload />;
-  } else if (rewriteSubmitted || rewriteRecovering || rewriteError) {
-    // 改写流程:提交在途 / 轮询 running / 本次会话失败(优先级高于解析与核对视图)
+  } else if (showRewriting || showRewriteFinishing || showRewriteError) {
+    // 改写流程:提交在途 / 轮询 running / 成功后的短暂过渡 / 本次会话失败(优先级高于解析与核对视图)
     view = (
       <AnalysisView
-        run={rewriteRunForView}
-        error={rewriteError}
+        run={rewriteViewRun}
+        error={showRewriteError ? rewriteError : null}
         onRetry={handleRewriteRetry}
         onEdit={handleBackToReview}
         agentName="简历优化师"
