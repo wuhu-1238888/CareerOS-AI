@@ -36,7 +36,7 @@ export function ResumeAnalysisCard({
   const rejected = status === "rejected";
 
   return (
-    <article className="rounded-card border border-hairline bg-surface p-5 shadow-card">
+    <article className="rounded-card border border-hairline bg-surface p-6 shadow-card">
       {/* 头部:类别 + AI 标记(仅待处理态)+ 状态徽章 */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-eyebrow text-ink-muted">{optimization.category ?? "修改建议"}</span>
@@ -51,35 +51,38 @@ export function ResumeAnalysisCard({
         </span>
       </div>
 
-      {/* 修改前:灰色引用块 */}
-      <div className="mt-3 rounded-r-control border-l-[3px] border-l-hairline-strong bg-sunken p-3">
-        <p className="text-caption text-ink-faint">修改前</p>
-        <p className="mt-1 whitespace-pre-wrap text-body-sm text-ink-secondary">
-          {optimization.originalText}
-        </p>
-      </div>
-
-      {/* 修改后:green-50 + 绿边;拒绝后回灰(恢复原文态,不渲染优化文本的强调样式) */}
-      <div
-        className={cn(
-          "mt-3 rounded-r-control border-l-[3px] p-3",
-          rejected ? "border-l-hairline-strong bg-sunken" : "border-l-green-600 bg-green-50"
-        )}
-      >
-        <div className="flex items-center gap-1.5">
-          <p className={cn("text-caption", rejected ? "text-ink-faint" : "text-green-700")}>
-            修改后
+      {/* 修改前/修改后:lg 双列「左旧右新」(PRD 3.3.7),小屏回退上下排列;内层样式不变 */}
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {/* 修改前:灰色引用块 */}
+        <div className="rounded-r-control border-l-[3px] border-l-hairline-strong bg-sunken p-3">
+          <p className="text-caption text-ink-faint">修改前</p>
+          <p className="mt-1 whitespace-pre-wrap text-body-sm text-ink-secondary">
+            {optimization.originalText}
           </p>
-          {adopted && <Check className="size-3.5 text-green-600" aria-hidden />}
         </div>
-        <p
+
+        {/* 修改后:green-50 + 绿边;拒绝后回灰(恢复原文态,不渲染优化文本的强调样式) */}
+        <div
           className={cn(
-            "mt-1 whitespace-pre-wrap text-body-sm",
-            rejected ? "text-ink-muted" : "text-ink"
+            "rounded-r-control border-l-[3px] p-3",
+            rejected ? "border-l-hairline-strong bg-sunken" : "border-l-green-600 bg-green-50"
           )}
         >
-          {optimization.optimizedText}
-        </p>
+          <div className="flex items-center gap-1.5">
+            <p className={cn("text-caption", rejected ? "text-ink-faint" : "text-green-700")}>
+              修改后
+            </p>
+            {adopted && <Check className="size-3.5 text-green-600" aria-hidden />}
+          </div>
+          <p
+            className={cn(
+              "mt-1 whitespace-pre-wrap text-body-sm",
+              rejected ? "text-ink-muted" : "text-ink"
+            )}
+          >
+            {optimization.optimizedText}
+          </p>
+        </div>
       </div>
 
       {/* 「为什么这样改」:折叠 ai-insight(紫底紫边 + ai-badge) */}

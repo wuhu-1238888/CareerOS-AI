@@ -109,7 +109,7 @@ export function ResumeUpload() {
     latest?.extractError ? EXTRACT_ERROR_TEXT[latest.extractError] ?? "文件解析失败,请粘贴简历文本继续" : null;
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-4 px-4 py-6">
+    <div className="w-full space-y-4 py-6">
       {/* 唯一的隐藏文件输入:拖拽区 / 更换简历按钮共用 */}
       <input
         ref={inputRef}
