@@ -2,11 +2,11 @@
 
 ## 当前项目状态
 
-- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)+ M2(Career Profile)+ **M3(Career Navigator,任务 3.1–3.5)全部完成**,成长路线页 UI/UX 布局优化完成
-- **最近更新**:2026-08-21,成长路线页 UI/UX 布局优化(宽内容区 + Timeline + 概览带 + 多阶段独立展开)完成并推送
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5 全部完成,另按验收反馈补齐「经历时长」、修复「提交卡 60%」并完成结果页 Desktop 布局优化;成长路线页 UI/UX 优化(M1 已通过用户验收;M2、M3 待用户整体验收)
-- **当前状态**:**M3 已实现,等待用户整体产品验收**。不开始阶段 4+。
-- **测试基线**:250 个测试 / 34 个文件全部通过;typecheck / lint / build 零错误;dev server 下 5 个页面登录态 200、未登录 307 中间件保护正常
+- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)+ M2(Career Profile)+ M3(Career Navigator)+ **M4(Resume Intelligence,任务 4.1–4.7)全部完成**
+- **最近更新**:2026-08-21,阶段 4 任务 4.7(一键复制最终文本 + PDF 导出)完成并推送(commit `f96806b`)
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.7 全部完成(M1 已通过用户验收;M2、M3、M4 待用户整体验收)
+- **当前状态**:**Stage 4 已实现,等待人工验收**。不开始阶段 5。
+- **测试基线**:426 个测试 / 52 个文件全部通过(连续两次全套);typecheck / lint / build 零错误;dev server 下 6 个页面登录态 200、未登录 307 中间件保护正常
 
 ## 已完成的工作
 
@@ -228,7 +228,7 @@
 - **状态机接入** `resume-hub.tsx`:开始优化 = saveParsedData + rewrite 触发改写 AnalysisView(简历优化师/Sparkles/editLabel「返回核对」);latestRun(intent: rewrite-resume) 独立轮询;会话内失败重试 = lastOptimizeInput 重跑改写;刷新后失败 run 重试无会话输入 → 返回核对表单(无 retryRewrite 端点,计划已定);「重新分析」用已保存核对结果 + 当前版本 targetDirection 再跑改写生成新版本;`resume-review.tsx` 加 `initialDirection` prop(返回核对时回填当前版本方向)
 - 验证:analysis-card 8 测试(三态/折叠 ai-insight/接受拒绝撤销回调/AI 标记时机/全态无红删除线与 danger 色);result 7 测试(渲染/全部接受成功失败/全部已采纳禁用/重新分析修改信息回调/单条接受/失败 toast);hub 新增 4 测试(开始优化→改写中/失败重试重跑/返回核对回填方向/结果视图/刷新恢复);管线 router 护栏 2 新增(updateOptimization 三态 + 越权、acceptAll + get.version 同步);全套 385/385 + typecheck/lint 全绿
 
-### 任务 4.6 ATS 评分(2026-08-21,commit 见汇报)
+### 任务 4.6 ATS 评分(2026-08-21,commit `42317bd`)
 
 - **规则引擎** `ats-rules.ts`(纯 TS 确定性,不依赖 LLM):6 子分各 0-100——分节完整性(五节各 20 分)/ 量化密度(数字+单位行占比,30% 以上满分)/ 关键词覆盖(8 个方向词典 × 15 词,方向名与词典键做包含匹配——「后端开发工程师」命中「后端开发」词典;未命中回退 23 词通用词典)/ 动词开头(去项目符号后以 29 个动作动词开头的行占比)/ 长度篇幅(500-1200 字符满分带,带外线性衰减)/ 格式可解析性(可疑字符按 Unicode 代码点 ×5、3+ 连续空行 ×10、Tab ×5 扣分,下限 0);固定权重 sections/quantified/keywords 各 0.2 + actionVerbs 0.15 + length 0.1 + parseability 0.15
 - **合成**:`final = round(0.6×规则分 + 0.4×LLM 分)`,LLM 两子分(contentQuality/relevance,1-5 整数)平均后 ×20 量化;等级 ≥80 优秀 / 60-79 良好 / <60 需改进。稳定性:规则侧纯函数方差 0;LLM 侧温度 0 + 5 分档(MockAdapter 两次评分分差恒 0,远低于「分差 ≤10」验收线)
@@ -241,7 +241,7 @@
 - 测试驱动修正 2 处实现:①关键词词典由精确匹配改为方向名包含匹配(否则「后端开发工程师」等真实方向永远落通用词典)②可疑符号按 Unicode 代码点计数(emoji 代理对原计 2,现计 1)
 - 测试基建:`vitest.config.mts` 加 `testTimeout: 15000`——全套并行负载(真实 DB 用例 + 51 文件)下,阶段 2 既有 profile-hub 慢用例(userEvent 多步交互,单文件稳定通过)偶发逼近默认 5000ms 上限导致超时;仅放宽失败上限,不影响通过时长
 
-### 任务 4.7 导出(复制 + PDF)(2026-08-21,commit 见汇报)
+### 任务 4.7 导出(复制 + PDF)(2026-08-21,commit `f96806b`)
 
 - **最终文本单一事实源下沉服务端**:`serializeVersion` 加 `originalText` 参数,get 端点 select `originalText: true`,序列化时经 `buildFinalResumeText(originalText, accepted 片段)`(4.4 唯一实现)合成 `finalText` 返回——复制/PDF 导出共用,客户端不再重复推导
 - **`resume-pdf-document.tsx`**(仅经动态 import 加载):`Font.register` Noto Sans SC(public/fonts 两个 .otf ~8MB×2,OFL 许可;react-pdf 默认字体无 CJK 字形);克制专业排版(姓名 22 bold / 联系信息 muted / 分节标题 11.5 bold + hairline 下边线 / 内容行 lineHeight 1.6),颜色全取设计 token(colors 导入),无渐变无装饰;`parseBlocks` 轻量分段(首行=姓名,空行前连续行=联系信息,空行分块、块首行=分节标题);A4 + `wrap={false}`
@@ -292,3 +292,48 @@
 - **成长路线 UI/UX 优化走查**:内容区扩大与左右留白、Timeline 清晰度、多阶段独立展开/收起、概览带吸顶与两区信息、任务行扫描性、Desktop/Tablet/Mobile 三档布局、无横向滚动、无 Console 报错
 
 **验收通过后进入阶段 4(M4);当前不开始阶段 4。**
+
+---
+
+# Stage 4 完成(M4:Resume Intelligence,2026-08-21)
+
+## 完成情况表
+
+| 任务 | 内容 | 状态 | commit |
+|---|---|---|---|
+| 4.1 | 简历数据模型(originalText 可空 + 文件列 + 索引)与文件上传(存储抽象三层 + AES-256-GCM 加密 + 上传/下载端点 + 粘贴路径 + 设置页文件管理) | ✅ | `607f288`(含 4.2 起步) |
+| 4.2 | 文本解析(pdf-parse + mammoth 同步提取、图片型 PDF → no-text 引导粘贴、失败 Banner 降级) | ✅ | `275f5d3` + `875e059` |
+| 4.3 | 解析 Agent(ResumeParseAgent)+ 结构化核对修正 UI + 目标方向选择 | ✅ | `275f5d3` |
+| 4.4 | 改写 Agent(ResumeRewriteAgent,逐字摘抄硬约束)+ final-text 单一事实源 + rewriteResume 管线(不可变版本快照) | ✅ | `a82fb39` |
+| 4.5 | 修改对比视图(Resume Analysis Card 三态/折叠 ai-insight/接受拒绝撤销)+ 状态服务端持久化 | ✅ | `45ccbf5` |
+| 4.6 | ATS 评分(规则 6 子分 60% + LLM 40% 合成、显式按钮触发、stale 重评提示) | ✅ | `42317bd` |
+| 4.7 | 导出(一键复制最终文本 + 客户端 PDF 生成,Noto Sans SC 中文、零采纳禁用) | ✅ | `f96806b` |
+
+## 主要修改
+
+- **Schema**:Resume 加 fileName/mimeType/sizeBytes/storageKey/extractError、originalText 可空、userId 索引;Optimization 加 order/status/updatedAt;ResumeVersion 加 atsReport/atsScoredAt
+- **存储**:`src/lib/file/` 三层(storage 接口 / local-fs / encrypted AES-256-GCM,IV 随机信封格式,delete 幂等)
+- **Agent 三个**:parse-resume / rewrite-resume / score-ats(温度 0),prompt 三份,样例集 9 份手工标注
+- **管线**:parseResume / rewriteResume(validateModifications 失败不落行 + 事务快照)/ scoreAts(成功才落库),progressChain + adapter 注入镜像既有先例
+- **tRPC**:resume 子 router 11 端点(get/list/upload 流程经 Route Handler/createFromText/pasteText/delete/parse/retryParse/saveParsedData/latestRun/rewrite/updateOptimization/acceptAll/scoreAts + 下载端点),全部归属链校验
+- **前端**:resume-hub 五阶段状态机 / resume-upload / resume-review / resume-result / resume-analysis-card / resume-ats-card / resume-export + resume-pdf-document
+- **最终文本单一事实源**:`buildFinalResumeText`(4.4)由对比视图/ATS/导出三处共用,永不漂移
+
+## 修改文件
+
+新增 32 个文件(组件 7 / 管线与工具 8 / prompt 3 / 测试 10 / 端点与类型 2 / 字体 2);修改 12 个既有文件(prisma schema + 迁移 / router.ts / agents index / next.config / package.json / .env.example / .gitignore / resume 页面 / 设置页 resume-files / analysis-view 可选 prop / vitest 超时 / progress.md)。阶段 1–3 既有文件仅最小追加式修改。
+
+## 测试结果
+
+- 全套 **426/426(52 文件)连续两次全绿**;typecheck / lint / build 零错误
+- 4.1–4.7 新增 176 个测试:存储加解密 5 / 上传纯函数 5 / 数据层与端点 12 / parser 6 / Agent 样例集 27 / 管线(真实 DB)17 / final-text 12 / ats-rules 10 / 组件 52(上传 8、files 8、review 8、hub 14、card 8、result 9、ats-card 7、export 7)
+- 测试驱动修正 3 处实现:方向词典包含匹配、Unicode 代码点计数、userEvent.setup 剪贴板桩时序
+- grep 红线:变更文件零硬编码色值、零渐变
+
+## 已知问题
+
+1. `.doc` 不支持(mammoth 只解析 .docx)→ 上传返回明确文案「请另存为 .docx 或 PDF」
+2. 导出禁用语义 = 「零条 accepted」→ 禁用 + 提示(拒绝=恢复原文,最终文本=原文非空;零采纳导出无意义)
+3. Noto Sans SC ~8MB×2 字体 commit(中文 PDF 渲染必需,OFL 许可,MVP 取舍,后续可子集化)
+4. 上传无流式(Route Handler formData 全量进内存,≤10MB 兜底)
+5. 真实 DeepSeek 连通与简历分析质量验证待用户提供 Key 后进行(与既有遗留 #1/#9 同源)
