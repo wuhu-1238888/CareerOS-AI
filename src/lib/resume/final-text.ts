@@ -19,8 +19,9 @@ export function normalizeWhitespace(text: string): string {
 type RawRange = { start: number; end: number };
 
 /** 在原文中按空白归一化匹配片段,返回其在原始文本中的区间(未命中 → null);
- *  fromRawStart:从该原始下标起向后找(用于同一短语多处出现时迭代取下一命中;map 单调,归一化空间可精确映射) */
-function findRawRange(haystack: string, needle: string, fromRawStart = 0): RawRange | null {
+ *  fromRawStart:从该原始下标起向后找(用于同一短语多处出现时迭代取下一命中;map 单调,归一化空间可精确映射)。
+ *  4.10 起导出:模块顺序检测用字段值在原文中定位内容位置(无标题模块锚定/多分区条目归组) */
+export function findRawRange(haystack: string, needle: string, fromRawStart = 0): RawRange | null {
   const normalizedNeedle = normalizeWhitespace(needle);
   if (!normalizedNeedle) return null;
 
