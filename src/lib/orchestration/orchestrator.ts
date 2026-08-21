@@ -4,6 +4,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
+import { LlmTimeoutError } from "@/lib/llm/adapter";
 import { llm } from "@/lib/llm";
 import { registry as defaultRegistry } from "@/lib/agents/registry";
 import type { AgentRegistry } from "@/lib/agents/registry";
@@ -92,6 +93,8 @@ export class Orchestrator {
     if (err instanceof AgentNotFoundError) return FRIENDLY_ERRORS.AgentNotFoundError;
     if (err instanceof AgentInputError) return FRIENDLY_ERRORS.AgentInputError;
     if (err instanceof AgentOutputError) return FRIENDLY_ERRORS.AgentOutputError;
+    // LLM 超时(2026-08):适配器统一超时后抛出,文案可直接面向用户(run 落 failed,前端可重试)
+    if (err instanceof LlmTimeoutError) return err.message;
     return FRIENDLY_ERRORS.Fallback;
   }
 }

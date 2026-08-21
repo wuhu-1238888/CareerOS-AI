@@ -19,6 +19,7 @@ import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/res
 import { buildFinalResumeText, type OptimizationText } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
+import { LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -265,9 +266,12 @@ function serializeRoadmap(row: RoadmapRowShape) {
   };
 }
 
-// AgentRun 状态序列化(2.4):running 超过 2 分钟视为中断(服务端进程被杀),返回失败态供重试;
+// AgentRun 状态序列化(2.4):running 超过阈值视为中断(服务端进程被杀),返回失败态供重试;
+// 2026-08 修订:阈值 = LLM 超时 + 1 分钟余量。此前固定 2 分钟会把正常的长 LLM 任务(最长 LLM_TIMEOUT_MS)
+// 误报为「分析中断」(真实任务仍在跑、随后成功)——显示态与真实状态脱节。健康 run 的 updatedAt 停更间隙
+// 不会超过 LLM_TIMEOUT_MS(超时即落 failed),因此「超过本阈值仍 running」只可能是进程死亡。
 // 本次修订:从 run.input 防御解析 resumeId/targetDirection 透出(简历页按简历行归属判断/失败后回填目标方向;其他模块不受影响)
-const RUN_STALE_MS = 2 * 60 * 1000;
+const RUN_STALE_MS = LLM_TIMEOUT_MS + 60 * 1000;
 
 function serializeRun(run: {
   id: string;

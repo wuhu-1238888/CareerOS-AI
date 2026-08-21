@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { MockAdapter } from "@/lib/llm/mock";
 import { AgentRegistry } from "@/lib/agents/registry";
 import { Orchestrator } from "../orchestrator";
+import { LlmTimeoutError } from "@/lib/llm/adapter";
 import { SummaryAgent, VALID_JSON_REPLY, DEFAULT_CONTEXT } from "@/lib/agents/__tests__/fixtures";
 import type { SummaryOutput } from "@/lib/agents/__tests__/fixtures";
 
@@ -85,6 +86,29 @@ describe("Orchestrator.run", () => {
     });
     expect(outcome).toEqual({ ok: false, error: "暂不支持该任务类型", runId: "" });
     expect(await prisma.agentRun.count({ where: { userId } })).toBe(before);
+  });
+
+  it("LLM 超时(2026-08):LlmTimeoutError 映射为可重试文案 + AgentRun failed 落库", async () => {
+    const timeoutOrchestrator = new Orchestrator(
+      prisma,
+      new MockAdapter(0, () => {
+        throw new LlmTimeoutError();
+      }),
+      registry
+    );
+    const outcome = await timeoutOrchestrator.run({
+      intent: "sample-summary",
+      input: { text: "计算机专业" },
+      context: DEFAULT_CONTEXT,
+      userId,
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toBe("AI 响应超时,请重试");
+      const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+      expect(run?.status).toBe("failed");
+      expect(run?.error).toBe(outcome.error);
+    }
   });
 
   it("进度事件逐条转发给调用方", async () => {

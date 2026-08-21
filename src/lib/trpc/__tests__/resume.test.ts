@@ -145,6 +145,33 @@ describe("resume 数据层(真实写库,顺序执行)", () => {
     expect(await prisma.resume.findUnique({ where: { id: other.id } })).not.toBeNull();
   });
 
+  it("latestRun stale 阈值(2026-08):running 在 LLM 超时 + 余量内仍返回 running;超过视为中断(仅显示态)", async () => {
+    const run = await prisma.agentRun.create({
+      data: { agentName: "resume-rewrite-agent", intent: "rewrite-resume", userId: userIdA, status: "running", input: {} },
+    });
+    try {
+      // 回拨 updatedAt 用 SQL 区间运算(不传 Date 参数:JS Date 经 Prisma raw SQL 会被按本地时区序列化,
+      // 在 UTC+8 机器上存入即偏移 8 小时导致断言失真);相对行自身值回拨,也不依赖 DB 时钟
+      // 3 分钟前:旧固定 2 分钟阈值会误报「分析中断」,新阈值(3 分钟超时 + 1 分钟余量)内 → 仍 running
+      await prisma.$executeRaw`UPDATE agent_runs SET updated_at = updated_at - INTERVAL '3 minutes' WHERE id = ${run.id}`;
+      expect(await caller(userIdA).resume.latestRun({ intent: "rewrite-resume" })).toMatchObject({
+        status: "running",
+        stale: false,
+        error: null,
+      });
+      // 5 分钟前:超过阈值 → 序列化为失败态供前端重试,但不改 DB 原状态
+      await prisma.$executeRaw`UPDATE agent_runs SET updated_at = updated_at - INTERVAL '5 minutes' WHERE id = ${run.id}`;
+      expect(await caller(userIdA).resume.latestRun({ intent: "rewrite-resume" })).toMatchObject({
+        status: "failed",
+        stale: true,
+        error: "分析中断,请重试",
+      });
+      expect((await prisma.agentRun.findUnique({ where: { id: run.id } }))?.status).toBe("running");
+    } finally {
+      await prisma.agentRun.delete({ where: { id: run.id } });
+    }
+  });
+
   it("未登录:全部入口 → UNAUTHORIZED", async () => {
     await expect(caller(null).resume.get()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(caller(null).resume.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });

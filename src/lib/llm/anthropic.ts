@@ -1,6 +1,7 @@
 // Anthropic 适配器:Messages API;system 角色在 Anthropic 是顶层参数,需拆出
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage, LLMAdapter, LLMOptions, LLMResult, LLMStreamChunk } from "./adapter";
+import { LLM_TIMEOUT_MS, LlmTimeoutError, createTimeoutSignal, isTimeoutLike } from "./adapter";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -25,25 +26,38 @@ export class AnthropicAdapter implements LLMAdapter {
 
   async complete(messages: ChatMessage[], options?: LLMOptions): Promise<LLMResult> {
     const { system, rest } = this.splitSystem(messages);
-    const res = await this.client.messages.create({
-      model: options?.model ?? DEFAULT_MODEL,
-      max_tokens: options?.maxTokens ?? 1024,
-      temperature: options?.temperature,
-      system: system || undefined,
-      messages: rest.map((m) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content,
-      })),
-    });
-    const text = res.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-    return {
-      text,
-      model: res.model,
-      usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
-    };
+    const timeout = createTimeoutSignal(LLM_TIMEOUT_MS);
+    try {
+      const res = await this.client.messages
+        .create(
+          {
+            model: options?.model ?? DEFAULT_MODEL,
+            max_tokens: options?.maxTokens ?? 1024,
+            temperature: options?.temperature,
+            system: system || undefined,
+            messages: rest.map((m) => ({
+              role: m.role === "assistant" ? "assistant" : "user",
+              content: m.content,
+            })),
+          },
+          { signal: timeout.signal }
+        )
+        .catch((err: unknown) => {
+          if (isTimeoutLike(err)) throw new LlmTimeoutError();
+          throw err;
+        });
+      const text = res.content
+        .filter((block): block is Anthropic.TextBlock => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+      return {
+        text,
+        model: res.model,
+        usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
+      };
+    } finally {
+      timeout.clear();
+    }
   }
 
   async *stream(messages: ChatMessage[], options?: LLMOptions): AsyncGenerator<LLMStreamChunk> {

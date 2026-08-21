@@ -6,22 +6,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("openai", () => {
   const state = {
     instances: [] as { config: { apiKey?: string; baseURL?: string } }[],
+    lastOptions: null as { signal?: unknown } | null,
     create: vi.fn(
-      async (params: {
-        model: string;
-        messages: { role: string; content: string }[];
-        max_tokens?: number;
-        stream?: boolean;
-      }) => ({
-        model: params.model,
-        choices: [
-          {
-            message: { content: `[fake] ${params.messages[params.messages.length - 1]?.content}` },
-            delta: { content: "逐", role: "assistant" },
-          },
-        ],
-        usage: { prompt_tokens: 7, completion_tokens: 9 },
-      })
+      async (
+        params: {
+          model: string;
+          messages: { role: string; content: string }[];
+          max_tokens?: number;
+          stream?: boolean;
+        },
+        options?: { signal?: unknown }
+      ) => {
+        state.lastOptions = options ?? null;
+        return {
+          model: params.model,
+          choices: [
+            {
+              message: { content: `[fake] ${params.messages[params.messages.length - 1]?.content}` },
+              delta: { content: "逐", role: "assistant" },
+            },
+          ],
+          usage: { prompt_tokens: 7, completion_tokens: 9 },
+        };
+      }
     ),
   };
   class FakeOpenAI {
@@ -37,12 +44,19 @@ vi.mock("openai", () => {
 vi.mock("@anthropic-ai/sdk", () => {
   const state = {
     instances: [] as { config: { apiKey?: string } }[],
+    lastOptions: null as { signal?: unknown } | null,
     create: vi.fn(
-      async (params: { model: string; system?: string; messages: { role: string; content: string }[] }) => ({
-        model: params.model,
-        content: [{ type: "text", text: `[fake-anthropic] ${params.messages[params.messages.length - 1]?.content}` }],
-        usage: { input_tokens: 5, output_tokens: 6 },
-      })
+      async (
+        params: { model: string; system?: string; messages: { role: string; content: string }[] },
+        options?: { signal?: unknown }
+      ) => {
+        state.lastOptions = options ?? null;
+        return {
+          model: params.model,
+          content: [{ type: "text", text: `[fake-anthropic] ${params.messages[params.messages.length - 1]?.content}` }],
+          usage: { input_tokens: 5, output_tokens: 6 },
+        };
+      }
     ),
     stream: vi.fn(() => {
       const stream = {
@@ -120,7 +134,8 @@ describe("LLM 适配器统一结构(1.5)", () => {
     const openAiInstance = state.instances.find((i) => i.config.baseURL === "https://api.deepseek.com");
     expect(openAiInstance).toBeDefined();
     expect(state.create).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "deepseek-chat", max_tokens: 100 })
+      expect.objectContaining({ model: "deepseek-chat", max_tokens: 100 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 9 });
   });
@@ -133,7 +148,8 @@ describe("LLM 适配器统一结构(1.5)", () => {
     const instance = state.instances.find((i) => i.config.baseURL === undefined);
     expect(instance).toBeDefined();
     expect(state.create).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-4o-mini" })
+      expect.objectContaining({ model: "gpt-4o-mini" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
 
@@ -148,7 +164,8 @@ describe("LLM 适配器统一结构(1.5)", () => {
       expect.objectContaining({
         system: "你是一个测试助手",
         messages: [{ role: "user", content: "你好" }],
-      })
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     const chunks: string[] = [];
@@ -176,6 +193,36 @@ describe("LLM 适配器统一结构(1.5)", () => {
       deltas.push(c.delta);
     }
     expect(deltas.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("超时映射:SDK 中止错误统一转为 LlmTimeoutError(面向用户文案);非超时错误原样透传", async () => {
+    const openAiState = (OpenAI as unknown as {
+      __state: { create: ReturnType<typeof vi.fn> };
+    }).__state;
+    openAiState.create.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" });
+    });
+    await expect(new DeepSeekAdapter().complete(sameInput)).rejects.toMatchObject({
+      name: "LlmTimeoutError",
+      message: "AI 响应超时,请重试",
+    });
+
+    const anthropicState = (Anthropic as unknown as {
+      __state: { create: ReturnType<typeof vi.fn> };
+    }).__state;
+    anthropicState.create.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+    await expect(new AnthropicAdapter().complete(sameInput)).rejects.toMatchObject({
+      name: "LlmTimeoutError",
+      message: "AI 响应超时,请重试",
+    });
+
+    // 非超时错误不误吞:原样透传给上层(Orchestrator 走既有友好错误映射)
+    openAiState.create.mockImplementationOnce(async () => {
+      throw new Error("rate limited");
+    });
+    await expect(new DeepSeekAdapter().complete(sameInput)).rejects.toThrow("rate limited");
   });
 });
 
