@@ -32,6 +32,7 @@ export function AnalysisView({
   icon: Icon = UserRound,
   runningDescription = "正在分析你的背景,生成专属职业画像",
   failedDescription = "这次分析没有完成,你可以重试或修改信息后重新分析",
+  editLabel = "修改信息",
 }: {
   run: RunView | null;
   /** 本次会话内 mutation 失败的错误文案(优先于 run.error 显示) */
@@ -47,6 +48,8 @@ export function AnalysisView({
   runningDescription?: string;
   /** 3.4 Navigator 复用:失败态说明(默认画像文案) */
   failedDescription?: string;
+  /** 4.3 Resume 复用:失败态「修改信息」按钮文案(默认「修改信息」) */
+  editLabel?: string;
 }) {
   const failed = error ?? (run?.status === "failed" ? run.error ?? "分析未完成,请重试" : null);
   const progress = failed ? [] : (run?.progress ?? []);
@@ -97,7 +100,7 @@ export function AnalysisView({
                 重试
               </Button>
               <Button type="button" variant="ghost" onClick={onEdit}>
-                修改信息
+                {editLabel}
               </Button>
             </div>
           </div>

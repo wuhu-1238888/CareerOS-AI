@@ -1,0 +1,273 @@
+// 简历页状态枢纽测试(4.3):上传/粘贴 → 待解析 → 解析中 → 失败恢复 → 核对修正 五态切换
+// + 会话内重试(重跑 parse)与刷新恢复(retryParse 重放)+ 开始优化保存核对结果
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Toaster } from "sonner";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ResumeHub } from "../resume-hub";
+
+type ResumeMock = {
+  id: string;
+  fileName: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  extractError: string | null;
+  parsedData: unknown;
+  createdAt: string;
+};
+
+type RunMock = {
+  id: string;
+  status: string;
+  stale: boolean;
+  progress: { stage: string; message: string }[];
+  error: string | null;
+  createdAt: string;
+};
+
+const mocks = vi.hoisted(() => ({
+  meData: { id: "u1", name: "甲", avatarColor: null as string | null },
+  meLoading: false,
+  resumeData: null as ResumeMock | null,
+  resumeLoading: false,
+  profileData: null as { careerPaths: { directionName: string }[] } | null,
+  profileLoading: false,
+  latestRunData: null as RunMock | null,
+  parseMutateAsync: vi.fn(),
+  retryMutateAsync: vi.fn(),
+  saveMutateAsync: vi.fn(),
+  createMutateAsync: vi.fn(),
+  pasteMutateAsync: vi.fn(),
+  invalidateResume: vi.fn(),
+}));
+
+vi.mock("@/trpc/client", () => ({
+  trpc: {
+    useUtils: () => ({ resume: { get: { invalidate: mocks.invalidateResume } } }),
+    user: { me: { useQuery: () => ({ data: mocks.meData, isLoading: mocks.meLoading }) } },
+    resume: {
+      get: { useQuery: () => ({ data: mocks.resumeData, isLoading: mocks.resumeLoading }) },
+      latestRun: {
+        useQuery: () => ({ data: mocks.latestRunData, isLoading: false }),
+      },
+      parse: { useMutation: () => ({ mutateAsync: mocks.parseMutateAsync }) },
+      retryParse: { useMutation: () => ({ mutateAsync: mocks.retryMutateAsync }) },
+      saveParsedData: { useMutation: () => ({ mutateAsync: mocks.saveMutateAsync }) },
+      createFromText: {
+        useMutation: () => ({ mutateAsync: mocks.createMutateAsync, isPending: false }),
+      },
+      pasteText: {
+        useMutation: () => ({ mutateAsync: mocks.pasteMutateAsync, isPending: false }),
+      },
+    },
+    profile: {
+      get: { useQuery: () => ({ data: mocks.profileData, isLoading: mocks.profileLoading }) },
+    },
+  },
+}));
+
+const parsedData = {
+  basicInfo: { name: "张伟", targetPosition: "后端开发工程师", phone: "", email: "" },
+  education: [],
+  skills: ["Java"],
+  experiences: [],
+  projects: [],
+};
+
+const failedRun: RunMock = {
+  id: "run-failed",
+  status: "failed",
+  stale: false,
+  progress: [],
+  error: "AI 返回了无法识别的结果,请稍后重试",
+  createdAt: "2026-08-20T10:00:00Z",
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.meData = { id: "u1", name: "甲", avatarColor: null };
+  mocks.meLoading = false;
+  mocks.resumeData = null;
+  mocks.resumeLoading = false;
+  mocks.profileData = null;
+  mocks.profileLoading = false;
+  mocks.latestRunData = null;
+  mocks.invalidateResume.mockResolvedValue(undefined);
+  mocks.parseMutateAsync.mockResolvedValue({ runId: "run-1" });
+  mocks.retryMutateAsync.mockResolvedValue({ runId: "run-2" });
+  mocks.saveMutateAsync.mockResolvedValue({ ok: true });
+});
+
+describe("ResumeHub 状态机", () => {
+  it("加载中:渲染骨架屏", () => {
+    mocks.meLoading = true;
+    render(<ResumeHub />);
+    expect(screen.getByLabelText("加载中")).toBeInTheDocument();
+  });
+
+  it("无简历:渲染上传视图(拖拽区)", async () => {
+    render(<ResumeHub />);
+    expect(await screen.findByText("拖拽简历文件到这里,或点击选择文件")).toBeInTheDocument();
+  });
+
+  it("简历已就绪无解析结果:待解析卡,点「开始解析」走 parse", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ResumeHub />);
+    expect(await screen.findByText("简历已就绪")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "开始解析" }));
+    await waitFor(() => expect(mocks.parseMutateAsync).toHaveBeenCalledWith({ resumeId: "r1" }));
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+  });
+
+  it("解析在途:展示分析过程视图(简历解析师文案)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    let resolveParse!: (value: unknown) => void;
+    mocks.parseMutateAsync.mockImplementation(() => new Promise((resolve) => (resolveParse = resolve)));
+    render(<ResumeHub />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "开始解析" }));
+    expect(await screen.findByText("简历解析师")).toBeInTheDocument();
+    expect(screen.getByText("分析中")).toBeInTheDocument();
+    resolveParse({ runId: "run-1" });
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+  });
+
+  it("会话内解析失败:友好错误 + 重试直接重跑 parse", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.parseMutateAsync.mockRejectedValueOnce(new Error("AI 返回了无法识别的结果,请稍后重试"));
+    render(<ResumeHub />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "开始解析" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "AI 返回了无法识别的结果,请稍后重试"
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(mocks.parseMutateAsync).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+  });
+
+  it("刷新后遇历史失败 run:重试走服务端重放(retryParse 带 runId);重新上传回上传视图", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.latestRunData = failedRun;
+    render(<ResumeHub />);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(mocks.retryMutateAsync).toHaveBeenCalledWith({ runId: "run-failed" }));
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+  });
+
+  it("失败视图「重新上传」:回到上传视图(文件状态卡 + 更换简历)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.latestRunData = failedRun;
+    render(<ResumeHub />);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "重新上传" }));
+    expect(await screen.findByRole("button", { name: "更换简历" })).toBeInTheDocument();
+    expect(screen.getByText("张伟简历.pdf")).toBeInTheDocument();
+  });
+
+  it("提取失败行(无原文):渲染上传视图引导粘贴降级", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "扫描件.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: "no-text",
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ResumeHub />);
+    expect(
+      await screen.findByText("未从文件中提取到文本(可能是图片型 PDF),请粘贴简历文本继续")
+    ).toBeInTheDocument();
+  });
+
+  it("刷新后 run 已成功:自动刷新简历数据(进入核对视图)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.latestRunData = {
+      id: "run-1",
+      status: "succeeded",
+      stale: false,
+      progress: [],
+      error: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ResumeHub />);
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+  });
+
+  it("解析完成:渲染核对视图;「开始优化」保存核对结果并 Toast 提示", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }, { directionName: "数据分析" }] };
+    render(
+      <>
+        <Toaster />
+        <ResumeHub />
+      </>
+    );
+    expect(await screen.findByText("基本信息")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "开始优化" }));
+    await waitFor(() =>
+      expect(mocks.saveMutateAsync).toHaveBeenCalledWith({
+        resumeId: "r1",
+        parsedData: expect.objectContaining({ skills: ["Java"] }),
+      })
+    );
+    expect(await screen.findByText(/已保存\(目标方向:后端开发\),优化能力即将在下一步接入/)).toBeInTheDocument();
+    await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
+  });
+});

@@ -15,6 +15,9 @@ import {
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
+import { parseParsedData, parseResume } from "@/lib/resume/pipeline";
+import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
+import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -734,9 +737,9 @@ export const appRouter = t.router({
 
   // 简历数据层(4.1):文件上传走 /api/resume/upload(自鉴权 Route Handler);解析/改写/评分管线 4.3 起接入
   resume: t.router({
-    // 当前用户最新一份简历(元信息);从未上传 → null
+    // 当前用户最新一份简历(元信息 + 解析结果,防御解析);从未上传 → null
     get: protectedProcedure.query(async ({ ctx }) => {
-      return ctx.prisma.resume.findFirst({
+      const row = await ctx.prisma.resume.findFirst({
         where: { userId: ctx.userId },
         orderBy: { createdAt: "desc" },
         select: {
@@ -746,8 +749,12 @@ export const appRouter = t.router({
           sizeBytes: true,
           extractError: true,
           createdAt: true,
+          parsedData: true,
         },
       });
+      if (!row) return null;
+      const { parsedData, ...meta } = row;
+      return { ...meta, parsedData: parseParsedData(parsedData) };
     }),
 
     // 简历文件列表(设置页「简历文件管理」):仅元信息,下载走 /api/resume/download
@@ -805,6 +812,80 @@ export const appRouter = t.router({
           },
         });
         return { id: row.id };
+      }),
+
+    // 解析简历(4.3):提取原文交给 Parse Agent,成功后写 parsedData;进度经 latestRun 轮询
+    parse: protectedProcedure
+      .input(z.object({ resumeId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const resume = await requireOwnedResume(ctx, input.resumeId);
+        if (!resume.originalText) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "简历原文缺失,请重新上传或粘贴简历内容",
+          });
+        }
+        const outcome = await parseResume({
+          userId: ctx.userId,
+          resumeId: resume.id,
+          resumeText: resume.originalText,
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { runId: outcome.runId };
+      }),
+
+    // 解析失败重试(4.3):从最近一次失败 run 的 input 重放(刷新后数据仍在服务端)
+    retryParse: protectedProcedure
+      .input(z.object({ runId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findUnique({ where: { id: input.runId } });
+        if (!run || run.userId !== ctx.userId || run.intent !== "parse-resume") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "解析任务不存在" });
+        }
+        const parsed = resumeParseAgentInputSchema
+          .extend({ resumeId: z.string().min(1) })
+          .safeParse(run.input);
+        if (!parsed.success) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "无法重试该任务,请重新上传或粘贴简历内容",
+          });
+        }
+        await requireOwnedResume(ctx, parsed.data.resumeId); // 简历已删除 → NOT_FOUND
+        const outcome = await parseResume({
+          userId: ctx.userId,
+          resumeId: parsed.data.resumeId,
+          resumeText: parsed.data.resumeText,
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { runId: outcome.runId };
+      }),
+
+    // 保存核对修正后的解析结果(4.3):用户在核对表单修正后覆盖保存
+    saveParsedData: protectedProcedure
+      .input(z.object({ resumeId: z.string().min(1), parsedData: parsedResumeSchema }))
+      .mutation(async ({ ctx, input }) => {
+        await requireOwnedResume(ctx, input.resumeId);
+        await ctx.prisma.resume.update({
+          where: { id: input.resumeId },
+          data: { parsedData: input.parsedData as Prisma.InputJsonValue },
+        });
+        return { ok: true };
+      }),
+
+    // 最近一次简历任务 run(4.3):页面轮询(700ms)与刷新恢复的统一入口;按 intent 参数化,与画像/路线图 latestRun 同构
+    latestRun: protectedProcedure
+      .input(z.object({ intent: z.enum(["parse-resume", "rewrite-resume", "score-ats"]) }))
+      .query(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findFirst({
+          where: { userId: ctx.userId, intent: input.intent },
+          orderBy: { createdAt: "desc" },
+        });
+        return run ? serializeRun(run) : null;
       }),
 
     // 删除简历(4.1):先删 DB 行(版本/修改级联),再删存储文件(幂等,失败不阻断删除结果)
