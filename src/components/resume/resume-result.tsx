@@ -4,6 +4,7 @@
 // 信息层级(4.10-layout 修订):优化结果对比卡(改前/改后/原因)→ 最终文本预览(卡内复制按钮)→ ATS 评分卡 ——
 // 最终文本是流程产出、ATS 是对产出的质量检测,故预览在 ATS 之前;
 // 预览直接渲染服务端 canonical finalText,与复制按钮、导出 PDF 同源同一字符串,无二次组装。
+// 4.11:工具条新增「重新上传简历」—— 进入上传视图换另一份简历(新建简历行,当前简历与优化结果保留)。
 // 状态持久化走 resume.updateOptimization / resume.acceptAll;成功后失效 resume.get 以刷新采纳计数与最终文本。
 import { useState } from "react";
 import { ClipboardCopy } from "lucide-react";
@@ -44,12 +45,15 @@ export function ResumeResult({
   version,
   onReanalyze,
   onEdit,
+  onReupload,
 }: {
   version: ResultVersion;
   /** 「重新分析」:用已保存的核对结果 + 当前目标方向再跑改写,生成新版本 */
   onReanalyze: () => void;
   /** 「修改信息」:返回核对表单修正解析结果 */
   onEdit: () => void;
+  /** 「重新上传简历」(4.11):进入上传视图换另一份简历 —— 新建简历行,当前简历与优化结果保留 */
+  onReupload: () => void;
 }) {
   const utils = trpc.useUtils();
   const update = trpc.resume.updateOptimization.useMutation();
@@ -141,6 +145,9 @@ export function ResumeResult({
           </Button>
           <Button type="button" variant="ghost" onClick={onEdit}>
             修改信息
+          </Button>
+          <Button type="button" variant="ghost" onClick={onReupload}>
+            重新上传简历
           </Button>
         </div>
       </div>

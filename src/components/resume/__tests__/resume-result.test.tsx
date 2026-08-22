@@ -1,7 +1,8 @@
 // 简历优化结果视图测试(4.5):方向与采纳计数渲染、全部接受(成功 toast + 失效刷新 / 失败 toast)、
 // 全部已采纳禁用、重新分析/修改信息回调、单条接受走 updateOptimization;
 // 4.7:导出工具条接线(ResumeExport 子组件以 stub 隔离,其内部行为由 resume-export.test.tsx 覆盖);
-// 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分)。
+// 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分);
+// 4.11:「重新上传简历」按钮触发 onReupload 回调。
 // 注意:userEvent.setup() 会安装自己的剪贴板桩,因此 clipboard/execCommand 必须在 setup 之后 stub。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -69,15 +70,20 @@ const version: ResultVersion = {
   ],
 };
 
-function renderResult(onReanalyze = vi.fn(), onEdit = vi.fn()) {
+function renderResult(onReanalyze = vi.fn(), onEdit = vi.fn(), onReupload = vi.fn()) {
   const user = userEvent.setup();
   render(
     <>
       <Toaster />
-      <ResumeResult version={version} onReanalyze={onReanalyze} onEdit={onEdit} />
+      <ResumeResult
+        version={version}
+        onReanalyze={onReanalyze}
+        onEdit={onEdit}
+        onReupload={onReupload}
+      />
     </>
   );
-  return { user, onReanalyze, onEdit };
+  return { user, onReanalyze, onEdit, onReupload };
 }
 
 function stubClipboard(writeText: unknown) {
@@ -143,7 +149,7 @@ describe("ResumeResult 结果视图", () => {
       optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
     };
     render(
-      <ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} />
+      <ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />
     );
     expect(screen.getByTestId("resume-export")).toBeInTheDocument();
     expect(mocks.exportProps).toEqual({ finalText: version.finalText, canExport: false });
@@ -171,7 +177,7 @@ describe("ResumeResult 结果视图", () => {
       optimizations: version.optimizations.map((o) => ({ ...o, status: "accepted" })),
     };
     render(
-      <ResumeResult version={allAccepted} onReanalyze={() => {}} onEdit={() => {}} />
+      <ResumeResult version={allAccepted} onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />
     );
     expect(screen.getByText("已采纳 2/2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部接受" })).toBeDisabled();
@@ -233,7 +239,7 @@ describe("ResumeResult 结果视图", () => {
       ...version,
       optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
     };
-    render(<ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} />);
+    render(<ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />);
     expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
     expect(screen.getAllByText("尚未采纳任何修改").length).toBeGreaterThan(0);
   });
@@ -244,6 +250,7 @@ describe("ResumeResult 结果视图", () => {
         version={{ ...version, finalText: null }}
         onReanalyze={() => {}}
         onEdit={() => {}}
+        onReupload={() => {}}
       />
     );
     expect(screen.queryByLabelText("最终文本预览")).toBeNull();
@@ -251,12 +258,14 @@ describe("ResumeResult 结果视图", () => {
     expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
   });
 
-  it("重新分析 / 修改信息:触发回调", async () => {
-    const { user, onReanalyze, onEdit } = renderResult();
+  it("重新分析 / 修改信息 / 重新上传简历:触发回调(4.11)", async () => {
+    const { user, onReanalyze, onEdit, onReupload } = renderResult();
     await user.click(screen.getByRole("button", { name: "重新分析" }));
     expect(onReanalyze).toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "修改信息" }));
     expect(onEdit).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "重新上传简历" }));
+    expect(onReupload).toHaveBeenCalled();
   });
 
   it("单条接受:updateOptimization(optimizationId, accepted)+ 失效刷新", async () => {

@@ -259,6 +259,12 @@ export function ResumeHub() {
     void runRewrite(parsed, version.targetDirection);
   }
 
+  // 「重新上传简历」(4.11):进入上传视图换另一份简历。复用既有 uploadMode —— 只切视图不删数据:
+  // 上传新文件走既有链路建新行,行 id 变化 effect 统一复位会话状态并自动切换到新简历;旧行与优化结果保留。
+  function handleReupload() {
+    setUploadMode(true);
+  }
+
   // careerPaths 为 Prisma Json 列(tRPC 序列化后为深递归类型),经 unknown 桥接避免 TS2589
   const careerPaths: string[] =
     (profile.data?.careerPaths as unknown as { directionName: string }[] | undefined)?.map(
@@ -364,6 +370,7 @@ export function ResumeHub() {
         version={resume.data.version}
         onReanalyze={handleReanalyze}
         onEdit={handleBackToReview}
+        onReupload={handleReupload}
       />
     );
   } else {

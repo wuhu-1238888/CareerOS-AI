@@ -415,6 +415,26 @@ describe("ResumeHub 状态机", () => {
     expect(screen.getByTestId("resume-export")).toBeInTheDocument();
   });
 
+  it("结果视图「重新上传简历」(4.11):回到上传视图(显示 A 文件状态卡 + 更换简历),不触发删除/上传动作", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+      version: optimizedVersion,
+    };
+    render(<ResumeHub />);
+    expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "重新上传简历" }));
+    // 只切视图:上传视图显示当前简历 A 的文件状态卡 +「更换简历」
+    expect(await screen.findByRole("button", { name: "更换简历" })).toBeInTheDocument();
+    expect(screen.getByText("张伟简历.pdf")).toBeInTheDocument();
+    expect(mocks.parseMutateAsync).not.toHaveBeenCalled();
+  });
+
   it("刷新后遇历史失败改写 run(无版本):失败视图;重试无会话输入 → 返回核对表单", async () => {
     mocks.resumeData = {
       id: "r1",

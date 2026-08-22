@@ -326,7 +326,8 @@
 | 4.9 | 简历改写状态卡死修复:完成判定改由轮询权威数据驱动 + LLM 3 分钟超时(可重试失败)+ stale 阈值 = 超时 + 1 分钟余量 | ✅ | `4834aa3` + `847f651` |
 | 4.10 | 简历模块顺序保真:detectSections/buildSectionPlan 确定性检测 + Resume.sectionOrder 快照 + 表单按原文顺序渲染(自定义只读/工作实习分开)+ 结果页最终文本预览面板 | ✅ | `30de79b` + `70f8bb1` + `47d2eb7` |
 | 4.10-fix | 提取层视觉排序:验收发现真实 .docx(文本框模板)与 z-order PDF 的 finalText 乱序 → 断点在提取层 → parser 按坐标重建阅读顺序(PDF items y/x 排序 + DOCX wp:anchor positionV/H 排序) | ✅ | `b34c334` |
-| 4.10-layout | 结果页信息层级重排:优化结果对比卡 → 最终文本预览 → ATS 评分(预览在优化结果之后、ATS 之前);复制按钮移入预览卡与预览同源;buildFinalTextForVersion 单一构造入口(serializeVersion 与 scoreAts 共用,ATS 分析对象 = 预览同一字符串) | ✅ | (见本次提交) |
+| 4.10-layout | 结果页信息层级重排:优化结果对比卡 → 最终文本预览 → ATS 评分(预览在优化结果之后、ATS 之前);复制按钮移入预览卡与预览同源;buildFinalTextForVersion 单一构造入口(serializeVersion 与 scoreAts 共用,ATS 分析对象 = 预览同一字符串) | ✅ | `44dc4b1` |
+| 4.11 | 结果页「重新上传简历」入口:复用 uploadMode 切回上传视图(只切视图不删数据),上传新文件建新行,行 id 变化 effect 复位会话状态并自动切换到新简历;旧简历/解析记录/优化版本全部保留 | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -463,3 +464,19 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 ### 验证
 
 - resume-result 测试:新增信息层级顺序断言(预览在对比卡之后、ATS 之前,compareDocumentPosition)+ 预览卡复制 3 用例(成功/回退/失败)+ 零采纳与空文本禁用;resume-export 测试瘦身为仅 PDF;final-text 新增 helper 2 用例(与 buildFinalResumeText 一致/全空行退化为原文)。
+
+## 2026-08 修订:结果页「重新上传简历」入口(任务 4.11)
+
+### 现象与方案
+
+入口遗漏:首次进入有上传入口、解析失败有「重新上传」,但成功结果视图无法换简历(只能设置页先删后传,破坏旧数据)。方案:**只加入口,复用既有 uploadMode** —— 结果页工具条「重新上传简历」→ `setUploadMode(true)` → 上传视图显示当前简历 A 文件卡 +「更换简历」→ 上传 B 走既有建行链路 → `resume.get` 最新行变 B → 行 id 变化 effect 复位会话状态并自动进入 B 的「已就绪 → 解析」流程。
+
+### 关键保证
+
+- **旧数据不动**:实现不触碰任何删除路径;每次上传=新行(handleResumeUpload 既有行为);A 的原始文件/解析记录/优化版本全部保留(设置页列表可见)。
+- **无新状态**:不引入 reUploadMode;initial 与 replace 两个来源统一由 uploadMode + 行切换 effect 收尾。
+- **异常路径**:未选文件 → 留在上传视图不建行;上传失败 → Banner 提示,A 不受影响;B 解析失败 → 既有失败视图可再「重新上传」C;相同文件 → 按现有策略(无去重)= 新行。
+
+### 验证
+
+- resume-result 测试:重新上传按钮触发 onReupload 回调;resume-hub 测试:结果视图点「重新上传简历」→ 上传视图(文件状态卡 + 更换简历),且不触发删除/上传动作。
