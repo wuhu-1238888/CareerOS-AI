@@ -699,7 +699,7 @@ Next.js 14 在 src/ 布局下会**静默忽略根目录 middleware.ts**(无编�
 
 ### 7.10 Prompt 以 Markdown 解耦 + fs 加载(部署注意)
 
-Agent System Prompt 存 `src/lib/prompts/*.md`,经 `loadPrompt` 以 `fs` 从 `process.cwd()` 读取 + 模块级缓存。本地开发零成本;**若部署 Vercel Serverless,fs 读取打包内文件可能失效,需改为 import 资源或读打包产物**(4.1 部署前评估,已记入 progress.md 遗留)。
+Agent System Prompt 存 `src/lib/prompts/*.md`,经 `loadPrompt` 以 `fs` 从 `process.cwd()` 读取 + 模块级缓存。本地开发零成本;若部署 Vercel Serverless,fs 读取打包内文件可能失效。**5.3 已落地(2026-08-22)**:`next.config.mjs` 的 `outputFileTracingIncludes["/api/trpc/[trpc]"] = ["./src/lib/prompts/**/*.md"]` 显式把全部 6 个 prompt 打进 tRPC 路由的 Serverless 产物(构建后经 `.next/server/app/api/trpc/[trpc]/route.js.nft.json` 验证,6/6 在列;运行时 `process.cwd()` 即产物解包根,相对路径不变)。保留 fs 加载(不改 import 资源:vitest 无法 import .md,且运行时读文件便于热更新)。
 
 ## 八、M2 实施架构决策补记(2026-08-20,任务 2.1–2.7 落地确认)
 

@@ -2,11 +2,11 @@
 
 ## 当前项目状态
 
-- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1(项目地基)+ M2(Career Profile)+ M3(Career Navigator)+ **M4(Resume Intelligence,任务 4.1–4.7)全部完成**
-- **最近更新**:2026-08-21,阶段 4 任务 4.7(一键复制最终文本 + PDF 导出)完成并推送(commit `f96806b`)
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.7 全部完成(M1 已通过用户验收;M2、M3、M4 待用户整体验收)
-- **当前状态**:**Stage 4 已实现,等待人工验收**。不开始阶段 5。
-- **测试基线**:426 个测试 / 52 个文件全部通过(连续两次全套);typecheck / lint / build 零错误;dev server 下 6 个页面登录态 200、未登录 307 中间件保护正常
+- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1 – M4 全部完成 + **M5 闭环整合任务 5.1 – 5.3 完成**(5.4 按用户指示未执行)
+- **最近更新**:2026-08-23,阶段 5 任务 5.3 完成并推送(commit `6f96b35`;5.1 = `be110d8`,5.2 = `890f69f`)
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
+- **当前状态**:**Stage 5(5.1–5.3)已实现,等待人工验收**。不执行 5.4 与 Stage 6(用户指示)。
+- **测试基线**:578 个测试 / 60 个文件全部通过;typecheck / lint / build 零错误;构建产物 .nft.json 验证 6/6 prompt 打入 tRPC Serverless 路由
 
 ## 已完成的工作
 
@@ -286,26 +286,26 @@
 1. **DeepSeek 真实连通验证待做**(用户决策跳过):4 适配器结构已测试,Mock 开发默认;待用户提供 Key 后改 `.env` 做一次最小真实请求
 2. `npm audit` 8 个 high:来自 Next 14 / ESLint 8 / Prisma 传递依赖,是锁定版本的自然结果;**勿 `audit fix --force`**(会破坏锁定的 Next 14);随版本升级逐步消解
 3. Windows CRLF 告警:git 层面噪声,无功能影响,忽略
-4. Prompt 文件经 `fs` 从 `process.cwd()` 读取:本地开发无碍;若部署 Vercel Serverless 需调整为打包资源或 DB 存储(4.1 部署前评估)
+4. ~~Prompt 文件经 `fs` 从 `process.cwd()` 读取:本地开发无碍;若部署 Vercel Serverless 需调整为打包资源或 DB 存储(4.1 部署前评估)~~ **已解决(5.3)**:`outputFileTracingIncludes` 显式打入 Serverless 产物,build 后 .nft.json 验证 6/6 prompt 在列
 5. Git Bash 终端 curl 发中文会 mojibake(终端 GBK 编码):浏览器端 e2e 不受影响,非产品缺陷
 6. `backend/` `frontend/` 空目录保留不动(用户已确认);pgAdmin 未随安装器安装
 7. **服务端进程被杀会致 run 卡 running**:查询层将 `running 且 updatedAt > 2 分钟` 序列化为 failed「分析中断,请重试」,用户可重试恢复;跨实例持久化进度依赖 DB 轮询(production 可用),非缺陷
 8. **Recharts 在 jsdom 无尺寸**:组件测试改用 HTML 图例文本断言(已 polyfill ResizeObserver);雷达图真实渲染与响应式需浏览器人工走查
 9. **真实 DeepSeek 分析质量未验证**:样例集与 Mock 输出已固化,管线正确性已测;待用户提供 Key 后改 `.env` 做真实请求(与遗留 #1 同源)
+10. **生产部署暂缓(用户决策,2026-08-23)**:5.3 代码已交付;生产数据库未创建、DeepSeek Key 未提供(已确认生产 LLM = DeepSeek)。完整清单与步骤见 deployment-checklist.md
 
 ## 下一步 Implementation Step
 
-**用户对阶段 3(M3)的整体产品验收**(验收标准见 implementation-plan M3 节 / 计划文档第八节):
+**用户对阶段 5(5.1–5.3)的整体产品验收**(验收标准见 implementation-plan M5 节):
 
-- 方向选择(有画像 → 推荐卡含匹配度;无画像 → 手动输入)→ AI 生成进度可视 → 时间线主视图(概要条/节点三态/阶段卡折叠展开)全流程可走通
-- 任务三态切换刷新保留(服务端持久化);「太难了/已经会了」→ 单阶段重生成仅该阶段变化,调整中提示与成功/失败 toast
-- 全量重新生成 = 替换式(旧路线图删除);阶段全完成 → 节点变绿 + badge「已完成」
-- 未登录/越权访问路线图被拒绝;所有数据视图四态齐全;DesignRules 职业路线页 4 禁令(无横向甘特图/一屏 ≤4 阶段/无完成庆祝弹窗/无课程商城引导)+ 无硬编码色值/零渐变
-- 现有 178 测试不回归,新增测试全绿(基线 246/34 文件);typecheck/lint/build 零错误
-- 浏览器人工走查项(工程测试非验收门槛):方向选择 → 生成进度 → 时间线展开折叠 → 任务三态切换刷新保留 → 反馈后阶段更新 → Desktop/Mobile 布局 → Console 无报错
-- **成长路线 UI/UX 优化走查**:内容区扩大与左右留白、Timeline 清晰度、多阶段独立展开/收起、概览带吸顶与两区信息、任务行扫描性、Desktop/Tablet/Mobile 三档布局、无横向滚动、无 Console 报错
+- 工作台四区四态(问候行/KPI 行/Agent 顾问区/模块入口)、新用户空态引导「开始职业探索」、增量徽章、运行中 700ms 轮询与进度条
+- 首页未登录可见(价值主张 + 单一 CTA + 三模块 + 信任行),已登录自动跳转工作台;三条数据流转(画像 → 路线图方向带出、画像 → 简历标签与方向带入、简历独立入口无画像提示)
+- 部署就绪件:Vercel Blob 存储、prompt 打包、隐私政策/用户协议(海外部署声明)、FunnelEvent 埋点
+- 回归:首次上传/简历解析/简历优化/最终文本预览/复制最终文本/ATS/重新上传/多份简历/原始简历顺序保持
+- 测试基线 578/60 文件全绿;typecheck/lint/build 零错误
+- **部署**(验收后、用户提供凭据时):按 deployment-checklist.md 执行
 
-**验收通过后进入阶段 4(M4);当前不开始阶段 4。**
+**按用户指示:不执行 5.4 与后续阶段。**
 
 ---
 
@@ -627,3 +627,35 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 - 测试:hub +5(缓存冻结 running 但版本更新 → 直接结果视图[核心回归]、run 比版本新 → 仍分析中、重新分析响应丢失但服务端完成 → invalidate 拉新版本、解析响应丢失但完成 → 清错误、连续改写 refs 复位二次恢复);analysis-view +2(慢分析提示显示/不显示);hub 既有 2 用例补 invalidateLatestRun 断言;hub 测试 useUtils mock 改稳定引用(否则恢复 effect 因 utils 依赖每渲染重复触发)。
 - 全套 **540/540(55 文件)全绿**;typecheck / lint 零错误;grep:无 window.location.reload / 整页定时刷新。
 - 手动验收走查(用户 12 Case,dev):上传 DOCX/PDF → 解析 → 优化 **不刷新**自动进结果;慢任务持续轮询直至自动完成;刷新对比一致且正常流程不需要刷新;连续上传 A/B/C 互不干扰;分析中离开再返回(完成 → 直接结果,在途 → 进度续显、不重建任务);Network 仅 tRPC 轮询、无整页导航;60s 慢分析提示;失败态「重试」再跑。已知残留(不改):重新分析时旧版本瞬时闪现、失败的重优化静默回旧结果 —— 既有行为。
+
+# Stage 5 完成(M5:闭环整合 5.1–5.3,2026-08-23)
+
+> 按用户指示:**只执行 5.1–5.3,不执行 5.4 与后续阶段**。5.3 部署动作按用户决定暂缓(清单见 deployment-checklist.md)。
+
+## 完成情况表
+
+| 任务 | 内容 | 状态 | commit |
+|---|---|---|---|
+| 5.1 | 工作台 Dashboard:问候行(一句话状态+画像过期提示)→ KPI 行(匹配度/路线图进度/简历版本数/本周任务,大数字+增量徽章)→ Agent 顾问区(三卡状态/进度条/最近产出)→ 模块入口(继续上次/去完成/去生成);四态齐全(骨架屏零位移/新用户引导空态「开始职业探索」/错误重试/内容);运行中 700ms 轮询;数据源 dashboard.stats 单次聚合 + Task.completedAt 迁移 | ✅ | `be110d8` |
+| 5.2 | 首页与数据流转:营销首页(display 标题「AI 帮你找到职业方向」+ 副标题 + 单一 CTA「开始职业探索」+ 三模块静态卡 + 信任行 + 页脚法律入口);已登录服务端重定向工作台;三条数据流转代码核实与回归(画像→路线图 direction-form careerPaths 注入;画像→简历 readAbilityTags + careerPaths chips;简历独立入口无画像提示) | ✅ | `890f69f` |
+| 5.3 | 部署与观测:Vercel Blob 存储 provider(get/put/del 以 pathname 为键,private 访问级,工厂接入);prompt 打包(outputFileTracingIncludes,build 后 .nft.json 6/6 验证);隐私政策 + 用户协议页(公开路由,声明海外部署区域处理);FunnelEvent 表 + resume.logExport 埋点(复制最终文本/下载 PDF);部署清单文档 | ✅ | `6f96b35` |
+
+## 主要修改
+
+- **Schema**:Task 加 `completedAt`(本周任务 KPI 依据,updateStatus 维护:完成置当前时间、离开完成清空,迁移 `20260822151017_add_task_completed_at`);新增 FunnelEvent 表(事件名/时间/用户,User 级联,迁移 `20260822154212_add_funnel_event`)
+- **数据层**:`src/lib/dashboard/stats.ts` 单次聚合(10 查询 Promise.all;上海时区周边界 `shanghaiWeekStarts`;matchScoreDelta = 两画像版本最高分差;weekTasks.delta = 本周-上周;Agent 状态含 running 超时判死,与 serializeRun 同口径);tRPC 新增 `dashboard.stats` query 与 `resume.logExport` mutation
+- **存储**:`src/lib/file/vercel-blob.ts`(5.3)实现 BlobStorage 接口,`FILE_STORAGE_PROVIDER=vercel-blob` 工厂接入;加密装饰器不变(落 Blob 仍为密文)
+- **部署**:`next.config.mjs` outputFileTracingIncludes 把 6 个 prompt 打进 /api/trpc/[trpc] 的 Serverless 产物;`.env.example` 补 BLOB_READ_WRITE_TOKEN
+- **前端**:`src/components/dashboard/`(dashboard-view/stat-card/agent-card/module-card/format,DashboardSkeleton 与空态引导);`src/components/landing/`(landing-view/legal-page);首页 page.tsx 改服务端 auth() 重定向;隐私政策/用户协议页;resume-result 复制与 resume-pdf-preview 下载挂导出埋点
+- **删除**:dashboard/profile-hint(功能并入 dashboard-view,过期提示保留在问候行)
+
+## 测试结果
+
+- 5.1 完成后:**562/562(57 文件)**;5.2 后 568(landing 2 文件 6 用例 + 路径回归 72 用例);5.3 后 **578/578(60 文件)全绿**
+- 新增测试:dashboard-stats 真实写库 10(空态/画像增量/路线图与 completedAt 维护/简历计数/Agent 状态与超时判死/用户隔离/上海周边界 3)+ format 6 + dashboard-view 10(四态/徽章/无基线/失败态/过期提示)+ landing-view 5 + page 重定向 2 + vercel-blob 6(含工厂分支)+ pdf-preview 3 + resume-result/hub/export 埋点断言 + resume 数据层 logExport 2
+- typecheck / lint / build 零错误;构建产物 `.next/server/app/api/trpc/[trpc]/route.js.nft.json` 含全部 6 个 prompt .md
+
+## 已知问题(遗留)
+
+- 生产部署暂缓(用户决策):生产数据库未创建(创建指导见 deployment-checklist.md 第二节)、DeepSeek Key 未提供(生产 LLM 已确认 = DeepSeek)、Vercel Blob Store 未创建
+- 浏览器人工走查项待用户验收:工作台四态/首页跳转/三条数据流转全链路/部署清单第四节生产验收
