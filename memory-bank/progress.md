@@ -328,7 +328,8 @@
 | 4.10-fix | 提取层视觉排序:验收发现真实 .docx(文本框模板)与 z-order PDF 的 finalText 乱序 → 断点在提取层 → parser 按坐标重建阅读顺序(PDF items y/x 排序 + DOCX wp:anchor positionV/H 排序) | ✅ | `b34c334` |
 | 4.10-layout | 结果页信息层级重排:优化结果对比卡 → 最终文本预览 → ATS 评分(预览在优化结果之后、ATS 之前);复制按钮移入预览卡与预览同源;buildFinalTextForVersion 单一构造入口(serializeVersion 与 scoreAts 共用,ATS 分析对象 = 预览同一字符串) | ✅ | `44dc4b1` |
 | 4.11 | 结果页「重新上传简历」入口:复用 uploadMode 切回上传视图(只切视图不删数据),上传新文件建新行,行 id 变化 effect 复位会话状态并自动切换到新简历;旧简历/解析记录/优化版本全部保留 | ✅ | `bc68e6d`(实测验收未过,4.12 返工) |
-| 4.12 | 重新上传 = 新增独立简历(4.11 验收返工):上传视图拖拽区常显「上传新简历」+ 新增说明,移除「更换简历」按钮与旧文件卡;活跃简历 = URL 参数 ?resumeId=(resume.get 可选输入 + 失效护栏去参);上传成功清参自动切新行;设置页逐行「查看」+ 页面级「+ 新增简历」(?upload=1) | ✅ | (见本次提交) |
+| 4.12 | 重新上传 = 新增独立简历(4.11 验收返工):上传视图拖拽区常显「上传新简历」+ 新增说明,移除「更换简历」按钮与旧文件卡;活跃简历 = URL 参数 ?resumeId=(resume.get 可选输入 + 失效护栏去参);上传成功清参自动切新行;设置页逐行「查看」+ 页面级「+ 新增简历」(?upload=1) | ✅ | `cdb7e72` |
+| 4.13 | 简历中心:设置页「简历文件管理」整体迁移为顶级导航一级页面 /resumes(继续优化/查看/下载/删除 + 新增);结果页按钮改名「上传新简历」+「查看全部简历」入口 + 当前简历名;上传视图「从已有简历继续」列表切换活跃行;失败视图 editLabel 统一「上传新简历」 | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -349,6 +350,7 @@
 
 - 全套 **490/490(55 文件)全绿**(4.10-fix 修订后);typecheck / lint 零错误
 - 4.11 后 495/495;4.12 修订后 **502/502(55 文件)全绿**(新增 upload 3 / hub 3 / files 1 共 7 个;hub/upload 既有「更换简历」用例改写为「上传新简历」断言;数据层 get({resumeId}) 并入 resume.test.ts 既有 11 用例)
+- 4.13 修订后 **510/510(55 文件)全绿**(净增 8:upload 2[从已有简历继续] / hub 3[结果视图入口、点其他行切换、点当前行退出] / result 2[查看全部简历链接、当前简历名] / center 迁移净增 1[提取失败行待补全标注];topbar 4→5 入口计数更新)
 - 4.10 新增 27 个测试:section-order 22(标准顺序/归一化/同行标题/自定义切片/同形误判/无标题锚定/工作实习拆分/合并标题/多项目分区/stored 优先/兜底)+ 数据层 2(sectionOrder 入库 + sectionPlan 返回)+ review plan 模式 3 + result 预览面板 2
 - 4.10-fix 新增 20 个测试:pdf-position-sort 7(PDF 内容流 z-order → 视觉坐标排序)+ docx-extract 8(文本框 XML 逆序 → 坐标排序 / DECOY 忽略 / 流式段定位 / 无框退化)+ parser 集成 3(乱序 PDF / 文本框 DOCX / 无框 DOCX 回退 mammoth)+ upload 链路 2(乱序 PDF 与文本框 DOCX 上传 → originalText 以视觉顺序落库)
 - 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
@@ -507,3 +509,28 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 - 新增 7 个测试:upload 3(上传新简历视图/onUploaded 先于 invalidate/resumeId 透传)+ hub 3(?resumeId 透传、?upload=1 初始上传视图 + 去参、失效护栏去参)+ files 1(查看/新增简历链接与无「更换简历」);hub/upload 既有「更换简历」用例改写为「上传新简历」断言。
 - 全套 **502/502(55 文件)全绿**;typecheck / lint 零错误;grep 红线:「更换简历」仅存在于注释与「断言不存在」的测试中。
 - 手动验收走查(用户 8 Case):A → 上传 B → A+B 并存;刷新仍在;设置页查看 A/B 各自数据;再传 C → A+B+C;上传失败/解析失败不影响旧简历;全 UI 无「更换简历」。
+
+## 2026-08 修订:简历中心 —— 修复「重新上传简历」与「简历文件管理」割裂(任务 4.13)
+
+### 验收发现与根因
+
+4.12 后上传语义已正确(CREATE),但入口仍割裂:简历管理藏在 头像→个人设置→页面底部→简历文件管理;「重新上传简历」直接进上传视图、与简历列表互不相通。根因:4.1 起「简历文件管理」按设置项定位收纳进设置页,Resume 未按核心业务对象设计入口。
+
+### 产品模型(方案 A+B 组合,用户确认)
+
+简历 = **核心业务对象,不是设置项**:顶级导航新增一级页面**「简历中心」/resumes**(方案 A);结果页加「查看全部简历」入口指向它(方案 B);上传视图加「从已有简历继续」打通「上传 vs 切换」双路径。设置页「简历文件管理」**整体迁移**出设置(设置页只留个人资料/修改密码)。
+
+### 实施
+
+- **新增** `resumes/page.tsx` + `resume-center.tsx`(自 settings/resume-files 迁移改名):卡片 = 继续优化(primary)/查看(secondary,均 `/resume?resumeId=` 切换活跃行)+ 下载 + 删除;页面级「+ 新增简历」(?upload=1);extractError 行标「待补全」。
+- **topbar.tsx**:NAV_ITEMS 5 入口(简历优化后插「简历中心」,桌面/移动抽屉同源)。
+- **resume-result.tsx**:「重新上传简历」→「上传新简历」;新增「查看全部简历」(→ /resumes)+ Hero 左区「当前简历:{fileName}」(hub 透传 resumeName)。
+- **resume-hub.tsx**:`handleSelectResume(id)` = 显式 `setUploadMode(false)` + `router.replace("/resume?resumeId=<id>")`(选当前行时 id 不变、行切换 effect 不触发,显式退出是关键);失败视图 editLabel「重新上传」→「上传新简历」。
+- **resume-upload.tsx**:「从已有简历继续」列表(`resume.list`):每行 名称/大小/日期 +「待补全」标注 +「继续优化」→ `onSelectResume`。
+- 删除 settings/resume-files.tsx 与其测试;DB/API/管线零改动。
+
+### 验证
+
+- 净增 8 个测试:upload 2 / hub 3(结果视图入口、点其他行切换、点当前行退出)/ result 2 / center 迁移净增 1;topbar 4→5 入口计数更新。
+- 全套 **510/510(55 文件)全绿**;typecheck / lint 零错误;grep 红线:「更换简历」仅存在于注释与「断言不存在」的测试中;UI 无「重新上传简历」文案。
+- 手动验收走查(用户 6 Case):结果页 [上传新简历] → 不覆盖声明 + 上传本地文件 + 从已有简历继续 A → 上传 B 自动进 B,简历中心 A+B 并存;[查看全部简历] → 看到 A+B;[继续优化 A]/[继续优化 B] → 各自优化数据且刷新保持;任何卡片无「更换简历」;不进入设置即可查看/新建/切换简历。

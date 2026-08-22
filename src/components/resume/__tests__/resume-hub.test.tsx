@@ -2,6 +2,7 @@
 // + 会话内重试(重跑 parse)与刷新恢复(retryParse 重放)
 // 4.4-4.5 优化阶段:开始优化触发改写(简历优化师分析中)/ 改写失败重试与返回核对 / 结果视图 / 刷新恢复
 // 4.12:URL 参数活跃简历(?resumeId= 透传 get / ?upload=1 初始上传视图 / 失效护栏去参)+ 上传视图无「更换简历」
+// 4.13:结果视图「上传新简历」按钮 + 当前简历名 + 「查看全部简历」;上传视图「从已有简历继续」切换活跃行
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   meLoading: false,
   resumeData: null as ResumeMock | null,
   resumeLoading: false,
+  listData: null as { id: string; fileName: string | null; sizeBytes: number | null; extractError: string | null; createdAt: string }[] | null,
   profileData: null as { careerPaths: { directionName: string }[] } | null,
   profileLoading: false,
   latestRunData: null as RunMock | null,
@@ -85,6 +87,9 @@ vi.mock("@/trpc/client", () => ({
           data: input.intent === "rewrite-resume" ? mocks.latestRewriteData : mocks.latestRunData,
           isLoading: false,
         }),
+      },
+      list: {
+        useQuery: () => ({ data: mocks.listData, isLoading: false, isSuccess: true }),
       },
       parse: { useMutation: () => ({ mutateAsync: mocks.parseMutateAsync }) },
       retryParse: { useMutation: () => ({ mutateAsync: mocks.retryMutateAsync }) },
@@ -172,6 +177,7 @@ beforeEach(() => {
   mocks.meLoading = false;
   mocks.resumeData = null;
   mocks.resumeLoading = false;
+  mocks.listData = [];
   mocks.profileData = null;
   mocks.profileLoading = false;
   mocks.latestRunData = null;
@@ -261,7 +267,7 @@ describe("ResumeHub 状态机", () => {
     await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
   });
 
-  it("刷新后遇历史失败 run:重试走服务端重放(retryParse 带 runId);重新上传回上传视图", async () => {
+  it("刷新后遇历史失败 run:重试走服务端重放(retryParse 带 runId);上传新简历回上传视图", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -279,7 +285,7 @@ describe("ResumeHub 状态机", () => {
     await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
   });
 
-  it("失败视图「重新上传」(4.12):回到上传视图 = 「上传新简历」拖拽区,无「更换简历」", async () => {
+  it("失败视图「上传新简历」(4.13):回到上传视图 = 「上传新简历」拖拽区,无「更换简历」", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -292,7 +298,7 @@ describe("ResumeHub 状态机", () => {
     mocks.latestRunData = failedRun;
     render(<ResumeHub />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "重新上传" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "上传新简历" }));
     expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
     expect(screen.getByText(/本次上传会新增一份独立简历/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
@@ -435,7 +441,7 @@ describe("ResumeHub 状态机", () => {
     expect(screen.getByTestId("resume-export")).toBeInTheDocument();
   });
 
-  it("结果视图「重新上传简历」(4.12):回到上传视图 = 「上传新简历」拖拽区,不触发删除/上传动作", async () => {
+  it("结果视图「上传新简历」(4.13):回到上传视图 = 「上传新简历」拖拽区,不触发删除/上传动作", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -448,13 +454,80 @@ describe("ResumeHub 状态机", () => {
     };
     render(<ResumeHub />);
     expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "重新上传简历" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "上传新简历" }));
     // 只切视图:上传视图 = 「上传新简历」拖拽区;无旧文件卡、无「更换简历」
     expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
     expect(screen.getByText(/本次上传会新增一份独立简历/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
     expect(screen.queryByText("张伟简历.pdf")).not.toBeInTheDocument();
     expect(mocks.parseMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("结果视图(4.13):显示当前简历名 + 「查看全部简历」链接指向 /resumes", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+      version: optimizedVersion,
+    };
+    render(<ResumeHub />);
+    expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
+    expect(screen.getByText("当前简历:张伟简历.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看全部简历" })).toHaveAttribute("href", "/resumes");
+  });
+
+  it("「从已有简历继续」(4.13):点其他行 → 切活跃行(?resumeId=)并退出上传视图", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+      version: optimizedVersion,
+    };
+    mocks.listData = [
+      { id: "r1", fileName: "张伟简历.pdf", sizeBytes: 1024, extractError: null, createdAt: "2026-08-20T10:00:00Z" },
+      { id: "r-other", fileName: "产品经理简历.pdf", sizeBytes: 1024, extractError: null, createdAt: "2026-08-21T10:00:00Z" },
+    ];
+    render(<ResumeHub />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "上传新简历" }));
+    // 上传视图:「上传新简历」拖拽区 + 「从已有简历继续」双行
+    expect(await screen.findByText("从已有简历继续")).toBeInTheDocument();
+    const buttons = screen.getAllByRole("button", { name: "继续优化" });
+    expect(buttons).toHaveLength(2);
+    await userEvent.setup().click(buttons[1]!);
+    expect(mocks.replace).toHaveBeenCalledWith("/resume?resumeId=r-other");
+    // 退出上传视图(searchParams mock 不变 → 数据仍为 r1):回到结果视图
+    expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("上传新简历")).not.toBeInTheDocument();
+  });
+
+  it("「从已有简历继续」(4.13):点当前行(同 id)→ 显式退上传视图(行切换 effect 不触发)", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+      version: optimizedVersion,
+    };
+    mocks.listData = [
+      { id: "r1", fileName: "张伟简历.pdf", sizeBytes: 1024, extractError: null, createdAt: "2026-08-20T10:00:00Z" },
+    ];
+    render(<ResumeHub />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "上传新简历" }));
+    await userEvent.setup().click(await screen.findByRole("button", { name: "继续优化" }));
+    expect(mocks.replace).toHaveBeenCalledWith("/resume?resumeId=r1");
+    expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("上传新简历")).not.toBeInTheDocument();
   });
 
   it("URL ?resumeId=(4.12):透传给 resume.get 作为活跃简历", () => {

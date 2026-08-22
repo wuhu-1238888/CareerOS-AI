@@ -2,7 +2,7 @@
 // 全部已采纳禁用、重新分析/修改信息回调、单条接受走 updateOptimization;
 // 4.7:导出工具条接线(ResumeExport 子组件以 stub 隔离,其内部行为由 resume-export.test.tsx 覆盖);
 // 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分);
-// 4.11:「重新上传简历」按钮触发 onReupload 回调。
+// 4.13:「上传新简历」按钮触发 onReupload 回调 + 「查看全部简历」链接指向 /resumes + 当前简历名显示。
 // 注意:userEvent.setup() 会安装自己的剪贴板桩,因此 clipboard/execCommand 必须在 setup 之后 stub。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -70,13 +70,19 @@ const version: ResultVersion = {
   ],
 };
 
-function renderResult(onReanalyze = vi.fn(), onEdit = vi.fn(), onReupload = vi.fn()) {
+function renderResult(
+  onReanalyze = vi.fn(),
+  onEdit = vi.fn(),
+  onReupload = vi.fn(),
+  resumeName?: string
+) {
   const user = userEvent.setup();
   render(
     <>
       <Toaster />
       <ResumeResult
         version={version}
+        resumeName={resumeName}
         onReanalyze={onReanalyze}
         onEdit={onEdit}
         onReupload={onReupload}
@@ -258,14 +264,24 @@ describe("ResumeResult 结果视图", () => {
     expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
   });
 
-  it("重新分析 / 修改信息 / 重新上传简历:触发回调(4.11)", async () => {
+  it("重新分析 / 修改信息 / 上传新简历:触发回调(4.13)", async () => {
     const { user, onReanalyze, onEdit, onReupload } = renderResult();
     await user.click(screen.getByRole("button", { name: "重新分析" }));
     expect(onReanalyze).toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "修改信息" }));
     expect(onEdit).toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "重新上传简历" }));
+    await user.click(screen.getByRole("button", { name: "上传新简历" }));
     expect(onReupload).toHaveBeenCalled();
+  });
+
+  it("「查看全部简历」(4.13):链接指向简历中心 /resumes", () => {
+    renderResult();
+    expect(screen.getByRole("link", { name: "查看全部简历" })).toHaveAttribute("href", "/resumes");
+  });
+
+  it("「当前简历」(4.13):resumeName 显示在 Hero 左区", () => {
+    renderResult(vi.fn(), vi.fn(), vi.fn(), "产品经理简历.pdf");
+    expect(screen.getByText("当前简历:产品经理简历.pdf")).toBeInTheDocument();
   });
 
   it("单条接受:updateOptimization(optimizationId, accepted)+ 失效刷新", async () => {

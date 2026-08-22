@@ -4,9 +4,11 @@
 // 信息层级(4.10-layout 修订):优化结果对比卡(改前/改后/原因)→ 最终文本预览(卡内复制按钮)→ ATS 评分卡 ——
 // 最终文本是流程产出、ATS 是对产出的质量检测,故预览在 ATS 之前;
 // 预览直接渲染服务端 canonical finalText,与复制按钮、导出 PDF 同源同一字符串,无二次组装。
-// 4.11:工具条新增「重新上传简历」—— 进入上传视图换另一份简历(新建简历行,当前简历与优化结果保留)。
+// 4.13:工具条「上传新简历」(原「重新上传简历」,进入上传视图新建简历行,当前简历与优化结果保留)
+// + 「查看全部简历」→ 顶级导航「简历中心」(/resumes);Hero 左区显示当前简历名(resumeName)。
 // 状态持久化走 resume.updateOptimization / resume.acceptAll;成功后失效 resume.get 以刷新采纳计数与最终文本。
 import { useState } from "react";
+import Link from "next/link";
 import { ClipboardCopy } from "lucide-react";
 import { toast } from "sonner";
 import { AiBadge } from "@/components/shared/ai-badge";
@@ -43,16 +45,19 @@ function formatDate(iso: string): string {
 
 export function ResumeResult({
   version,
+  resumeName,
   onReanalyze,
   onEdit,
   onReupload,
 }: {
   version: ResultVersion;
+  /** 当前简历名(4.13,hub 传入 fileName,粘贴行回退「粘贴的简历文本」):Hero 左区显示 */
+  resumeName?: string;
   /** 「重新分析」:用已保存的核对结果 + 当前目标方向再跑改写,生成新版本 */
   onReanalyze: () => void;
   /** 「修改信息」:返回核对表单修正解析结果 */
   onEdit: () => void;
-  /** 「重新上传简历」(4.11):进入上传视图换另一份简历 —— 新建简历行,当前简历与优化结果保留 */
+  /** 「上传新简历」(4.11/4.13):进入上传视图新建一份简历 —— 新建简历行,当前简历与优化结果保留 */
   onReupload: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -122,6 +127,7 @@ export function ResumeResult({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <AiBadge />
+          {resumeName && <span className="text-caption text-ink-muted">当前简历:{resumeName}</span>}
           <span className="text-caption text-ink-muted">
             {version.targetDirection ? `目标方向:${version.targetDirection} · ` : ""}
             更新于 {formatDate(version.createdAt)}
@@ -147,7 +153,11 @@ export function ResumeResult({
             修改信息
           </Button>
           <Button type="button" variant="ghost" onClick={onReupload}>
-            重新上传简历
+            上传新简历
+          </Button>
+          {/* 「查看全部简历」(4.13):顶级导航「简历中心」—— 查看/切换/新增/删除全部简历 */}
+          <Button asChild variant="secondary">
+            <Link href="/resumes">查看全部简历</Link>
           </Button>
         </div>
       </div>

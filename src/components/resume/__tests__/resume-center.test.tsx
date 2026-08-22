@@ -1,9 +1,10 @@
-// 简历文件管理测试(4.1):空态/列表与下载链接/删除确认弹窗/确认后调接口 + toast + 刷新/取消不调
+// 简历中心测试(4.13,自设置页简历文件管理迁移):空态/列表与下载链接/继续优化与查看入口/删除确认弹窗/
+// 确认后调接口 + toast + 刷新/取消不调;卡片不存在「更换简历」
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Toaster } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ResumeFiles } from "../resume-files";
+import { ResumeCenter } from "../resume-center";
 
 type ResumeMeta = {
   id: string;
@@ -55,12 +56,12 @@ beforeEach(() => {
   mocks.deleteMutateAsync.mockResolvedValue({ ok: true });
 });
 
-describe("ResumeFiles(设置页简历文件管理)", () => {
+describe("ResumeCenter(简历中心,4.13)", () => {
   it("空列表:显示空态引导 + 「新增简历」入口(4.12)", async () => {
     mocks.listData = [];
-    render(<ResumeFiles />);
-    expect(await screen.findByText("暂无简历文件")).toBeInTheDocument();
-    expect(screen.getByText(/前往「简历优化」页上传简历后/)).toBeInTheDocument();
+    render(<ResumeCenter />);
+    expect(await screen.findByText("暂无简历")).toBeInTheDocument();
+    expect(screen.getByText(/点击右上角「新增简历」上传或粘贴第一份简历/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /新增简历/ })).toHaveAttribute(
       "href",
       "/resume?upload=1"
@@ -72,7 +73,7 @@ describe("ResumeFiles(设置页简历文件管理)", () => {
       { id: "r1", fileName: "张伟简历.pdf", mimeType: "application/pdf", sizeBytes: 204800, extractError: null, createdAt: "2026-08-01T00:00:00.000Z" },
       { id: "r2", fileName: null, mimeType: null, sizeBytes: null, extractError: null, createdAt: "2026-08-02T00:00:00.000Z" },
     ];
-    render(<ResumeFiles />);
+    render(<ResumeCenter />);
     expect(await screen.findByText("张伟简历.pdf")).toBeInTheDocument();
     expect(screen.getByText("粘贴的简历文本")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /下载/ });
@@ -81,23 +82,30 @@ describe("ResumeFiles(设置页简历文件管理)", () => {
     expect(screen.getAllByRole("link", { name: /下载/ })).toHaveLength(1);
   });
 
-  it("列表(4.12):每行「查看」指向 /resume?resumeId=;无「更换简历」", async () => {
+  it("列表(4.13):每行「继续优化」与「查看」都指向 /resume?resumeId=;无「更换简历」", async () => {
     mocks.listData = [
       { id: "r1", fileName: "张伟简历.pdf", mimeType: "application/pdf", sizeBytes: 204800, extractError: null, createdAt: "2026-08-01T00:00:00.000Z" },
       { id: "r2", fileName: null, mimeType: null, sizeBytes: null, extractError: null, createdAt: "2026-08-02T00:00:00.000Z" },
     ];
-    render(<ResumeFiles />);
+    render(<ResumeCenter />);
     await screen.findByText("张伟简历.pdf");
-    expect(screen.getAllByRole("link", { name: /查看/ })).toHaveLength(2);
-    expect(screen.getAllByRole("link", { name: /查看/ })[0]).toHaveAttribute(
-      "href",
-      "/resume?resumeId=r1"
-    );
-    expect(screen.getAllByRole("link", { name: /查看/ })[1]).toHaveAttribute(
-      "href",
-      "/resume?resumeId=r2"
-    );
+    const continueLinks = screen.getAllByRole("link", { name: /继续优化/ });
+    expect(continueLinks).toHaveLength(2);
+    expect(continueLinks[0]).toHaveAttribute("href", "/resume?resumeId=r1");
+    expect(continueLinks[1]).toHaveAttribute("href", "/resume?resumeId=r2");
+    const viewLinks = screen.getAllByRole("link", { name: /查看/ });
+    expect(viewLinks).toHaveLength(2);
+    expect(viewLinks[0]).toHaveAttribute("href", "/resume?resumeId=r1");
+    expect(viewLinks[1]).toHaveAttribute("href", "/resume?resumeId=r2");
     expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
+  });
+
+  it("提取失败行:caption 标注「待补全」", async () => {
+    mocks.listData = [
+      { id: "r1", fileName: "图片型简历.pdf", mimeType: "application/pdf", sizeBytes: 1024, extractError: "no-text", createdAt: "2026-08-01T00:00:00.000Z" },
+    ];
+    render(<ResumeCenter />);
+    expect(await screen.findByText(/待补全:粘贴简历文本/)).toBeInTheDocument();
   });
 
   it("删除:点删除弹确认框(含文件名),确认后调接口 + 成功 toast + 刷新列表", async () => {
@@ -106,16 +114,16 @@ describe("ResumeFiles(设置页简历文件管理)", () => {
     ];
     render(
       <>
-        <ResumeFiles />
+        <ResumeCenter />
         <Toaster />
       </>
     );
     await userEvent.setup().click(await screen.findByRole("button", { name: /删除/ }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText(/「张伟简历\.pdf」及其解析记录将被永久删除/)).toBeInTheDocument();
+    expect(screen.getByText(/「张伟简历\.pdf」及其解析与优化记录将被永久删除/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(mocks.deleteMutateAsync).toHaveBeenCalledWith({ id: "r1" }));
-    expect(await screen.findByText("简历文件已删除")).toBeInTheDocument();
+    expect(await screen.findByText("简历已删除")).toBeInTheDocument();
     await waitFor(() => expect(mocks.invalidate).toHaveBeenCalled());
     // 弹窗关闭
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -125,7 +133,7 @@ describe("ResumeFiles(设置页简历文件管理)", () => {
     mocks.listData = [
       { id: "r1", fileName: "张伟简历.pdf", mimeType: "application/pdf", sizeBytes: 204800, extractError: null, createdAt: "2026-08-01T00:00:00.000Z" },
     ];
-    render(<ResumeFiles />);
+    render(<ResumeCenter />);
     await userEvent.setup().click(await screen.findByRole("button", { name: /删除/ }));
     await userEvent.setup().click(screen.getByRole("button", { name: "取消" }));
     expect(mocks.deleteMutateAsync).not.toHaveBeenCalled();
@@ -139,7 +147,7 @@ describe("ResumeFiles(设置页简历文件管理)", () => {
     mocks.deleteMutateAsync.mockRejectedValue(new Error("简历不存在"));
     render(
       <>
-        <ResumeFiles />
+        <ResumeCenter />
         <Toaster />
       </>
     );

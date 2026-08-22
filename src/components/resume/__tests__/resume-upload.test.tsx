@@ -1,5 +1,6 @@
 // 简历上传组件测试(4.1):无画像提示/上传成功刷新/上传失败 Banner/提取失败引导粘贴/直接粘贴创建
 // 4.12:拖拽区常显(有已有简历 = 「上传新简历」,无「更换简历」按钮/旧文件卡);onUploaded 先于 invalidate;resumeId 透传 get
+// 4.13:「从已有简历继续」列表(resume.list)→ 点击「继续优化」调 onSelectResume
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,7 @@ type ResumeMeta = {
 const mocks = vi.hoisted(() => ({
   resumeData: null as ResumeMeta | null,
   resumeLoading: false,
+  listData: [] as ResumeMeta[] | null,
   profileData: null as unknown,
   profileLoading: false,
   profileSuccess: true,
@@ -38,6 +40,9 @@ vi.mock("@/trpc/client", () => ({
           mocks.getInput = input ?? null;
           return { data: mocks.resumeData, isLoading: mocks.resumeLoading };
         },
+      },
+      list: {
+        useQuery: () => ({ data: mocks.listData, isLoading: false, isSuccess: true }),
       },
       createFromText: {
         useMutation: () => ({
@@ -85,6 +90,7 @@ beforeEach(() => {
   fetchMock.calls = [];
   mocks.resumeData = null;
   mocks.resumeLoading = false;
+  mocks.listData = [];
   mocks.profileData = null;
   mocks.profileLoading = false;
   mocks.profileSuccess = true;
@@ -222,6 +228,27 @@ describe("ResumeUpload", () => {
     // 不再显示旧文件卡与「更换简历」
     expect(screen.queryByText("张伟简历.pdf")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
+  });
+
+  it("从已有简历继续(4.13):列出可切换的行,点击「继续优化」调 onSelectResume;提取失败行标注待补全", async () => {
+    mocks.listData = [
+      { id: "r-a", fileName: "产品经理简历.pdf", mimeType: "application/pdf", sizeBytes: 204800, extractError: null, createdAt: "2026-08-01T00:00:00.000Z", updatedAt: "2026-08-01T00:00:00.000Z" },
+      { id: "r-b", fileName: null, mimeType: null, sizeBytes: null, extractError: "no-text", createdAt: "2026-08-02T00:00:00.000Z", updatedAt: "2026-08-02T00:00:00.000Z" },
+    ];
+    const onSelectResume = vi.fn();
+    render(<ResumeUpload onSelectResume={onSelectResume} />);
+    expect(await screen.findByText("从已有简历继续")).toBeInTheDocument();
+    expect(screen.getByText("产品经理简历.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/待补全:粘贴简历文本/)).toBeInTheDocument();
+    const buttons = screen.getAllByRole("button", { name: "继续优化" });
+    expect(buttons).toHaveLength(2);
+    await userEvent.setup().click(buttons[0]!);
+    expect(onSelectResume).toHaveBeenCalledWith("r-a");
+  });
+
+  it("从已有简历继续(4.13):无已有简历时不渲染该区块", () => {
+    render(<ResumeUpload />);
+    expect(screen.queryByText("从已有简历继续")).not.toBeInTheDocument();
   });
 
   it("上传成功(4.12):先调 onUploaded 再刷新", async () => {

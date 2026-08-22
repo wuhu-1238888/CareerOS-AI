@@ -1,11 +1,11 @@
 "use client";
-// 简历文件管理(4.1):真实文件列表 —— 下载(原文件,走 /api/resume/download)+ 删除(确认弹窗 + toast + 刷新)。
-// 删除级联清理存储文件(服务端 resume.delete);下载链接由 Route Handler 自鉴权。
-// 4.12:页面级「+ 新增简历」(/resume?upload=1)与逐行「查看」(/resume?resumeId=,查看该行解析/优化数据)。
-// 多份简历并存:每份独立,旧简历卡片只有 查看/下载/删除,不存在「更换简历」。
+// 简历中心(4.13,自设置页「简历文件管理」迁移):顶级导航一级页面 —— 全部简历的查看/切换/下载/删除 + 页面级新增。
+// 「继续优化」与「查看」都经 /resume?resumeId= 切换活跃简历(活跃简历 = URL 参数,4.12);下载走 /api/resume/download;
+// 删除确认弹窗 + toast + 刷新(级联清理存储文件由服务端 resume.delete 完成)。
+// 多份简历并存:每份独立,卡片只有 继续优化/查看/下载/删除,不存在「更换简历」。
 import { useState } from "react";
 import Link from "next/link";
-import { Download, Eye, FileText, Plus, Trash2 } from "lucide-react";
+import { Download, Eye, FileText, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +26,7 @@ function formatBytes(size: number | null | undefined): string {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function ResumeFiles() {
+export function ResumeCenter() {
   const utils = trpc.useUtils();
   const list = trpc.resume.list.useQuery();
   const remove = trpc.resume.delete.useMutation();
@@ -36,7 +36,7 @@ export function ResumeFiles() {
     if (!pendingDelete) return;
     try {
       await remove.mutateAsync({ id: pendingDelete.id });
-      toast.success("简历文件已删除");
+      toast.success("简历已删除");
       await utils.resume.list.invalidate();
       setPendingDelete(null);
     } catch (err) {
@@ -48,10 +48,10 @@ export function ResumeFiles() {
     <section className="rounded-card border border-hairline bg-surface p-6 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-body-lg font-medium text-ink">简历文件管理</h2>
-          <p className="mt-1 text-body-sm text-ink-muted">管理你上传的简历文件与解析记录</p>
+          <h2 className="text-body-lg font-medium text-ink">我的简历</h2>
+          <p className="mt-1 text-body-sm text-ink-muted">查看、切换继续优化或删除你的全部简历</p>
         </div>
-        {/* 「+ 新增简历」(4.12):与结果页「重新上传简历」同一 CREATE 流程(上传新简历,不覆盖已有简历) */}
+        {/* 「+ 新增简历」:与结果页「上传新简历」同一 CREATE 流程(每次上传建新行,不覆盖已有简历) */}
         <Button asChild size="sm">
           <Link href="/resume?upload=1">
             <Plus aria-hidden />
@@ -70,15 +70,15 @@ export function ResumeFiles() {
       {list.isSuccess && list.data.length === 0 && (
         <div className="mt-6 flex flex-col items-center gap-2 rounded-card border border-dashed border-hairline-strong bg-sunken px-6 py-10 text-center">
           <FileText className="size-8 text-ink-faint" aria-hidden />
-          <p className="text-body-sm font-medium text-ink-secondary">暂无简历文件</p>
-          <p className="text-caption text-ink-muted">前往「简历优化」页上传简历后,可在这里管理文件</p>
+          <p className="text-body-sm font-medium text-ink-secondary">暂无简历</p>
+          <p className="text-caption text-ink-muted">点击右上角「新增简历」上传或粘贴第一份简历</p>
         </div>
       )}
 
       {list.isSuccess && list.data.length > 0 && (
         <ul className="mt-4 divide-y divide-hairline rounded-control border border-hairline">
           {list.data.map((item) => (
-            <li key={item.id} className="flex items-center justify-between gap-3 p-3">
+            <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
               <div className="flex min-w-0 items-center gap-3">
                 <FileText className="size-5 shrink-0 text-ink-muted" aria-hidden />
                 <div className="min-w-0">
@@ -88,11 +88,19 @@ export function ResumeFiles() {
                   <p className="text-caption text-ink-muted">
                     {item.fileName ? `${formatBytes(item.sizeBytes)} · ` : ""}
                     {new Date(item.createdAt).toLocaleDateString("zh-CN")}
+                    {item.extractError ? " · 待补全:粘贴简历文本" : ""}
                   </p>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {/* 「查看」(4.12):打开该简历在优化页的解析/优化数据(活跃简历 = ?resumeId=) */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {/* 「继续优化」/「查看」(4.13):都切换活跃简历(?resumeId=)进入该简历的解析/优化数据;
+                    继续优化为主操作,查看为次级强调,同一目标链接 */}
+                <Button asChild size="sm">
+                  <Link href={`/resume?resumeId=${item.id}`}>
+                    <Sparkles aria-hidden />
+                    继续优化
+                  </Link>
+                </Button>
                 <Button asChild variant="secondary" size="sm">
                   <Link href={`/resume?resumeId=${item.id}`}>
                     <Eye aria-hidden />
@@ -126,9 +134,9 @@ export function ResumeFiles() {
       <Dialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>删除简历文件?</DialogTitle>
+            <DialogTitle>删除简历?</DialogTitle>
             <DialogDescription>
-              「{pendingDelete?.name}」及其解析记录将被永久删除,此操作不可撤销。
+              「{pendingDelete?.name}」及其解析与优化记录将被永久删除,此操作不可撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -5,8 +5,9 @@
 // 无画像用户提示「完成职业画像可获得更好的优化效果」(PRD 路径 C)。
 // 4.12 重构:拖拽区常显 —— 已有简历时标题为「上传新简历」并声明「新增一份独立简历,不会修改或删除已有简历」;
 // 移除旧文件状态卡与「更换简历」按钮(每次上传都 CREATE 新行,不存在 Replace);resumeId 让自身 get 与 hub 同源同一行。
+// 4.13:「从已有简历继续」列表(resume.list)—— 不传新文件,直接切换活跃简历继续优化(onSelectResume)。
 import { useRef, useState } from "react";
-import { Info, Upload } from "lucide-react";
+import { FileText, Info, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -22,17 +23,28 @@ const EXTRACT_ERROR_TEXT: Record<string, string> = {
   unsupported: "文件格式暂不支持解析,请粘贴简历文本或重新上传",
 };
 
+function formatBytes(size: number | null | undefined): string {
+  if (size == null) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export function ResumeUpload({
   resumeId,
   onUploaded,
+  onSelectResume,
 }: {
   /** 当前活跃简历行 id(4.12):与 hub 的 get 同输入共享缓存;未传 = 取最新行 */
   resumeId?: string;
   /** 上传成功回调(4.12):hub 用于清 URL 参数,让 get 回落最新行并自动切到新简历 */
   onUploaded?: () => void;
+  /** 「从已有简历继续」(4.13):选择已有简历 → hub 切换活跃行并退出上传视图 */
+  onSelectResume?: (id: string) => void;
 }) {
   const utils = trpc.useUtils();
   const resume = trpc.resume.get.useQuery({ resumeId });
+  const list = trpc.resume.list.useQuery();
   const profile = trpc.profile.get.useQuery();
   const createFromText = trpc.resume.createFromText.useMutation();
   const pasteText = trpc.resume.pasteText.useMutation();
@@ -196,6 +208,38 @@ export function ResumeUpload({
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{uploadError}</span>
         </div>
+      )}
+
+      {/* 「从已有简历继续」(4.13):不传新文件,直接切换活跃简历继续优化;与「上传本地文件」并列的上传视图双路径 */}
+      {list.isSuccess && list.data.length > 0 && (
+        <section className="rounded-card border border-hairline bg-surface p-4 shadow-card">
+          <div>
+            <h2 className="text-body-sm font-medium text-ink">从已有简历继续</h2>
+            <p className="mt-0.5 text-caption text-ink-muted">选择一份已有简历继续优化,无需重新上传</p>
+          </div>
+          <ul className="mt-3 divide-y divide-hairline rounded-control border border-hairline">
+            {list.data.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-3 p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="truncate text-body-sm font-medium text-ink">
+                      {item.fileName ?? "粘贴的简历文本"}
+                    </p>
+                    <p className="text-caption text-ink-muted">
+                      {item.fileName ? `${formatBytes(item.sizeBytes)} · ` : ""}
+                      {new Date(item.createdAt).toLocaleDateString("zh-CN")}
+                      {item.extractError ? " · 待补全:粘贴简历文本" : ""}
+                    </p>
+                  </div>
+                </div>
+                <Button type="button" size="sm" onClick={() => onSelectResume?.(item.id)}>
+                  继续优化
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {extractBanner && latest && (

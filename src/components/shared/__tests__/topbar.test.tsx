@@ -1,4 +1,4 @@
-// 顶栏组件测试(1.7):4 入口与链接、当前入口高亮(aria-current)、头像首字、用户菜单退出、移动端抽屉
+// 顶栏组件测试(1.7):5 入口与链接(4.13 新增简历中心)、当前入口高亮(aria-current)、头像首字、用户菜单退出、移动端抽屉
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,13 +43,14 @@ beforeEach(() => {
 });
 
 describe("Topbar", () => {
-  it("渲染 4 个一级入口,href 正确(抽屉关闭时不挂载,桌面导航各一条)", () => {
+  it("渲染 5 个一级入口,href 正确(抽屉关闭时不挂载,桌面导航各一条)", () => {
     render(<Topbar />);
-    const items = screen.getAllByRole("link", { name: /工作台|职业画像|成长路线|简历优化/ });
-    expect(items).toHaveLength(4);
+    const items = screen.getAllByRole("link", { name: /工作台|职业画像|成长路线|简历优化|简历中心/ });
+    expect(items).toHaveLength(5);
     expect(screen.getByRole("link", { name: "职业画像" }).getAttribute("href")).toBe("/profile");
     expect(screen.getByRole("link", { name: "成长路线" }).getAttribute("href")).toBe("/navigator");
     expect(screen.getByRole("link", { name: "简历优化" }).getAttribute("href")).toBe("/resume");
+    expect(screen.getByRole("link", { name: "简历中心" }).getAttribute("href")).toBe("/resumes");
   });
 
   it("当前路由对应入口 aria-current=page 高亮", () => {
@@ -78,12 +79,12 @@ describe("Topbar", () => {
     expect(mocks.push).toHaveBeenCalledWith("/login");
   });
 
-  it("移动端:汉堡按钮打开抽屉,抽屉内含 4 个导航链接", async () => {
+  it("移动端:汉堡按钮打开抽屉,抽屉内含 5 个导航链接", async () => {
     render(<Topbar />);
     const burger = screen.getByRole("button", { name: "打开导航菜单" });
     await userEvent.setup().click(burger);
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getAllByRole("link", { name: /工作台|职业画像|成长路线|简历优化/ })).toHaveLength(4);
+    expect(within(dialog).getAllByRole("link", { name: /工作台|职业画像|成长路线|简历优化|简历中心/ })).toHaveLength(5);
   });
 
   it("资料加载中显示占位,不渲染空首字", () => {

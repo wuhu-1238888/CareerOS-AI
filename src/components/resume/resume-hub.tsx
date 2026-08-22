@@ -1,11 +1,12 @@
 "use client";
 // 简历页状态枢纽(4.3):上传/粘贴 → AI 解析 → 核对修正。镜像 profile-hub 状态机:
 // 解析态统一轮询 resume.latestRun(intent: "parse-resume")(700ms,进度事件已随执行落库),刷新页面按最近 run 恢复;
-// 失败态「重试」:会话内直接重跑 parse(原文在库),刷新后服务端从 AgentRun.input 重放(retryParse);「重新上传」返回上传视图。
+// 失败态「重试」:会话内直接重跑 parse(原文在库),刷新后服务端从 AgentRun.input 重放(retryParse);「上传新简历」返回上传视图。
 // 4.4-4.5 优化阶段:「开始优化」保存核对结果并触发改写管线 → 改写中 AnalysisView(简历优化师)→ 成功后结果对比视图;
 // 会话内改写失败重试 = 用 lastOptimizeInput 重跑;刷新后无会话输入 → 重试返回核对表单(无 retryRewrite 端点,计划已定)。
 // 4.12:活跃简历 = URL 参数 ?resumeId=(设置页「查看」);?upload=1 直接进上传视图(设置页「+ 新增简历」);
 // 上传成功后清参 → resume.get 回落最新行(新行)→ 行切换 effect 自动复位并进入新简历,旧行数据不动。
+// 4.13:上传视图「从已有简历继续」→ handleSelectResume 切活跃行(?resumeId=);结果视图显示当前简历名(resumeName)。
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -39,7 +40,7 @@ export function ResumeHub() {
   const rewrite = trpc.resume.rewrite.useMutation();
 
   // 解析会话状态:submitted=true 表示解析 mutation 在途;parseError 为失败文案(驱动失败视图);
-  // uploadMode:用户主动返回上传视图(失败视图「重新上传」),忽略历史 failed run(刷新后仍按失败恢复)
+  // uploadMode:用户主动进入上传视图(失败视图「上传新简历」),忽略历史 failed run(刷新后仍按失败恢复)
   const [submitted, setSubmitted] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [uploadMode, setUploadMode] = useState(false);
@@ -282,11 +283,18 @@ export function ResumeHub() {
     void runRewrite(parsed, version.targetDirection);
   }
 
-  // 「重新上传简历」(4.11/4.12):进入上传视图新增一份简历。复用既有 uploadMode —— 只切视图不删数据:
+  // 「上传新简历」(4.11/4.12/4.13):进入上传视图新增一份简历。复用既有 uploadMode —— 只切视图不删数据:
   // 上传视图 = 「上传新简历」,上传走既有链路建新行,行 id 变化 effect 统一复位会话状态并自动切换到新简历;
-  // 旧行与优化结果保留(设置页可查看/删除)。
+  // 旧行与优化结果保留(简历中心可查看/继续优化/删除)。
   function handleReupload() {
     setUploadMode(true);
+  }
+
+  // 「从已有简历继续」(4.13):切换到指定简历行 —— 显式退上传视图(选当前行时 id 不变,行切换 effect 不触发),
+  // 再以 ?resumeId= 切换活跃行(get 取该行 → 行切换 effect 复位会话状态 → 展示该行自己的阶段视图)。
+  function handleSelectResume(id: string) {
+    setUploadMode(false);
+    router.replace(`/resume?resumeId=${id}`);
   }
 
   // careerPaths 为 Prisma Json 列(tRPC 序列化后为深递归类型),经 unknown 桥接避免 TS2589
@@ -297,19 +305,21 @@ export function ResumeHub() {
 
   let view: React.ReactNode;
   if (!resume.data || uploadMode) {
-    // 无简历 / 用户主动重新上传(4.12:上传视图 = 「上传新简历」,每次上传建新行,旧行保留)
+    // 无简历 / 用户主动上传新简历(4.12/4.13:上传视图 = 「上传新简历」+「从已有简历继续」,每次上传建新行,旧行保留)
     view = (
       <ResumeUpload
         resumeId={resume.data?.id}
         onUploaded={() => router.replace("/resume")}
+        onSelectResume={handleSelectResume}
       />
     );
   } else if (!hasParsed && resume.data.extractError) {
-    // 提取失败行(无原文,无法解析):粘贴补全或重传
+    // 提取失败行(无原文,无法解析):粘贴补全或上传新简历(可从已有简历继续切换)
     view = (
       <ResumeUpload
         resumeId={resume.data.id}
         onUploaded={() => router.replace("/resume")}
+        onSelectResume={handleSelectResume}
       />
     );
   } else if (showRewriting || showRewriteFinishing || showRewriteError) {
@@ -338,8 +348,8 @@ export function ResumeHub() {
         agentName="简历解析师"
         icon={FileText}
         runningDescription="正在解析你的简历,提取教育、技能与经历等信息"
-        failedDescription="这次解析没有完成,你可以重试或重新上传简历"
-        editLabel="重新上传"
+        failedDescription="这次解析没有完成,你可以重试或上传新简历"
+        editLabel="上传新简历"
       />
     );
   } else if (!hasParsed) {
@@ -354,8 +364,8 @@ export function ResumeHub() {
           agentName="简历解析师"
           icon={FileText}
           runningDescription="正在解析你的简历,提取教育、技能与经历等信息"
-          failedDescription="这次解析没有完成,你可以重试或重新上传简历"
-          editLabel="重新上传"
+          failedDescription="这次解析没有完成,你可以重试或上传新简历"
+          editLabel="上传新简历"
         />
       );
     } else {
@@ -398,10 +408,11 @@ export function ResumeHub() {
       />
     );
   } else if (resume.data.version && !backToReview) {
-    // 优化结果:对比卡列表 + 工具条(4.5)
+    // 优化结果:对比卡列表 + 工具条(4.5);4.13 传入当前简历名(Hero 左区显示)
     view = (
       <ResumeResult
         version={resume.data.version}
+        resumeName={resume.data.fileName ?? "粘贴的简历文本"}
         onReanalyze={handleReanalyze}
         onEdit={handleBackToReview}
         onReupload={handleReupload}

@@ -742,6 +742,8 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 **重新上传入口(4.11→4.12 修订)**:4.11 初版在已有简历时于上传视图展示「当前文件卡 + 更换简历」按钮,验收被否(观感 = 文件列表 + Replace)。4.12 起产品模型为**「重新上传 = 新增一份独立简历」**:上传视图拖拽区常显、有已有简历时标题「上传新简历」并声明「不会修改或删除已有简历」,「更换简历」按钮与旧文件卡彻底移除(上传链路自始就是 `prisma.resume.create` 建新行,不存在 Replace API)。**活跃简历 = URL 参数 `?resumeId=`**:`resume.get` 增加可选 `resumeId` 输入(未传/越权/已删回退最新行),hub 经 `useSearchParams` 读取(resume/page.tsx 包 Suspense);上传成功后 `onUploaded` → `router.replace("/resume")` 清参 → get 回落最新行(新行)→ 既有行 id 变化 effect 复位会话状态并进入新简历。设置页「简历文件管理」逐行「查看」(→ `/resume?resumeId=`)+ 页面级「+ 新增简历」(→ `/resume?upload=1`,hub 置 uploadMode 并去参);`?resumeId` 失效护栏:数据行 ≠ 参数行时去参。无文件去重策略(每次上传=新行,即「多份简历并存」语义)。
 
+**简历中心(4.13 修订)**:4.12 后入口仍割裂(简历管理藏在 设置→简历文件管理,重新上传与列表互不相通)。4.13 起**简历 = 核心业务对象**:设置页「简历文件管理」整体迁移为顶级导航一级页面**「简历中心」`/resumes`**(组件改名 `resume-center.tsx`,卡片 = 继续优化/查看[均 `/resume?resumeId=`,切换活跃行]+ 下载 + 删除 + 页面级新增)。结果页工具条:按钮改名「上传新简历」+ 新增「查看全部简历」(→ `/resumes`)+ Hero 左区「当前简历:{fileName}」。上传视图新增**「从已有简历继续」**列表(`resume.list`,extractError 行标「待补全」):点击 → hub `handleSelectResume` 显式 `setUploadMode(false)` + `router.replace("/resume?resumeId=<id>")` —— 显式退上传视图是关键(选当前行时 id 不变、行切换 effect 不触发)。DB 无改动。
+
 ## 十、M4 修订:提取层视觉排序(2026-08-22,任务 4.10 验收修复)
 
 **验收发现(真实 .docx)**:用户以真实 Word 简历验收,「最终文本预览」仍与原始简历模块顺序不一致。端到端定位证实:**乱序发生在提取层 A(originalText),sectionPlan/finalText/表单/复制/导出全部忠实继承**——构建链路无罪,是输入本身已乱序。
