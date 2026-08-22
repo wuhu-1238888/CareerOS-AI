@@ -7,7 +7,7 @@
 //   4) M3(任务 3.1)调整:任务 3.2 支持「无画像用户手动输入方向」,而 Roadmap.profileId 原为必填外键
 //      → profileId 改为可空;同时补 userId 直连列(无画像路线图的所有权链路)与 summary JSON 列(AI 概要)。
 // 级联策略(验证要求明确):
-//   User 删除 → Cascade CareerProfile / Resume / Roadmap;AgentRun 观测日志保留(SetNull);
+//   User 删除 → Cascade CareerProfile / Resume / Roadmap / FunnelEvent(派生事件随用户删除);AgentRun 观测日志保留(SetNull);
 //   CareerProfile 删除 → Cascade CareerPath / Roadmap;Roadmap → Cascade Stage → Task;
 //   Resume 删除 → Cascade ResumeVersion → Optimization。
 
@@ -31,10 +31,11 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  profiles  CareerProfile[]
-  resumes   Resume[]
-  agentRuns AgentRun[]
-  roadmaps  Roadmap[]
+  profiles     CareerProfile[]
+  resumes      Resume[]
+  agentRuns    AgentRun[]
+  roadmaps     Roadmap[]
+  funnelEvents FunnelEvent[]
 
   @@map("users")
 }
@@ -188,4 +189,17 @@ model AgentRun {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("agent_runs")
+}
+
+// 漏斗事件(5.3 部署与观测):关键产品事件埋点。注册 = User.createdAt、画像/路线图生成 = AgentRun
+// 既有记录,本表补记无法由既有表推导的事件(如简历导出 = 复制最终文本 / 下载 PDF)。
+model FunnelEvent {
+  id        String   @id @default(cuid(2))
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     String   @map("event") // 事件名,如 resume-export
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, event, createdAt])
+  @@map("funnel_events")
 }

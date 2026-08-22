@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateMutateAsync: vi.fn(),
   acceptAllMutateAsync: vi.fn(),
   scoreAtsMutateAsync: vi.fn(),
+  logExportMutate: vi.fn(),
   invalidateResume: vi.fn(),
   writeText: vi.fn(),
   execCommand: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@/trpc/client", () => ({
       updateOptimization: { useMutation: () => ({ mutateAsync: mocks.updateMutateAsync }) },
       acceptAll: { useMutation: () => ({ mutateAsync: mocks.acceptAllMutateAsync }) },
       scoreAts: { useMutation: () => ({ mutateAsync: mocks.scoreAtsMutateAsync }) },
+      logExport: { useMutation: () => ({ mutate: mocks.logExportMutate }) },
     },
   },
 }));
@@ -214,30 +216,33 @@ describe("ResumeResult 结果视图", () => {
     ).toBeTruthy();
   });
 
-  it("预览卡内复制按钮:writeText 收到与预览同源的 finalText + 成功 toast", async () => {
+  it("预览卡内复制按钮:writeText 收到与预览同源的 finalText + 成功 toast + 导出埋点(5.3)", async () => {
     const { user } = renderResult();
     stubClipboard(mocks.writeText);
     await user.click(screen.getByRole("button", { name: "复制最终文本" }));
     expect(mocks.writeText).toHaveBeenCalledWith(version.finalText);
     expect(await screen.findByText("已复制最终文本")).toBeInTheDocument();
+    expect(mocks.logExportMutate).toHaveBeenCalledTimes(1);
   });
 
-  it("剪贴板不可用:回退 execCommand 复制成功 toast", async () => {
+  it("剪贴板不可用:回退 execCommand 复制成功 toast + 导出埋点", async () => {
     const { user } = renderResult();
     stubClipboard(undefined);
     stubExecCommand();
     await user.click(screen.getByRole("button", { name: "复制最终文本" }));
     expect(mocks.execCommand).toHaveBeenCalledWith("copy");
     expect(await screen.findByText("已复制最终文本")).toBeInTheDocument();
+    expect(mocks.logExportMutate).toHaveBeenCalledTimes(1);
   });
 
-  it("剪贴板与 execCommand 均失败:错误 toast", async () => {
+  it("剪贴板与 execCommand 均失败:错误 toast,不记埋点", async () => {
     const { user } = renderResult();
     stubClipboard(undefined);
     stubExecCommand();
     mocks.execCommand.mockReturnValue(false);
     await user.click(screen.getByRole("button", { name: "复制最终文本" }));
     expect(await screen.findByText("复制失败,请手动选择文本复制")).toBeInTheDocument();
+    expect(mocks.logExportMutate).not.toHaveBeenCalled();
   });
 
   it("零采纳:复制按钮禁用 + 提示(预览卡与导出工具条)", () => {

@@ -42,10 +42,20 @@ export function LandingView() {
         </section>
 
         {/* ③ 轻量信任区:一行说明 */}
-        <p className="flex items-center justify-center gap-2 pb-16 text-body-sm text-ink-muted">
+        <p className="flex items-center justify-center gap-2 pb-8 text-body-sm text-ink-muted">
           <ShieldCheck className="size-4 text-green-600" aria-hidden />
           你的数据只用于个性化分析
         </p>
+
+        {/* 页脚:法律文档入口(5.3 隐私政策 / 用户协议);muted 文字链接,非 CTA */}
+        <footer className="flex items-center justify-center gap-6 border-t border-hairline py-6">
+          <Link href="/privacy" className="text-body-sm text-ink-muted hover:text-ink-secondary">
+            隐私政策
+          </Link>
+          <Link href="/terms" className="text-body-sm text-ink-muted hover:text-ink-secondary">
+            用户协议
+          </Link>
+        </footer>
       </main>
     </div>
   );

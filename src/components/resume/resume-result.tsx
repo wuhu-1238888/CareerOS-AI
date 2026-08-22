@@ -63,6 +63,8 @@ export function ResumeResult({
   const utils = trpc.useUtils();
   const update = trpc.resume.updateOptimization.useMutation();
   const acceptAll = trpc.resume.acceptAll.useMutation();
+  // 简历导出埋点(5.3):复制/下载成功后记 FunnelEvent(resume-export);fire-and-forget,失败不阻断导出
+  const logExport = trpc.resume.logExport.useMutation();
   // 单条状态变更在途的建议 id(禁该卡按钮;整版「全部接受」用 acceptAll.isPending)
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -106,6 +108,7 @@ export function ResumeResult({
     try {
       await navigator.clipboard.writeText(version.finalText);
       toast.success("已复制最终文本");
+      logExport.mutate();
     } catch {
       // 回退:非安全上下文/旧浏览器用 execCommand
       const textarea = document.createElement("textarea");
@@ -116,8 +119,12 @@ export function ResumeResult({
       textarea.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(textarea);
-      if (ok) toast.success("已复制最终文本");
-      else toast.error("复制失败,请手动选择文本复制");
+      if (ok) {
+        toast.success("已复制最终文本");
+        logExport.mutate();
+      } else {
+        toast.error("复制失败,请手动选择文本复制");
+      }
     }
   }
 

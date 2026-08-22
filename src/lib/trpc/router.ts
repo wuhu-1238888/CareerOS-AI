@@ -1138,6 +1138,13 @@ export const appRouter = t.router({
         }
         return { ok: true };
       }),
+
+    // 简历导出埋点(5.3):复制最终文本 / 下载 PDF 时记 FunnelEvent(resume-export),供漏斗指标统计。
+    // 失败不阻断导出(埋点是观测旁路,导出成功与否以用户操作为准)。
+    logExport: protectedProcedure.mutation(async ({ ctx }) => {
+      await ctx.prisma.funnelEvent.create({ data: { userId: ctx.userId, event: "resume-export" } });
+      return { ok: true };
+    }),
   }),
 
   // 工作台聚合(5.1):KPI 行 / Agent 顾问区 / 模块入口卡的单一数据源,纯读(见 src/lib/dashboard/stats.ts)

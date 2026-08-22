@@ -219,5 +219,17 @@ describe("resume 数据层(真实写库,顺序执行)", () => {
     await expect(caller(null).resume.delete({ id: "x" })).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
+    await expect(caller(null).resume.logExport()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("logExport(5.3):记 FunnelEvent(resume-export),用户隔离", async () => {
+    await caller(userIdA).resume.logExport();
+    await caller(userIdA).resume.logExport();
+    const eventsA = await prisma.funnelEvent.findMany({ where: { userId: userIdA } });
+    expect(eventsA).toHaveLength(2);
+    expect(eventsA.every((e) => e.event === "resume-export")).toBe(true);
+    expect(eventsA[0]?.createdAt).toBeInstanceOf(Date);
+    // 乙无事件
+    expect(await prisma.funnelEvent.count({ where: { userId: userIdB } })).toBe(0);
   });
 });

@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { EncryptedStorage } from "./encrypted";
 import { LocalFSStorage } from "./local-fs";
+import { VercelBlobStorage } from "./vercel-blob";
 
 export interface BlobStorage {
   save(key: string, data: Buffer): Promise<void>;
@@ -40,7 +41,7 @@ export function resolveEncryptionKey(): Buffer {
 
 let cached: BlobStorage | null = null;
 
-// 存储工厂:FILE_STORAGE_PROVIDER=local 默认;vercel-blob 于 5.3 接入
+// 存储工厂:FILE_STORAGE_PROVIDER=local 默认;vercel-blob(5.3)用于生产部署(Vercel Blob,凭据 BLOB_READ_WRITE_TOKEN)
 export function getFileStorage(): BlobStorage {
   if (cached) return cached;
   const provider = (process.env.FILE_STORAGE_PROVIDER ?? "local").trim();
@@ -48,7 +49,7 @@ export function getFileStorage(): BlobStorage {
   if (provider === "local") {
     base = new LocalFSStorage(process.env.UPLOAD_DIR ?? path.join(process.cwd(), "storage"));
   } else if (provider === "vercel-blob") {
-    throw new Error("vercel-blob 存储尚未接入(计划于 5.3 实现),请改用 local");
+    base = new VercelBlobStorage();
   } else {
     throw new Error(`未知的 FILE_STORAGE_PROVIDER:${provider}`);
   }

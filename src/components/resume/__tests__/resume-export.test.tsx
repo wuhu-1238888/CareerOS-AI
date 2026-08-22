@@ -11,6 +11,16 @@ const mocks = vi.hoisted(() => ({
   pdfState: { url: null as string | null, loading: false, error: null as Error | null },
   docText: null as string | null,
   blobProviderMounts: 0,
+  logExportMutate: vi.fn(),
+}));
+
+// 5.3:浮层内下载锚点调用导出埋点 mutation
+vi.mock("@/trpc/client", () => ({
+  trpc: {
+    resume: {
+      logExport: { useMutation: () => ({ mutate: mocks.logExportMutate }) },
+    },
+  },
 }));
 
 // BlobProvider 桩:捕获 document 元素的 text prop(不真正渲染 react-pdf),按 pdfState 回放

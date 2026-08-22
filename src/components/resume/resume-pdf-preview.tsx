@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { trpc } from "@/trpc/client";
 
 export function ResumePdfPreview({
   state,
@@ -14,6 +15,9 @@ export function ResumePdfPreview({
   state: { url: string | null; loading: boolean; error: Error | null };
   onClose: () => void;
 }) {
+  // 简历导出埋点(5.3):下载 PDF 时记 FunnelEvent(resume-export);fire-and-forget,失败不阻断下载
+  const logExport = trpc.resume.logExport.useMutation();
+
   // Escape 关闭
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -46,9 +50,9 @@ export function ResumePdfPreview({
         </Button>
         <span className="text-body-sm font-medium text-ink">PDF 预览</span>
         {state.url ? (
-          // 就绪:真下载锚点(download 属性,不导航离开应用)
+          // 就绪:真下载锚点(download 属性,不导航离开应用);点击同步记导出埋点
           <Button asChild variant="default" size="sm">
-            <a href={state.url} download="简历-优化版.pdf">
+            <a href={state.url} download="简历-优化版.pdf" onClick={() => logExport.mutate()}>
               <Download aria-hidden />
               下载 PDF
             </a>

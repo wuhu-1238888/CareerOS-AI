@@ -65,6 +65,7 @@ const mocks = vi.hoisted(() => {
     updateOptimizationMutateAsync: vi.fn(),
     acceptAllMutateAsync: vi.fn(),
     scoreAtsMutateAsync: vi.fn(),
+    logExportMutate: vi.fn(),
     createMutateAsync: vi.fn(),
     pasteMutateAsync: vi.fn(),
     invalidateResume,
@@ -123,6 +124,7 @@ vi.mock("@/trpc/client", () => ({
       },
       acceptAll: { useMutation: () => ({ mutateAsync: mocks.acceptAllMutateAsync }) },
       scoreAts: { useMutation: () => ({ mutateAsync: mocks.scoreAtsMutateAsync }) },
+      logExport: { useMutation: () => ({ mutate: mocks.logExportMutate }) },
       createFromText: {
         useMutation: () => ({ mutateAsync: mocks.createMutateAsync, isPending: false }),
       },
