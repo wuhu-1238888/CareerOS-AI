@@ -333,7 +333,7 @@
 | 4.14 | 上传视图退出体验:← 返回按来源动态返回(简历优化进入 → 回原视图;?upload=1&from=resumes → /resumes;无结果视图 → /resumes)+ 面包屑定位;三态取消(未选文件/已选文件/解析中 AbortController 取消上传,取消不影响已有简历);选文件改待确认态,「开始分析」才上传;修复行切换 effect 冷加载首帧误复位 ?upload=1 | ✅ | `16a13e0` |
 | 4.15 | 简历中心返回:顶栏「简历中心」/结果页「查看全部简历」进入后左上角「← 返回」(应用内回上一页,直接打开/外链回工作台);共享 goBackOrFallback 辅助;hub from=resumes 退出改后退,避免相邻 /resumes 历史使返回按钮空转 | ✅ | `d798f0c` |
 | 4.16 | 导出 PDF 预览修复:PDFDownloadLink 嵌套锚点整页跳转 blob: URL(浏览器查看器、无返回入口)与 Back 后四重失效窗口 → 应用内预览浮层(真按钮 + BlobProvider 每次打开全新生成/关闭 revoke + resume-pdf-preview 返回/下载/三态/Escape);主视图零锚点 | ✅ | a365589 |
-| 4.17 | AI 分析进度卡死修复:完成判定依赖被提前禁用的轮询缓存(mutation 结算瞬间 enabled 早停 → 缓存冻结 running → 视图钉死「分析中」,刷新才恢复)→ 轮询常开 + 权威「版本-运行对应」(version.createdAt > run.createdAt ⇔ 管线完成)+ mutation 结算后 invalidate latestRun + 恢复 effect 去 !hasVersion/清会话错误 + analysis-view 60s 慢分析提示 | ✅ | (见本次提交) |
+| 4.17 | AI 分析进度卡死修复:完成判定依赖被提前禁用的轮询缓存(mutation 结算瞬间 enabled 早停 → 缓存冻结 running → 视图钉死「分析中」,刷新才恢复)→ 轮询常开 + 权威「版本-运行对应」(version.createdAt > run.createdAt ⇔ 管线完成)+ mutation 结算后 invalidate latestRun + 恢复 effect 去 !hasVersion/清会话错误 + analysis-view 60s 慢分析提示 | ✅ | 0b04757 |
 
 ## 主要修改
 
