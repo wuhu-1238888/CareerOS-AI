@@ -57,14 +57,15 @@ beforeEach(() => {
 });
 
 describe("ResumeCenter(简历中心,4.13)", () => {
-  it("空列表:显示空态引导 + 「新增简历」入口(4.12)", async () => {
+  it("空列表:显示空态引导 + 「新增简历」入口(4.12;4.14 带 from=resumes)", async () => {
     mocks.listData = [];
     render(<ResumeCenter />);
     expect(await screen.findByText("暂无简历")).toBeInTheDocument();
     expect(screen.getByText(/点击右上角「新增简历」上传或粘贴第一份简历/)).toBeInTheDocument();
+    // 4.14:from=resumes 供上传视图退出时返回简历中心
     expect(screen.getByRole("link", { name: /新增简历/ })).toHaveAttribute(
       "href",
-      "/resume?upload=1"
+      "/resume?upload=1&from=resumes"
     );
   });
 

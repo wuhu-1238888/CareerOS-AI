@@ -330,6 +330,7 @@
 | 4.11 | 结果页「重新上传简历」入口:复用 uploadMode 切回上传视图(只切视图不删数据),上传新文件建新行,行 id 变化 effect 复位会话状态并自动切换到新简历;旧简历/解析记录/优化版本全部保留 | ✅ | `bc68e6d`(实测验收未过,4.12 返工) |
 | 4.12 | 重新上传 = 新增独立简历(4.11 验收返工):上传视图拖拽区常显「上传新简历」+ 新增说明,移除「更换简历」按钮与旧文件卡;活跃简历 = URL 参数 ?resumeId=(resume.get 可选输入 + 失效护栏去参);上传成功清参自动切新行;设置页逐行「查看」+ 页面级「+ 新增简历」(?upload=1) | ✅ | `cdb7e72` |
 | 4.13 | 简历中心:设置页「简历文件管理」整体迁移为顶级导航一级页面 /resumes(继续优化/查看/下载/删除 + 新增);结果页按钮改名「上传新简历」+「查看全部简历」入口 + 当前简历名;上传视图「从已有简历继续」列表切换活跃行;失败视图 editLabel 统一「上传新简历」 | ✅ | (见本次提交) |
+| 4.14 | 上传视图退出体验:← 返回按来源动态返回(简历优化进入 → 回原视图;?upload=1&from=resumes → /resumes;无结果视图 → /resumes)+ 面包屑定位;三态取消(未选文件/已选文件/解析中 AbortController 取消上传,取消不影响已有简历);选文件改待确认态,「开始分析」才上传;修复行切换 effect 冷加载首帧误复位 ?upload=1 | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -351,6 +352,7 @@
 - 全套 **490/490(55 文件)全绿**(4.10-fix 修订后);typecheck / lint 零错误
 - 4.11 后 495/495;4.12 修订后 **502/502(55 文件)全绿**(新增 upload 3 / hub 3 / files 1 共 7 个;hub/upload 既有「更换简历」用例改写为「上传新简历」断言;数据层 get({resumeId}) 并入 resume.test.ts 既有 11 用例)
 - 4.13 修订后 **510/510(55 文件)全绿**(净增 8:upload 2[从已有简历继续] / hub 3[结果视图入口、点其他行切换、点当前行退出] / result 2[查看全部简历链接、当前简历名] / center 迁移净增 1[提取失败行待补全标注];topbar 4→5 入口计数更新)
+- 4.14 修订后 **525/525(55 文件)全绿**(upload 13→22[三态流程/重新选择/取消×2/解析中取消上传/卸载与竞态/面包屑×2]、hub 28→35[from=resumes 返回 /resumes、结果视图与失败视图返回、提取失败行与无简历返回 /resumes、冷加载首帧守卫、?upload=1 默认 from]、center href 断言更新为 from=resumes)
 - 4.10 新增 27 个测试:section-order 22(标准顺序/归一化/同行标题/自定义切片/同形误判/无标题锚定/工作实习拆分/合并标题/多项目分区/stored 优先/兜底)+ 数据层 2(sectionOrder 入库 + sectionPlan 返回)+ review plan 模式 3 + result 预览面板 2
 - 4.10-fix 新增 20 个测试:pdf-position-sort 7(PDF 内容流 z-order → 视觉坐标排序)+ docx-extract 8(文本框 XML 逆序 → 坐标排序 / DECOY 忽略 / 流式段定位 / 无框退化)+ parser 集成 3(乱序 PDF / 文本框 DOCX / 无框 DOCX 回退 mammoth)+ upload 链路 2(乱序 PDF 与文本框 DOCX 上传 → originalText 以视觉顺序落库)
 - 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
@@ -534,3 +536,28 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 - 净增 8 个测试:upload 2 / hub 3(结果视图入口、点其他行切换、点当前行退出)/ result 2 / center 迁移净增 1;topbar 4→5 入口计数更新。
 - 全套 **510/510(55 文件)全绿**;typecheck / lint 零错误;grep 红线:「更换简历」仅存在于注释与「断言不存在」的测试中;UI 无「重新上传简历」文案。
 - 手动验收走查(用户 6 Case):结果页 [上传新简历] → 不覆盖声明 + 上传本地文件 + 从已有简历继续 A → 上传 B 自动进 B,简历中心 A+B 并存;[查看全部简历] → 看到 A+B;[继续优化 A]/[继续优化 B] → 各自优化数据且刷新保持;任何卡片无「更换简历」;不进入设置即可查看/新建/切换简历。
+
+## 2026-08-22 修订:上传新简历视图的返回 / 取消 / 定位(任务 4.14)
+
+### 验收发现与根因
+
+4.13 后上传视图仍是**死胡同**:误触/临时反悔/上传失败的用户没有明确退出路径(唯一离开方式是顶栏导航);选择文件后立即发起上传、没有确认机会;解析中无法中止;从简历中心进入时页面标题仍是「简历优化」,用户不知道自己在哪。根因:上传视图是 hub 状态机内的一个态,从未按「可进入、可退出、可中止」的完整流程设计。
+
+### 产品决策(用户确认)
+
+- 解析中点「取消上传」→ **留在上传页,保留已选文件**(回到已选文件态,可重新开始或重新选择)。
+- 无可返回结果视图时(无简历 / 提取失败从未解析成功)→ 返回**简历中心 /resumes**。
+- 返回按来源动态:简历优化进入 → 回原视图;简历中心「新增简历」进入 → 回简历中心;不统一跳首页。
+
+### 实施
+
+- **resume-hub.tsx**:`uploadFrom: "resume" | "resumes"` state —— 简历中心「新增简历」改为 `/resume?upload=1&from=resumes`,`?upload=1` effect 按 from 显式赋值(其余入口 `enterUploadMode` 置 resume;effect 依赖改为**值捕获**避免 searchParams 对象身份反复触发);`handleExitUpload` 三分支(from=resumes 或无可返回结果视图 → `router.replace("/resumes")`;否则退 uploadMode 回原视图);面包屑父级标签 = 退出目标;`handleSelectResume` 补 setUploadFrom("resume");**行切换 effect 首帧守卫**(prevIdRef)修复冷加载 `/resume?upload=1` 被秒关的既有 bug。
+- **resume-upload.tsx**:新 props `onExit`/`crumbParent`(未传 onExit 不渲染头部);顶部「← 返回」+ 面包屑(父级可点,同 onExit);三态渲染(顺序 uploading > selectedFile > 拖拽区,堵二次提交窗口)—— 选文件/拖入只入待确认态(校验留在选择时机,非法文件即时 Banner),「开始分析」才发 fetch;解析中「取消上传」→ `AbortController.abort()`,catch 判 `signal.aborted` **静默回已选文件态**(文件保留可重试,不显示错误);成功即清 selectedFile;卸载 cleanup abort(对已 settle 请求 no-op);「继续优化」在 uploading 时 disabled(避免切换导致在途上传被卸载中止)。
+- **resume-center.tsx**:「新增简历」href → `/resume?upload=1&from=resumes`。
+- 竞态限制(代码注释说明):abort 时服务端可能已建行(孤儿行留在简历中心,可接受);客户端不建任何占位行 —— 行仅在上传完成后由服务端创建,「取消上传不创建空 Resume」由数据层保证。DB/API 零改动。
+
+### 验证
+
+- 测试:upload 13→22(三态流程/重新选择/取消×2/解析中取消上传/卸载 abort/abort 后成功照常/面包屑两种文案/未传 onExit 不渲染头部);hub 28→35(from=resumes 返回 /resumes、结果视图与失败视图进入返回原视图、提取失败行与无简历返回 /resumes、冷加载首帧守卫、?upload=1 默认 from);center href 断言更新为 from=resumes。
+- 全套 **525/525(55 文件)全绿**;typecheck / lint 零错误;grep 红线:「更换简历」仅存在于注释与否定断言中,UI 无「重新上传简历」文案(服务端「请重新上传或粘贴简历内容」为「再传一次」语义,合理保留)。
+- 手动验收走查(用户 5 Case,dev 手动):结果页 [上传新简历] → ← 返回 → 原简历结果视图(无损);简历中心 [新增简历] → 面包屑「简历中心 > 上传新简历」→ ← 返回 → /resumes;误触进入后直接返回、无任何请求/数据变化(Network 面板佐证);上传失败(如损坏文件)→ 错误 Banner + 返回可用、已有简历不受影响;选文件 → 开始分析 → 解析中 [取消上传] → 回已选文件态可重试、简历中心无新行。

@@ -7,6 +7,8 @@
 // 4.12:活跃简历 = URL 参数 ?resumeId=(设置页「查看」);?upload=1 直接进上传视图(设置页「+ 新增简历」);
 // 上传成功后清参 → resume.get 回落最新行(新行)→ 行切换 effect 自动复位并进入新简历,旧行数据不动。
 // 4.13:上传视图「从已有简历继续」→ handleSelectResume 切活跃行(?resumeId=);结果视图显示当前简历名(resumeName)。
+// 4.14:上传视图退出体验 —— ?upload=1&from=resumes 记住来源(简历中心);handleExitUpload 按来源动态返回
+// (来源为简历中心或无可返回的结果视图 → /resumes;否则退 uploadMode 回原视图);行切换 effect 首帧守卫防冷加载误复位。
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -30,6 +32,8 @@ export function ResumeHub() {
   // 活跃简历(4.12):?resumeId= 查看指定行(未传 = 最新行);?upload=1 进入上传视图(新增简历)
   const resumeId = searchParams.get("resumeId") ?? undefined;
   const uploadRequested = searchParams.get("upload") === "1";
+  // 4.14:来源参数(from=resumes = 简历中心「新增简历」);以值捕获,effect 依赖值而非 searchParams 对象
+  const uploadFromParam = searchParams.get("from");
   const utils = trpc.useUtils();
   const me = trpc.user.me.useQuery();
   const resume = trpc.resume.get.useQuery({ resumeId });
@@ -44,7 +48,11 @@ export function ResumeHub() {
   const [submitted, setSubmitted] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [uploadMode, setUploadMode] = useState(false);
+  // 4.14:上传视图来源(简历优化 / 简历中心「新增简历」),决定退出去向;仅 uploadMode 期间有意义
+  const [uploadFrom, setUploadFrom] = useState<"resume" | "resumes">("resume");
   const finishedRef = useRef(false);
+  // 4.14:上一活跃行 id —— 行切换 effect 首帧守卫(undefined → 值 是数据加载,不是行切换)
+  const prevIdRef = useRef<string | undefined>(undefined);
 
   // 优化会话状态:rewriteSubmitted=改写 mutation 在途;rewriteError=失败文案;backToReview=返回核对表单;
   // lastOptimizeInput 供会话内失败重试重跑(刷新后为 null → 重试回到核对表单)
@@ -107,8 +115,18 @@ export function ResumeHub() {
     }
   }, [hasVersion, rewriteRun?.status, utils]);
 
-  // 简历行切换(重传/粘贴产生新行):清空解析与优化会话痕迹
+  // 简历行切换(重传/粘贴产生新行):清空解析与优化会话痕迹。
+  // 4.14 首帧守卫:冷加载时 id 从 undefined → 值 属数据加载而非行切换,不得复位
+  // ?upload=1 effect 刚设置的 uploadMode(否则冷加载直达上传视图会被秒关)。
   useEffect(() => {
+    const id = resume.data?.id;
+    if (id === undefined) return; // 加载中/refetch:不动
+    if (prevIdRef.current === undefined) {
+      prevIdRef.current = id; // 首次加载:只记录,不执行行切换复位
+      return;
+    }
+    if (id === prevIdRef.current) return;
+    prevIdRef.current = id;
     finishedRef.current = false;
     rewriteFinishedRef.current = false;
     lastOptimizeInput.current = null;
@@ -118,13 +136,15 @@ export function ResumeHub() {
     setBackToReview(false);
   }, [resume.data?.id]);
 
-  // ?upload=1(4.12,设置页「+ 新增简历」):进入上传视图并去参(刷新/返回不会再落入上传视图)
+  // ?upload=1(4.12)+ from(4.14):进入上传视图并去参(刷新/返回不会再落入上传视图);
+  // from=resumes(简历中心「新增简历」)时记住来源,退出上传视图时返回简历中心。
   useEffect(() => {
     if (uploadRequested) {
+      setUploadFrom(uploadFromParam === "resumes" ? "resumes" : "resume");
       setUploadMode(true);
       router.replace("/resume");
     }
-  }, [uploadRequested, router]);
+  }, [uploadRequested, uploadFromParam, router]);
 
   // ?resumeId 失效护栏(4.12):行已删/越权时 get 已回退最新行 → 去参,防止 stale 参数误导后续操作
   useEffect(() => {
@@ -283,18 +303,40 @@ export function ResumeHub() {
     void runRewrite(parsed, version.targetDirection);
   }
 
+  // 进入上传视图(4.14):来源视为「简历优化」—— 退出时回原视图
+  function enterUploadMode() {
+    setUploadFrom("resume");
+    setUploadMode(true);
+  }
+
   // 「上传新简历」(4.11/4.12/4.13):进入上传视图新增一份简历。复用既有 uploadMode —— 只切视图不删数据:
   // 上传视图 = 「上传新简历」,上传走既有链路建新行,行 id 变化 effect 统一复位会话状态并自动切换到新简历;
   // 旧行与优化结果保留(简历中心可查看/继续优化/删除)。
   function handleReupload() {
-    setUploadMode(true);
+    enterUploadMode();
   }
 
   // 「从已有简历继续」(4.13):切换到指定简历行 —— 显式退上传视图(选当前行时 id 不变,行切换 effect 不触发),
   // 再以 ?resumeId= 切换活跃行(get 取该行 → 行切换 effect 复位会话状态 → 展示该行自己的阶段视图)。
   function handleSelectResume(id: string) {
+    setUploadFrom("resume"); // 4.14:维持「uploadFrom 仅在 uploadMode 期间有意义」的不变式
     setUploadMode(false);
     router.replace(`/resume?resumeId=${id}`);
+  }
+
+  // 可返回的结果视图:该行存在且不是「提取失败从未解析成功」(后者无解析数据可展示,归属简历中心「待补全」)
+  const hasResultView = !!resume.data && !(resume.data.extractError && !hasParsed);
+  // 面包屑父级与退出目标一致(4.14)
+  const crumbParent = uploadFrom === "resumes" || !hasResultView ? "简历中心" : "简历优化";
+
+  // 退出上传视图(4.14):按来源动态返回 —— 简历中心进入或无可返回的结果视图 → 简历中心;
+  // 否则退 uploadMode 回原视图(URL 已是 /resume 或 /resume?resumeId=X,结果/失败视图会正确复现)。
+  function handleExitUpload() {
+    if (uploadFrom === "resumes" || !hasResultView) {
+      router.replace("/resumes");
+      return;
+    }
+    setUploadMode(false);
   }
 
   // careerPaths 为 Prisma Json 列(tRPC 序列化后为深递归类型),经 unknown 桥接避免 TS2589
@@ -311,6 +353,8 @@ export function ResumeHub() {
         resumeId={resume.data?.id}
         onUploaded={() => router.replace("/resume")}
         onSelectResume={handleSelectResume}
+        onExit={handleExitUpload}
+        crumbParent={crumbParent}
       />
     );
   } else if (!hasParsed && resume.data.extractError) {
@@ -320,6 +364,8 @@ export function ResumeHub() {
         resumeId={resume.data.id}
         onUploaded={() => router.replace("/resume")}
         onSelectResume={handleSelectResume}
+        onExit={handleExitUpload}
+        crumbParent={crumbParent}
       />
     );
   } else if (showRewriting || showRewriteFinishing || showRewriteError) {
@@ -344,7 +390,7 @@ export function ResumeHub() {
         run={runForView}
         error={parseError}
         onRetry={handleRetry}
-        onEdit={() => setUploadMode(true)}
+        onEdit={enterUploadMode}
         agentName="简历解析师"
         icon={FileText}
         runningDescription="正在解析你的简历,提取教育、技能与经历等信息"
@@ -360,7 +406,7 @@ export function ResumeHub() {
           run={failedRun}
           error={failedRun.error}
           onRetry={handleRetry}
-          onEdit={() => setUploadMode(true)}
+          onEdit={enterUploadMode}
           agentName="简历解析师"
           icon={FileText}
           runningDescription="正在解析你的简历,提取教育、技能与经历等信息"

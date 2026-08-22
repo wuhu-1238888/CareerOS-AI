@@ -51,9 +51,10 @@ export function ResumeCenter() {
           <h2 className="text-body-lg font-medium text-ink">我的简历</h2>
           <p className="mt-1 text-body-sm text-ink-muted">查看、切换继续优化或删除你的全部简历</p>
         </div>
-        {/* 「+ 新增简历」:与结果页「上传新简历」同一 CREATE 流程(每次上传建新行,不覆盖已有简历) */}
+        {/* 「+ 新增简历」:与结果页「上传新简历」同一 CREATE 流程(每次上传建新行,不覆盖已有简历);
+            4.14:from=resumes 供上传视图退出时返回简历中心 */}
         <Button asChild size="sm">
-          <Link href="/resume?upload=1">
+          <Link href="/resume?upload=1&from=resumes">
             <Plus aria-hidden />
             新增简历
           </Link>
