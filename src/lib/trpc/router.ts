@@ -830,12 +830,11 @@ export const appRouter = t.router({
 
   // 简历数据层(4.1):文件上传走 /api/resume/upload(自鉴权 Route Handler);解析/改写/评分管线 4.3 起接入
   resume: t.router({
-    // 当前用户最新一份简历(元信息 + 解析结果 + 最新优化版本,防御解析);从未上传 → null
-    get: protectedProcedure.query(async ({ ctx }) => {
-      const row = await ctx.prisma.resume.findFirst({
-        where: { userId: ctx.userId },
-        orderBy: { createdAt: "desc" },
-        select: {
+    // 当前简历(4.12):可选 resumeId 指定活跃简历(URL 参数,设置页「查看」);未传/越权/已删 → 最新一份;从未上传 → null
+    get: protectedProcedure
+      .input(z.object({ resumeId: z.string().optional() }).optional()) // 整体可选:无参调用 = 最新行(向后兼容)
+      .query(async ({ ctx, input }) => {
+        const select = {
           id: true,
           fileName: true,
           mimeType: true,
@@ -845,27 +844,39 @@ export const appRouter = t.router({
           parsedData: true,
           originalText: true,
           sectionOrder: true,
-        },
-      });
-      if (!row) return null;
-      const { parsedData, originalText, sectionOrder, ...meta } = row;
-      const versionRow = await ctx.prisma.resumeVersion.findFirst({
-        where: { resumeId: row.id },
-        orderBy: { createdAt: "desc" },
-        include: { optimizations: { orderBy: { order: "asc" } } },
-      });
-      // 模块顺序计划(4.10):表单渲染与最终文本统一遵循用户原文顺序;
-      // sectionOrder 落库快照优先,非法/缺失时按原文现场重算(读取时派生,无异步乱序)
-      const sectionPlan = originalText
-        ? buildSectionPlan(originalText, parseParsedData(parsedData) ?? null, parseStoredSections(sectionOrder))
-        : null;
-      return {
-        ...meta,
-        parsedData: parseParsedData(parsedData),
-        sectionPlan,
-        version: serializeVersion(versionRow, originalText),
-      };
-    }),
+        } as const;
+        const byId = input?.resumeId
+          ? await ctx.prisma.resume.findFirst({
+              where: { id: input.resumeId, userId: ctx.userId },
+              select,
+            })
+          : null;
+        const row =
+          byId ??
+          (await ctx.prisma.resume.findFirst({
+            where: { userId: ctx.userId },
+            orderBy: { createdAt: "desc" },
+            select,
+          }));
+        if (!row) return null;
+        const { parsedData, originalText, sectionOrder, ...meta } = row;
+        const versionRow = await ctx.prisma.resumeVersion.findFirst({
+          where: { resumeId: row.id },
+          orderBy: { createdAt: "desc" },
+          include: { optimizations: { orderBy: { order: "asc" } } },
+        });
+        // 模块顺序计划(4.10):表单渲染与最终文本统一遵循用户原文顺序;
+        // sectionOrder 落库快照优先,非法/缺失时按原文现场重算(读取时派生,无异步乱序)
+        const sectionPlan = originalText
+          ? buildSectionPlan(originalText, parseParsedData(parsedData) ?? null, parseStoredSections(sectionOrder))
+          : null;
+        return {
+          ...meta,
+          parsedData: parseParsedData(parsedData),
+          sectionPlan,
+          version: serializeVersion(versionRow, originalText),
+        };
+      }),
 
     // 简历文件列表(设置页「简历文件管理」):仅元信息,下载走 /api/resume/download
     list: protectedProcedure.query(async ({ ctx }) => {

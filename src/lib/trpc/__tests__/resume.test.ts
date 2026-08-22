@@ -93,6 +93,29 @@ describe("resume 数据层(真实写库,顺序执行)", () => {
     ]);
   });
 
+  it("get({resumeId})(4.12):返回指定行(活跃简历);不存在/越权 id 回退最新行", async () => {
+    // 第二行(此后为最新行)
+    const second = await caller(userIdA).resume.createFromText({
+      text: "赵六\n求职意向:测试工程师\n工作经历:两年测试经验",
+    });
+    const latest = await caller(userIdA).resume.get();
+    expect(latest?.id).toBe(second.id);
+    // 指定旧行(第一行)id:返回旧行而非最新行
+    const older = await prisma.resume.findFirst({
+      where: { userId: userIdA },
+      orderBy: { createdAt: "asc" },
+    });
+    const byId = await caller(userIdA).resume.get({ resumeId: older!.id });
+    expect(byId?.id).toBe(older!.id);
+    expect(byId?.fileName).toBeNull();
+    expect(byId?.sectionPlan).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "basicInfo", label: "求职意向" })])
+    );
+    // 不存在/越权 id(带 userId 过滤,他人 id 同样命中不了)→ 回退最新行
+    const fallback = await caller(userIdA).resume.get({ resumeId: "does-not-exist" });
+    expect(fallback?.id).toBe(latest!.id);
+  });
+
   it("pasteText:补全提取失败行 —— 原文写入 + extractError 清空 + 旧解析结果清空", async () => {
     const broken = await prisma.resume.create({
       data: { userId: userIdA, extractError: "no-text", parsedData: { basicInfo: { name: "旧数据" } } },

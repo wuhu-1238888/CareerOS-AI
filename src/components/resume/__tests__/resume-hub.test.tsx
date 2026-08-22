@@ -1,6 +1,7 @@
 // 简历页状态枢纽测试(4.3):上传/粘贴 → 待解析 → 解析中 → 失败恢复 → 核对修正 五态切换
 // + 会话内重试(重跑 parse)与刷新恢复(retryParse 重放)
 // 4.4-4.5 优化阶段:开始优化触发改写(简历优化师分析中)/ 改写失败重试与返回核对 / 结果视图 / 刷新恢复
+// 4.12:URL 参数活跃简历(?resumeId= 透传 get / ?upload=1 初始上传视图 / 失效护栏去参)+ 上传视图无「更换简历」
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,6 +50,10 @@ const mocks = vi.hoisted(() => ({
   createMutateAsync: vi.fn(),
   pasteMutateAsync: vi.fn(),
   invalidateResume: vi.fn(),
+  // 4.12:URL 参数与导航
+  replace: vi.fn(),
+  searchParams: {} as Record<string, string>,
+  getInput: null as { resumeId?: string } | null,
 }));
 
 // 导出工具条 stub(4.7):避免 jsdom 加载真实 react-pdf,其行为由 resume-export.test.tsx 覆盖
@@ -56,12 +61,24 @@ vi.mock("../resume-export", () => ({
   ResumeExport: () => <div data-testid="resume-export" />,
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mocks.replace }),
+  useSearchParams: () => ({
+    get: (key: string) => mocks.searchParams[key] ?? null,
+  }),
+}));
+
 vi.mock("@/trpc/client", () => ({
   trpc: {
     useUtils: () => ({ resume: { get: { invalidate: mocks.invalidateResume } } }),
     user: { me: { useQuery: () => ({ data: mocks.meData, isLoading: mocks.meLoading }) } },
     resume: {
-      get: { useQuery: () => ({ data: mocks.resumeData, isLoading: mocks.resumeLoading }) },
+      get: {
+        useQuery: (input?: { resumeId?: string }) => {
+          mocks.getInput = input ?? null;
+          return { data: mocks.resumeData, isLoading: mocks.resumeLoading };
+        },
+      },
       latestRun: {
         // 4.4 起按 intent 参数化:parse-resume 与 rewrite-resume 各自取数
         useQuery: (input: { intent: string }) => ({
@@ -149,6 +166,8 @@ const optimizedVersion = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.searchParams = {};
+  mocks.getInput = null;
   mocks.meData = { id: "u1", name: "甲", avatarColor: null };
   mocks.meLoading = false;
   mocks.resumeData = null;
@@ -260,7 +279,7 @@ describe("ResumeHub 状态机", () => {
     await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
   });
 
-  it("失败视图「重新上传」:回到上传视图(文件状态卡 + 更换简历)", async () => {
+  it("失败视图「重新上传」(4.12):回到上传视图 = 「上传新简历」拖拽区,无「更换简历」", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -274,8 +293,9 @@ describe("ResumeHub 状态机", () => {
     render(<ResumeHub />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "重新上传" }));
-    expect(await screen.findByRole("button", { name: "更换简历" })).toBeInTheDocument();
-    expect(screen.getByText("张伟简历.pdf")).toBeInTheDocument();
+    expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
+    expect(screen.getByText(/本次上传会新增一份独立简历/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
   });
 
   it("提取失败行(无原文):渲染上传视图引导粘贴降级", async () => {
@@ -415,7 +435,7 @@ describe("ResumeHub 状态机", () => {
     expect(screen.getByTestId("resume-export")).toBeInTheDocument();
   });
 
-  it("结果视图「重新上传简历」(4.11):回到上传视图(显示 A 文件状态卡 + 更换简历),不触发删除/上传动作", async () => {
+  it("结果视图「重新上传简历」(4.12):回到上传视图 = 「上传新简历」拖拽区,不触发删除/上传动作", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -429,10 +449,60 @@ describe("ResumeHub 状态机", () => {
     render(<ResumeHub />);
     expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "重新上传简历" }));
-    // 只切视图:上传视图显示当前简历 A 的文件状态卡 +「更换简历」
-    expect(await screen.findByRole("button", { name: "更换简历" })).toBeInTheDocument();
-    expect(screen.getByText("张伟简历.pdf")).toBeInTheDocument();
+    // 只切视图:上传视图 = 「上传新简历」拖拽区;无旧文件卡、无「更换简历」
+    expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
+    expect(screen.getByText(/本次上传会新增一份独立简历/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
+    expect(screen.queryByText("张伟简历.pdf")).not.toBeInTheDocument();
     expect(mocks.parseMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("URL ?resumeId=(4.12):透传给 resume.get 作为活跃简历", () => {
+    mocks.searchParams = { resumeId: "r-old" };
+    mocks.resumeData = {
+      id: "r-old",
+      fileName: "旧简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ResumeHub />);
+    expect(mocks.getInput).toEqual({ resumeId: "r-old" });
+    // 参数行有效:不触发去参护栏
+    expect(mocks.replace).not.toHaveBeenCalledWith("/resume");
+  });
+
+  it("URL ?upload=1(4.12):初始即上传视图(上传新简历)并去参", async () => {
+    mocks.searchParams = { upload: "1" };
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ResumeHub />);
+    expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/resume"));
+  });
+
+  it("?resumeId 失效护栏(4.12):get 已回退最新行(≠ 参数行)→ 去参", async () => {
+    mocks.searchParams = { resumeId: "r-gone" };
+    mocks.resumeData = {
+      id: "r-latest",
+      fileName: "最新简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    render(<ResumeHub />);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/resume"));
   });
 
   it("刷新后遇历史失败改写 run(无版本):失败视图;重试无会话输入 → 返回核对表单", async () => {

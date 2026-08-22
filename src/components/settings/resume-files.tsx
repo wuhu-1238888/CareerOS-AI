@@ -1,8 +1,11 @@
 "use client";
 // 简历文件管理(4.1):真实文件列表 —— 下载(原文件,走 /api/resume/download)+ 删除(确认弹窗 + toast + 刷新)。
 // 删除级联清理存储文件(服务端 resume.delete);下载链接由 Route Handler 自鉴权。
+// 4.12:页面级「+ 新增简历」(/resume?upload=1)与逐行「查看」(/resume?resumeId=,查看该行解析/优化数据)。
+// 多份简历并存:每份独立,旧简历卡片只有 查看/下载/删除,不存在「更换简历」。
 import { useState } from "react";
-import { Download, FileText, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Download, Eye, FileText, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,8 +46,19 @@ export function ResumeFiles() {
 
   return (
     <section className="rounded-card border border-hairline bg-surface p-6 shadow-card">
-      <h2 className="text-body-lg font-medium text-ink">简历文件管理</h2>
-      <p className="mt-1 text-body-sm text-ink-muted">管理你上传的简历文件与解析记录</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-body-lg font-medium text-ink">简历文件管理</h2>
+          <p className="mt-1 text-body-sm text-ink-muted">管理你上传的简历文件与解析记录</p>
+        </div>
+        {/* 「+ 新增简历」(4.12):与结果页「重新上传简历」同一 CREATE 流程(上传新简历,不覆盖已有简历) */}
+        <Button asChild size="sm">
+          <Link href="/resume?upload=1">
+            <Plus aria-hidden />
+            新增简历
+          </Link>
+        </Button>
+      </div>
 
       {list.isLoading && (
         <div className="mt-4 space-y-2" aria-label="加载中">
@@ -78,6 +92,13 @@ export function ResumeFiles() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {/* 「查看」(4.12):打开该简历在优化页的解析/优化数据(活跃简历 = ?resumeId=) */}
+                <Button asChild variant="secondary" size="sm">
+                  <Link href={`/resume?resumeId=${item.id}`}>
+                    <Eye aria-hidden />
+                    查看
+                  </Link>
+                </Button>
                 {item.fileName && (
                   <Button asChild variant="secondary" size="sm">
                     <a href={`/api/resume/download?id=${item.id}`} download>

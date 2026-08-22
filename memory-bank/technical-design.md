@@ -740,7 +740,7 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 **canonical 单一构造入口(4.10-layout)**:`buildFinalTextForVersion(originalText, optimizations)` —— serializeVersion(预览/复制/PDF 导出)与 scoreAts(ATS 评分)共用同一函数与同一批 DB 行,ATS 分析对象构造性等于「最终文本预览」渲染的字符串;结果页信息层级:优化结果对比卡 → 最终文本预览(卡内复制按钮)→ ATS 评分。
 
-**重新上传入口(4.11)**:结果页工具条「重新上传简历」复用既有 uploadMode 切回上传视图(只切视图、不删除任何数据);上传新文件走既有建行链路(每次上传新建 Resume 行),`resume.get` 取最新行 + 行 id 变化 effect 复位会话状态 → 自动切换到新简历;旧行与其解析结果、优化版本保留(设置页「简历文件管理」列出全部)。无文件去重策略(每次上传=新行,即「多份简历并存」语义)。
+**重新上传入口(4.11→4.12 修订)**:4.11 初版在已有简历时于上传视图展示「当前文件卡 + 更换简历」按钮,验收被否(观感 = 文件列表 + Replace)。4.12 起产品模型为**「重新上传 = 新增一份独立简历」**:上传视图拖拽区常显、有已有简历时标题「上传新简历」并声明「不会修改或删除已有简历」,「更换简历」按钮与旧文件卡彻底移除(上传链路自始就是 `prisma.resume.create` 建新行,不存在 Replace API)。**活跃简历 = URL 参数 `?resumeId=`**:`resume.get` 增加可选 `resumeId` 输入(未传/越权/已删回退最新行),hub 经 `useSearchParams` 读取(resume/page.tsx 包 Suspense);上传成功后 `onUploaded` → `router.replace("/resume")` 清参 → get 回落最新行(新行)→ 既有行 id 变化 effect 复位会话状态并进入新简历。设置页「简历文件管理」逐行「查看」(→ `/resume?resumeId=`)+ 页面级「+ 新增简历」(→ `/resume?upload=1`,hub 置 uploadMode 并去参);`?resumeId` 失效护栏:数据行 ≠ 参数行时去参。无文件去重策略(每次上传=新行,即「多份简历并存」语义)。
 
 ## 十、M4 修订:提取层视觉排序(2026-08-22,任务 4.10 验收修复)
 

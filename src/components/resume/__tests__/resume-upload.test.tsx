@@ -1,4 +1,5 @@
-// 简历上传组件测试(4.1):无画像提示/上传成功刷新/上传失败 Banner/提取失败引导粘贴/直接粘贴创建/有效简历状态卡
+// 简历上传组件测试(4.1):无画像提示/上传成功刷新/上传失败 Banner/提取失败引导粘贴/直接粘贴创建
+// 4.12:拖拽区常显(有已有简历 = 「上传新简历」,无「更换简历」按钮/旧文件卡);onUploaded 先于 invalidate;resumeId 透传 get
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   createPending: false,
   pastePending: false,
   invalidate: vi.fn(),
+  getInput: null as { resumeId?: string } | null,
 }));
 
 vi.mock("@/trpc/client", () => ({
@@ -32,7 +34,10 @@ vi.mock("@/trpc/client", () => ({
     useUtils: () => ({ resume: { get: { invalidate: mocks.invalidate } } }),
     resume: {
       get: {
-        useQuery: () => ({ data: mocks.resumeData, isLoading: mocks.resumeLoading }),
+        useQuery: (input?: { resumeId?: string }) => {
+          mocks.getInput = input ?? null;
+          return { data: mocks.resumeData, isLoading: mocks.resumeLoading };
+        },
       },
       createFromText: {
         useMutation: () => ({
@@ -200,7 +205,7 @@ describe("ResumeUpload", () => {
     await waitFor(() => expect(mocks.invalidate).toHaveBeenCalled());
   });
 
-  it("已有有效简历:不显示拖拽区,显示文件状态卡与「更换简历」", async () => {
+  it("已有简历(4.12):显示「上传新简历」拖拽区与新增说明,无「更换简历」按钮与旧文件卡", async () => {
     mocks.resumeData = {
       id: "r-ok",
       fileName: "张伟简历.pdf",
@@ -211,9 +216,29 @@ describe("ResumeUpload", () => {
       updatedAt: "2026-08-01T00:00:00.000Z",
     };
     render(<ResumeUpload />);
-    expect(await screen.findByText("张伟简历.pdf")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "上传简历" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "更换简历" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
+    expect(screen.getByText(/本次上传会新增一份独立简历,不会修改或删除已有简历/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择文件" })).toBeInTheDocument();
+    // 不再显示旧文件卡与「更换简历」
+    expect(screen.queryByText("张伟简历.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更换简历" })).not.toBeInTheDocument();
+  });
+
+  it("上传成功(4.12):先调 onUploaded 再刷新", async () => {
+    const onUploaded = vi.fn();
+    const { container } = render(<ResumeUpload onUploaded={onUploaded} />);
+    pickFile(container, new File(["pdf-content"], "张伟简历.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(onUploaded).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.invalidate).toHaveBeenCalled());
+    // 顺序:onUploaded 先于 invalidate(hub 先清 URL 参数,刷新才回落最新行)
+    expect(onUploaded.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.invalidate.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it("resumeId(4.12):透传给 resume.get 输入", () => {
+    render(<ResumeUpload resumeId="r-active" />);
+    expect(mocks.getInput).toEqual({ resumeId: "r-active" });
   });
 
   it("拖拽文件到拖拽区:同样触发上传", async () => {

@@ -4,7 +4,10 @@
 // 失败态「重试」:会话内直接重跑 parse(原文在库),刷新后服务端从 AgentRun.input 重放(retryParse);「重新上传」返回上传视图。
 // 4.4-4.5 优化阶段:「开始优化」保存核对结果并触发改写管线 → 改写中 AnalysisView(简历优化师)→ 成功后结果对比视图;
 // 会话内改写失败重试 = 用 lastOptimizeInput 重跑;刷新后无会话输入 → 重试返回核对表单(无 retryRewrite 端点,计划已定)。
+// 4.12:活跃简历 = URL 参数 ?resumeId=(设置页「查看」);?upload=1 直接进上传视图(设置页「+ 新增简历」);
+// 上传成功后清参 → resume.get 回落最新行(新行)→ 行切换 effect 自动复位并进入新简历,旧行数据不动。
 import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { FileText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,9 +24,14 @@ function friendlyError(err: unknown): string {
 }
 
 export function ResumeHub() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // 活跃简历(4.12):?resumeId= 查看指定行(未传 = 最新行);?upload=1 进入上传视图(新增简历)
+  const resumeId = searchParams.get("resumeId") ?? undefined;
+  const uploadRequested = searchParams.get("upload") === "1";
   const utils = trpc.useUtils();
   const me = trpc.user.me.useQuery();
-  const resume = trpc.resume.get.useQuery();
+  const resume = trpc.resume.get.useQuery({ resumeId });
   const profile = trpc.profile.get.useQuery();
   const parse = trpc.resume.parse.useMutation();
   const retryParse = trpc.resume.retryParse.useMutation();
@@ -108,6 +116,21 @@ export function ResumeHub() {
     setUploadMode(false);
     setBackToReview(false);
   }, [resume.data?.id]);
+
+  // ?upload=1(4.12,设置页「+ 新增简历」):进入上传视图并去参(刷新/返回不会再落入上传视图)
+  useEffect(() => {
+    if (uploadRequested) {
+      setUploadMode(true);
+      router.replace("/resume");
+    }
+  }, [uploadRequested, router]);
+
+  // ?resumeId 失效护栏(4.12):行已删/越权时 get 已回退最新行 → 去参,防止 stale 参数误导后续操作
+  useEffect(() => {
+    if (resumeId && resume.data && resume.data.id !== resumeId) {
+      router.replace("/resume");
+    }
+  }, [resumeId, resume.data, router]);
 
   if (me.isLoading || resume.isLoading || profile.isLoading || !me.data) {
     return (
@@ -259,8 +282,9 @@ export function ResumeHub() {
     void runRewrite(parsed, version.targetDirection);
   }
 
-  // 「重新上传简历」(4.11):进入上传视图换另一份简历。复用既有 uploadMode —— 只切视图不删数据:
-  // 上传新文件走既有链路建新行,行 id 变化 effect 统一复位会话状态并自动切换到新简历;旧行与优化结果保留。
+  // 「重新上传简历」(4.11/4.12):进入上传视图新增一份简历。复用既有 uploadMode —— 只切视图不删数据:
+  // 上传视图 = 「上传新简历」,上传走既有链路建新行,行 id 变化 effect 统一复位会话状态并自动切换到新简历;
+  // 旧行与优化结果保留(设置页可查看/删除)。
   function handleReupload() {
     setUploadMode(true);
   }
@@ -273,11 +297,21 @@ export function ResumeHub() {
 
   let view: React.ReactNode;
   if (!resume.data || uploadMode) {
-    // 无简历 / 用户主动重新上传(含提取失败后的粘贴降级)
-    view = <ResumeUpload />;
+    // 无简历 / 用户主动重新上传(4.12:上传视图 = 「上传新简历」,每次上传建新行,旧行保留)
+    view = (
+      <ResumeUpload
+        resumeId={resume.data?.id}
+        onUploaded={() => router.replace("/resume")}
+      />
+    );
   } else if (!hasParsed && resume.data.extractError) {
     // 提取失败行(无原文,无法解析):粘贴补全或重传
-    view = <ResumeUpload />;
+    view = (
+      <ResumeUpload
+        resumeId={resume.data.id}
+        onUploaded={() => router.replace("/resume")}
+      />
+    );
   } else if (showRewriting || showRewriteFinishing || showRewriteError) {
     // 改写流程:提交在途 / 轮询 running / 成功后的短暂过渡 / 本次会话失败(优先级高于解析与核对视图)
     view = (

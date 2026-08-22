@@ -3,8 +3,10 @@
 // 上传走 /api/resume/upload(Route Handler 自鉴权),失败 Banner 说明原因可重试;
 // 提取失败(如图片型 PDF)→ Banner 引导粘贴补全(pasteText);无简历时也可直接粘贴(createFromText)。
 // 无画像用户提示「完成职业画像可获得更好的优化效果」(PRD 路径 C)。
+// 4.12 重构:拖拽区常显 —— 已有简历时标题为「上传新简历」并声明「新增一份独立简历,不会修改或删除已有简历」;
+// 移除旧文件状态卡与「更换简历」按钮(每次上传都 CREATE 新行,不存在 Replace);resumeId 让自身 get 与 hub 同源同一行。
 import { useRef, useState } from "react";
-import { FileText, Info, Upload } from "lucide-react";
+import { Info, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -20,16 +22,17 @@ const EXTRACT_ERROR_TEXT: Record<string, string> = {
   unsupported: "文件格式暂不支持解析,请粘贴简历文本或重新上传",
 };
 
-function formatBytes(size: number | null | undefined): string {
-  if (size == null) return "";
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-export function ResumeUpload() {
+export function ResumeUpload({
+  resumeId,
+  onUploaded,
+}: {
+  /** 当前活跃简历行 id(4.12):与 hub 的 get 同输入共享缓存;未传 = 取最新行 */
+  resumeId?: string;
+  /** 上传成功回调(4.12):hub 用于清 URL 参数,让 get 回落最新行并自动切到新简历 */
+  onUploaded?: () => void;
+}) {
   const utils = trpc.useUtils();
-  const resume = trpc.resume.get.useQuery();
+  const resume = trpc.resume.get.useQuery({ resumeId });
   const profile = trpc.profile.get.useQuery();
   const createFromText = trpc.resume.createFromText.useMutation();
   const pasteText = trpc.resume.pasteText.useMutation();
@@ -70,6 +73,8 @@ export function ResumeUpload() {
         setUploadError(message);
         return;
       }
+      // 4.12:先通知 hub 清 URL 参数(resume.get 回落最新行 = 刚建的新行),再刷新
+      onUploaded?.();
       await utils.resume.get.invalidate();
     } catch {
       setUploadError("上传失败,请检查网络后重试");
@@ -104,13 +109,15 @@ export function ResumeUpload() {
   }
 
   const latest = resume.data;
+  // 已有简历(任意行,含提取失败行):拖拽区切换为「上传新简历」文案;无简历 = 首次上传
+  const hasExisting = !!latest;
   const hasValidResume = !!latest && !latest.extractError;
   const extractBanner =
     latest?.extractError ? EXTRACT_ERROR_TEXT[latest.extractError] ?? "文件解析失败,请粘贴简历文本继续" : null;
 
   return (
     <div className="w-full space-y-4 py-6">
-      {/* 唯一的隐藏文件输入:拖拽区 / 更换简历按钮共用 */}
+      {/* 唯一的隐藏文件输入:拖拽区共用(4.12 起不再有「更换简历」按钮) */}
       <input
         ref={inputRef}
         type="file"
@@ -131,73 +138,63 @@ export function ResumeUpload() {
         </div>
       )}
 
-      {!hasValidResume && (
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label="上传简历"
-          onClick={() => inputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              inputRef.current?.click();
-            }
-          }}
-          onDragOver={(e) => {
+      {/* 拖拽区常显(4.12):无简历 = 首次上传;有简历 = 上传新简历(新增独立简历,绝不覆盖旧行) */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={hasExisting ? "上传新简历" : "上传简历"}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) void uploadFile(file);
-          }}
-          className={cn(
-            "flex cursor-pointer flex-col items-center gap-3 rounded-card border border-dashed bg-sunken px-6 py-12 text-center transition-colors",
-            dragging ? "border-green-600 bg-green-50" : "border-hairline-strong hover:border-green-400"
+            inputRef.current?.click();
+          }
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) void uploadFile(file);
+        }}
+        className={cn(
+          "flex cursor-pointer flex-col items-center gap-3 rounded-card border border-dashed bg-sunken px-6 py-12 text-center transition-colors",
+          dragging ? "border-green-600 bg-green-50" : "border-hairline-strong hover:border-green-400"
+        )}
+      >
+        <Upload className="size-8 text-ink-faint" aria-hidden />
+        <div className="space-y-1">
+          {hasExisting ? (
+            <>
+              <p className="text-body-sm font-medium text-ink-secondary">上传新简历</p>
+              <p className="text-caption text-ink-muted">
+                上传 PDF 或 DOCX 格式的新简历,不超过 10MB;本次上传会新增一份独立简历,不会修改或删除已有简历
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-body-sm font-medium text-ink-secondary">
+                拖拽简历文件到这里,或点击选择文件
+              </p>
+              <p className="text-caption text-ink-muted">
+                支持 PDF / Word(.docx)格式,不超过 10MB;文件将加密存储,仅用于本模块优化
+              </p>
+            </>
           )}
-        >
-          <Upload className="size-8 text-ink-faint" aria-hidden />
-          <div className="space-y-1">
-            <p className="text-body-sm font-medium text-ink-secondary">
-              拖拽简历文件到这里,或点击选择文件
-            </p>
-            <p className="text-caption text-ink-muted">
-              支持 PDF / Word(.docx)格式,不超过 10MB;文件将加密存储,仅用于本模块优化
-            </p>
-          </div>
-          <Button type="button" size="lg" disabled={uploading} onClick={(e) => e.stopPropagation()}>
-            {uploading ? "上传中…" : "上传简历"}
-          </Button>
         </div>
-      )}
+        <Button type="button" size="lg" disabled={uploading} onClick={(e) => e.stopPropagation()}>
+          {uploading ? "上传中…" : hasExisting ? "选择文件" : "上传简历"}
+        </Button>
+      </div>
 
       {uploadError && (
         <div className="flex items-start gap-2 rounded-control bg-danger-bg px-3 py-2.5 text-body-sm text-danger">
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{uploadError}</span>
-        </div>
-      )}
-
-      {hasValidResume && latest && (
-        <div className="flex items-center justify-between gap-3 rounded-card border border-hairline bg-surface p-4 shadow-card">
-          <div className="flex min-w-0 items-center gap-3">
-            <FileText className="size-5 shrink-0 text-ink-muted" aria-hidden />
-            <div className="min-w-0">
-              <p className="truncate text-body-sm font-medium text-ink">
-                {latest.fileName ?? "粘贴的简历文本"}
-              </p>
-              <p className="text-caption text-ink-muted">
-                {latest.fileName ? formatBytes(latest.sizeBytes) : "粘贴文本"}
-                {latest.fileName ? ` · ${new Date(latest.createdAt).toLocaleDateString("zh-CN")}` : ""}
-              </p>
-            </div>
-          </div>
-          <Button type="button" variant="secondary" size="sm" onClick={() => inputRef.current?.click()}>
-            更换简历
-          </Button>
         </div>
       )}
 
