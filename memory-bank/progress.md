@@ -333,6 +333,7 @@
 | 4.14 | 上传视图退出体验:← 返回按来源动态返回(简历优化进入 → 回原视图;?upload=1&from=resumes → /resumes;无结果视图 → /resumes)+ 面包屑定位;三态取消(未选文件/已选文件/解析中 AbortController 取消上传,取消不影响已有简历);选文件改待确认态,「开始分析」才上传;修复行切换 effect 冷加载首帧误复位 ?upload=1 | ✅ | `16a13e0` |
 | 4.15 | 简历中心返回:顶栏「简历中心」/结果页「查看全部简历」进入后左上角「← 返回」(应用内回上一页,直接打开/外链回工作台);共享 goBackOrFallback 辅助;hub from=resumes 退出改后退,避免相邻 /resumes 历史使返回按钮空转 | ✅ | `d798f0c` |
 | 4.16 | 导出 PDF 预览修复:PDFDownloadLink 嵌套锚点整页跳转 blob: URL(浏览器查看器、无返回入口)与 Back 后四重失效窗口 → 应用内预览浮层(真按钮 + BlobProvider 每次打开全新生成/关闭 revoke + resume-pdf-preview 返回/下载/三态/Escape);主视图零锚点 | ✅ | a365589 |
+| 4.17 | AI 分析进度卡死修复:完成判定依赖被提前禁用的轮询缓存(mutation 结算瞬间 enabled 早停 → 缓存冻结 running → 视图钉死「分析中」,刷新才恢复)→ 轮询常开 + 权威「版本-运行对应」(version.createdAt > run.createdAt ⇔ 管线完成)+ mutation 结算后 invalidate latestRun + 恢复 effect 去 !hasVersion/清会话错误 + analysis-view 60s 慢分析提示 | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -357,6 +358,7 @@
 - 4.14 修订后 **525/525(55 文件)全绿**(upload 13→22[三态流程/重新选择/取消×2/解析中取消上传/卸载与竞态/面包屑×2]、hub 28→35[from=resumes 返回 /resumes、结果视图与失败视图返回、提取失败行与无简历返回 /resumes、冷加载首帧守卫、?upload=1 默认 from]、center href 断言更新为 from=resumes)
 - 4.15 修订后 **528/528(55 文件)全绿**(center +3[应用内后退/无历史回工作台/跨源回工作台];hub from=resumes 退出断言改为后退)
 - 4.16 修订后 **533/533(55 文件)全绿**(export 4→9[浮层开合/加载/失败/就绪 iframe+下载链接/返回/Escape/重新打开挂载计数])
+- 4.17 修订后 **540/540(55 文件)全绿**(hub +5[缓存冻结 running 但版本更新 → 结果视图(核心回归)、run 比版本新 → 仍分析中、重新分析响应丢失但服务端完成 → invalidate 拉新版本、解析响应丢失但完成 → 清错误不钉死、连续改写 refs 复位二次恢复];analysis-view +2[慢分析提示显示/不显示];hub 既有 2 用例补 invalidateLatestRun 断言)
 - 4.10 新增 27 个测试:section-order 22(标准顺序/归一化/同行标题/自定义切片/同形误判/无标题锚定/工作实习拆分/合并标题/多项目分区/stored 优先/兜底)+ 数据层 2(sectionOrder 入库 + sectionPlan 返回)+ review plan 模式 3 + result 预览面板 2
 - 4.10-fix 新增 20 个测试:pdf-position-sort 7(PDF 内容流 z-order → 视觉坐标排序)+ docx-extract 8(文本框 XML 逆序 → 坐标排序 / DECOY 忽略 / 流式段定位 / 无框退化)+ parser 集成 3(乱序 PDF / 文本框 DOCX / 无框 DOCX 回退 mammoth)+ upload 链路 2(乱序 PDF 与文本框 DOCX 上传 → originalText 以视觉顺序落库)
 - 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
@@ -607,3 +609,21 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 - 全套 **533/533(55 文件)全绿**;typecheck / lint 零错误;grep:PDFDownloadLink 仅存注释。
 - 手动验收走查(用户 7 Case,dev):导出 → 应用内浮层预览(顶栏被覆盖,应用 UI 未销毁);← 返回 → 结果页无损;连续 3 次导出/返回全成功;Escape 关闭;下载 → 返回 → 再导出成功;F5 后导出成功;零采纳禁用 + 提示不变。Network 无整页导航;关闭后无 blob 累积。
 - 已知限制:iOS Safari 内联 blob iframe 可能空白,「下载 PDF」兜底。
+
+## 2026-08-22 修订:AI 分析进度卡死修复(任务 4.17)
+
+### 验收发现与根因
+
+用户验收:上传简历 → 解析 → 优化,分析视图「正在启动 resume-rewrite-agent / 正在理解你的背景与目标 / 正在分析…」停在 60%,**手动刷新后结果立即出现**。探查实锤:无队列/SSE/worker,`resume.rewrite` mutation 在 HTTP 请求内 await 整条管线(orchestrator.ts:53 建 run → 阻塞 LLM → pipeline.ts:135 版本事务);60% = llm 事件在阻塞调用前落库的「无心跳」平台期(设计内),不是 bug 本身。**真因(情况 B「后端完成、前端未收到」+ D「一次查询后无 refetch」)**:完成判定 `rewriteDone = rewriteSucceeded && hasVersion` 依赖轮询缓存,而 mutation 结算瞬间(hasVersion=true + rewriteSubmitted=false)`enabled: !hasVersion || rewriteSubmitted` 把 latestRewrite **提前禁用**(服务端翻转后几十 ms 内,远早于下一次 700ms tick)→ 缓存冻结在 running;`resume.latestRun.invalidate()` 全仓库 0 命中,无任何补救通道 → 视图钉死「分析中」。刷新重新 fetch 即恢复。同款 bug 曾在 profile 流程以权威守卫修复(profile-hub.tsx:68 `recovering` 加 `!hasResult`),resume 的 4.9 修复(847f651)未对称补上,且 4.9 回归用例只覆盖「mutation 挂起 + 轮询见终态」,不覆盖「mutation 已结算 + 版本已落库 + 轮询缓存冻结」。
+
+### 实施(纯前端,后端/DB 零改动)
+
+- **resume-hub.tsx**:① 两个 latestRun 查询 `enabled` 常开(去掉 !hasParsed/!hasVersion/submitted 早停,refetchInterval 谓词不变);② `rewriteDone` 加权威「版本-运行对应」:`hasVersion && (!run || succeeded || version.createdAt > run.createdAt)`(run 建于管线起点、版本建于结束事务 → 「版本比缓存 run 新」即证明该管线已完成;序列化后 createdAt 为 ISO 字符串,`new Date(...).getTime()` 比较);③ 三个 mutation finally 后 `invalidate latestRun({intent})` 立即拉终态;④ 改写恢复 effect 去 `!hasVersion`(重新优化 + 响应丢失时旧版本存在也必须拉新版本)、两个恢复 effect 成功时清会话错误(响应丢失但服务端完成不再钉死错误视图)。
+- **analysis-view.tsx**:running 超 60s 显示「分析时间较长,AI 分析仍在处理中,请稍候。」(role=status,10s ticker 驱动、状态切换/卸载清理);失败态「重试」为既有,未改。
+- 不重复启动 Agent(纯读 + invalidate,零新 mutation);不动 profile/navigator 同款 enabled 早停(其 recovering 已带权威守卫,无可见卡死,留后续)。
+
+### 验证
+
+- 测试:hub +5(缓存冻结 running 但版本更新 → 直接结果视图[核心回归]、run 比版本新 → 仍分析中、重新分析响应丢失但服务端完成 → invalidate 拉新版本、解析响应丢失但完成 → 清错误、连续改写 refs 复位二次恢复);analysis-view +2(慢分析提示显示/不显示);hub 既有 2 用例补 invalidateLatestRun 断言;hub 测试 useUtils mock 改稳定引用(否则恢复 effect 因 utils 依赖每渲染重复触发)。
+- 全套 **540/540(55 文件)全绿**;typecheck / lint 零错误;grep:无 window.location.reload / 整页定时刷新。
+- 手动验收走查(用户 12 Case,dev):上传 DOCX/PDF → 解析 → 优化 **不刷新**自动进结果;慢任务持续轮询直至自动完成;刷新对比一致且正常流程不需要刷新;连续上传 A/B/C 互不干扰;分析中离开再返回(完成 → 直接结果,在途 → 进度续显、不重建任务);Network 仅 tRPC 轮询、无整页导航;60s 慢分析提示;失败态「重试」再跑。已知残留(不改):重新分析时旧版本瞬时闪现、失败的重优化静默回旧结果 —— 既有行为。

@@ -11,6 +11,10 @@
 // (来源为简历中心或无可返回的结果视图 → /resumes;否则退 uploadMode 回原视图);行切换 effect 首帧守卫防冷加载误复位。
 // 4.15:来源为简历中心时退出改为后退(上一历史条目即简历中心),避免 replace 产生两条相邻 /resumes
 // 历史,导致简历中心「← 返回」后退到同一页观感失效。
+// 4.17:修复「分析进度卡 60% 需手动刷新」—— latestRun 查询常开(enabled 不再随 hasParsed/hasVersion
+// 早停,否则 mutation 结算瞬间轮询被禁用、缓存冻结在 running);rewriteDone 加权威「版本-运行对应」
+// (版本 createdAt 严格晚于 run createdAt ⇔ 管线已完成,不依赖冻结的轮询缓存终态);mutation 结算后
+// invalidate latestRun 立即拉终态;恢复 effect 清会话错误、改写恢复不再要求 !hasVersion。
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -70,21 +74,22 @@ export function ResumeHub() {
   const hasParsed = !!resume.data?.parsedData;
   const hasVersion = !!resume.data?.version;
 
-  // 跟踪最近一次解析 run:无解析结果(首建/恢复)或提交在途时启用;仅 running/在途时轮询 700ms
+  // 跟踪最近一次解析 run(4.17 常开):enabled 不再随 hasParsed/submitted 早停 —— 早停会在 mutation
+  // 结算瞬间把轮询禁用、缓存冻结在 running(「卡 60% 需手动刷新」根因);仅 running/在途时轮询 700ms
   const latestRun = trpc.resume.latestRun.useQuery(
     { intent: "parse-resume" },
     {
-      enabled: !resume.isLoading && !!resume.data && (!hasParsed || submitted),
+      enabled: !resume.isLoading && !!resume.data,
       refetchInterval: (query) =>
         submitted || query.state.data?.status === "running" ? 700 : false,
     }
   );
 
-  // 跟踪最近一次改写 run:无优化版本或提交在途时启用
+  // 跟踪最近一次改写 run(4.17 常开):同上,不再随 hasVersion/rewriteSubmitted 早停
   const latestRewrite = trpc.resume.latestRun.useQuery(
     { intent: "rewrite-resume" },
     {
-      enabled: !resume.isLoading && !!resume.data && (!hasVersion || rewriteSubmitted),
+      enabled: !resume.isLoading && !!resume.data,
       refetchInterval: (query) =>
         rewriteSubmitted || query.state.data?.status === "running" ? 700 : false,
     }
@@ -102,21 +107,26 @@ export function ResumeHub() {
       ? null
       : (latestRewrite.data ?? null);
 
-  // 恢复路径(解析):刷新后 run 已 succeeded(管线已完成)→ 刷新简历进入核对视图
+  // 恢复路径(解析):刷新后 run 已 succeeded(管线已完成)→ 清会话错误并刷新简历进入核对视图
+  // (4.17:mutation 响应丢失但服务端完成时,不清错误会把失败视图钉死到刷新)
   useEffect(() => {
     if (!hasParsed && parseRun?.status === "succeeded" && !finishedRef.current) {
       finishedRef.current = true;
+      setParseError(null);
       void utils.resume.get.invalidate();
     }
   }, [hasParsed, parseRun?.status, utils]);
 
-  // 恢复路径(改写):刷新后 run 已 succeeded → 刷新简历进入结果视图
+  // 恢复路径(改写):run 已 succeeded → 清会话错误并刷新简历进入结果视图。
+  // 4.17:去掉 !hasVersion 条件 —— 重新优化(旧版本存在)且 mutation 响应丢失时,服务端完成后
+  // 也必须 invalidate 拉新版本,否则旧版本一直显示到刷新。
   useEffect(() => {
-    if (!hasVersion && rewriteRun?.status === "succeeded" && !rewriteFinishedRef.current) {
+    if (rewriteRun?.status === "succeeded" && !rewriteFinishedRef.current) {
       rewriteFinishedRef.current = true;
+      setRewriteError(null);
       void utils.resume.get.invalidate();
     }
-  }, [hasVersion, rewriteRun?.status, utils]);
+  }, [rewriteRun?.status, utils]);
 
   // 简历行切换(重传/粘贴产生新行):清空解析与优化会话痕迹。
   // 4.14 首帧守卫:冷加载时 id 从 undefined → 值 属数据加载而非行切换,不得复位
@@ -176,8 +186,19 @@ export function ResumeHub() {
   const rewriteRunning = rewriteRun?.status === "running";
   const rewriteFailed = rewriteRun?.status === "failed";
   const rewriteSucceeded = rewriteRun?.status === "succeeded";
-  // 权威完成态:run succeeded 且版本已落库(version 经恢复 effect invalidate 后由 resume.get 带回)
-  const rewriteDone = rewriteSucceeded && hasVersion;
+  // 权威完成态(4.17 修订):版本存在且(无 run / run 已 succeeded / 版本建于该 run 之后)。
+  // 版本 createdAt 严格晚于 run createdAt(run 建于管线起点 orchestrator.ts:53,版本建于结束事务
+  // pipeline.ts:135),「版本比缓存 run 新」即证明该管线已完成 —— 不依赖冻结的轮询缓存终态
+  // (mutation 结算瞬间轮询被禁用后缓存冻结在 running,旧判定 rewriteSucceeded && hasVersion
+  // 会永远 false,视图钉死在「分析中」,刷新才恢复)。序列化后 createdAt 运行时为 ISO 字符串,
+  // 必须经 new Date(...).getTime() 比较。
+  const rewriteDone =
+    hasVersion &&
+    (!rewriteRun ||
+      rewriteSucceeded ||
+      (resume.data?.version != null &&
+        new Date(resume.data.version.createdAt).getTime() >
+          new Date(rewriteRun.createdAt).getTime()));
   // 会话内 mutation 错误:仅当权威状态既未失败也未成功、且不在 running 时展示(权威优先)
   const showRewriteError =
     !!rewriteError && !rewriteRunning && !rewriteFailed && !rewriteSucceeded;
@@ -208,6 +229,8 @@ export function ResumeHub() {
       setParseError(friendlyError(err));
     } finally {
       setSubmitted(false);
+      // 4.17:mutation 结算后 invalidate latestRun(常开查询立即 refetch 拉终态,防缓存冻结)
+      void utils.resume.latestRun.invalidate({ intent: "parse-resume" });
     }
   }
 
@@ -232,6 +255,8 @@ export function ResumeHub() {
       setParseError(friendlyError(err));
     } finally {
       setSubmitted(false);
+      // 4.17:同上 —— invalidate latestRun 拉终态
+      void utils.resume.latestRun.invalidate({ intent: "parse-resume" });
     }
   }
 
@@ -254,6 +279,8 @@ export function ResumeHub() {
       setRewriteError(friendlyError(err));
     } finally {
       setRewriteSubmitted(false);
+      // 4.17:mutation 结算后 invalidate latestRun(常开查询立即 refetch 拉终态,防缓存冻结)
+      void utils.resume.latestRun.invalidate({ intent: "rewrite-resume" });
     }
   }
 

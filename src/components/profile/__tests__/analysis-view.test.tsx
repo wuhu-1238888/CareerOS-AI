@@ -11,7 +11,8 @@ const baseRun: RunView = {
   stale: false,
   progress: [],
   error: null,
-  createdAt: "2026-08-20T10:00:00Z",
+  // 4.17:刚启动的 run(慢分析提示 60s 阈值内,不显示)
+  createdAt: new Date().toISOString(),
 };
 
 describe("AnalysisView", () => {
@@ -85,5 +86,36 @@ describe("AnalysisView", () => {
       "aria-valuenow",
       "100"
     );
+  });
+
+  it("慢分析提示(4.17):running 已超 60s → 显示安抚文案", () => {
+    const run: RunView = {
+      ...baseRun,
+      createdAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+      progress: [
+        { stage: "start", message: "正在启动「career-profile-analyzer」…" },
+        { stage: "prompt", message: "正在理解你的背景与目标…" },
+        { stage: "llm", message: "正在分析…" },
+      ],
+    };
+    render(<AnalysisView run={run} error={null} onRetry={vi.fn()} onEdit={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "分析时间较长,AI 分析仍在处理中,请稍候。"
+    );
+  });
+
+  it("慢分析提示(4.17):刚启动的 running / 旧时间的 succeeded → 不显示", () => {
+    const { unmount } = render(
+      <AnalysisView run={baseRun} error={null} onRetry={vi.fn()} onEdit={vi.fn()} />
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    unmount();
+    const succeeded: RunView = {
+      ...baseRun,
+      status: "succeeded",
+      createdAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+    };
+    render(<AnalysisView run={succeeded} error={null} onRetry={vi.fn()} onEdit={vi.fn()} />);
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

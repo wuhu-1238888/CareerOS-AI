@@ -3,6 +3,8 @@
 // 纯展示组件:数据由 Hub 统一轮询 latestRun(700ms)后传入,本组件不再发起查询。
 // 失败 → 友好错误 + 重试 / 修改信息(草稿保留在 localStorage,返回表单不丢数据)。
 // 3.4 起参数化 Agent 名称/图标/说明文案(带默认值),Navigator 复用零行为变化。
+// 4.17:running 超 60s 显示「分析时间较长」安抚文案(10s ticker 驱动耗时重渲染,状态切换/卸载清理)。
+import { useEffect, useState } from "react";
 import { Loader2, UserRound, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiBadge } from "@/components/shared/ai-badge";
@@ -56,6 +58,18 @@ export function AnalysisView({
   const currentMessage =
     progress.length > 0 ? progress[progress.length - 1]!.message : "正在启动分析…";
   const percent = Math.round((progress.length / TOTAL_STAGES) * 100);
+
+  // 慢分析提示(4.17):running 超 60s 展示安抚文案;10s ticker 驱动耗时重渲染(状态切换/卸载清理)。
+  // run.createdAt 运行时为 ISO 字符串(tRPC 默认序列化),经 new Date 取时间戳比较。
+  const running = run?.status === "running";
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, [running]);
+  const showSlowHint =
+    run != null && running && now - new Date(run.createdAt).getTime() > 60_000;
 
   return (
     <div className="mx-auto w-full max-w-[640px] px-4 py-6">
@@ -147,6 +161,11 @@ export function AnalysisView({
                 })
               )}
             </ul>
+            {showSlowHint && (
+              <p className="mt-4 text-body-sm text-ink-muted" role="status">
+                分析时间较长,AI 分析仍在处理中,请稍候。
+              </p>
+            )}
           </div>
         )}
       </div>
