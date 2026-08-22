@@ -114,6 +114,7 @@ model Task {
   type        String // 任务类型(如 学习 / 实践项目)
   status      String @default("pending") // 三态:pending / in_progress / completed(服务器持久化,任务 2.5 依赖)
   order       Int // 任务顺序(从 1 起)
+  completedAt DateTime? @map("completed_at") // 最近一次完成时间(5.1 工作台「本周任务」KPI 依据;转为 pending/in_progress 时清空)
 
   @@map("tasks")
 }

@@ -21,6 +21,7 @@ import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { buildSectionPlan, detectSections, parseStoredSections } from "@/lib/resume/section-order";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 import { LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
+import { computeDashboardStats } from "@/lib/dashboard/stats";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -821,7 +822,11 @@ export const appRouter = t.router({
           await requireOwnedTask(ctx, input.taskId);
           const row = await ctx.prisma.task.update({
             where: { id: input.taskId },
-            data: { status: input.status },
+            data: {
+              status: input.status,
+              // 5.1:完成时间仅随状态维护(工作台「本周任务」KPI 依据);离开 completed 即清空
+              completedAt: input.status === "completed" ? new Date() : null,
+            },
           });
           return { id: row.id, status: row.status };
         }),
@@ -1133,6 +1138,11 @@ export const appRouter = t.router({
         }
         return { ok: true };
       }),
+  }),
+
+  // 工作台聚合(5.1):KPI 行 / Agent 顾问区 / 模块入口卡的单一数据源,纯读(见 src/lib/dashboard/stats.ts)
+  dashboard: t.router({
+    stats: protectedProcedure.query(async ({ ctx }) => computeDashboardStats(ctx.prisma, ctx.userId)),
   }),
 });
 
