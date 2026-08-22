@@ -36,6 +36,7 @@ type RunMock = {
 
 const mocks = vi.hoisted(() => {
   const replace = vi.fn();
+  const back = vi.fn();
   return {
     meData: { id: "u1", name: "甲", avatarColor: null as string | null },
     meLoading: false,
@@ -58,9 +59,10 @@ const mocks = vi.hoisted(() => {
     invalidateResume: vi.fn(),
     // 4.12:URL 参数与导航
     replace,
+    back,
     // 4.14:稳定 router 对象(与生产 useRouter 一致);对象身份每渲染变化会导致
     // ?upload=1 effect 因依赖变化反复执行、uploadMode 无法退出
-    router: { replace },
+    router: { replace, back },
     searchParams: {} as Record<string, string>,
     getInput: null as { resumeId?: string } | null,
   };
@@ -578,7 +580,7 @@ describe("ResumeHub 状态机", () => {
     expect(mocks.replace).not.toHaveBeenCalledWith("/resumes");
   });
 
-  it("URL ?upload=1&from=resumes(4.14):进入上传视图,面包屑「简历中心」;点返回 → /resumes", async () => {
+  it("URL ?upload=1&from=resumes(4.14):进入上传视图,面包屑「简历中心」;点返回 → 后退回简历中心(4.15:不 replace,避免相邻 /resumes 历史)", async () => {
     mocks.searchParams = { upload: "1", from: "resumes" };
     mocks.resumeData = {
       id: "r1",
@@ -589,11 +591,15 @@ describe("ResumeHub 状态机", () => {
       parsedData: null,
       createdAt: "2026-08-20T10:00:00Z",
     };
+    // 4.15:来源是简历中心「新增简历」,上一历史条目即简历中心(history.length ≥ 2,同源)
+    const lengthSpy = vi.spyOn(window.history, "length", "get").mockReturnValue(2);
     render(<ResumeHub />);
     expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
     expect(screen.getByText("简历中心")).toBeInTheDocument(); // 面包屑父级
     await userEvent.setup().click(screen.getByRole("button", { name: "返回" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/resumes");
+    expect(mocks.back).toHaveBeenCalledTimes(1);
+    expect(mocks.replace).not.toHaveBeenCalledWith("/resumes");
+    lengthSpy.mockRestore();
   });
 
   it("结果视图进入上传视图后点返回(4.14):回结果视图,不跳简历中心", async () => {

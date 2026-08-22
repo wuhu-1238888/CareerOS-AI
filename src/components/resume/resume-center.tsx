@@ -3,9 +3,11 @@
 // 「继续优化」与「查看」都经 /resume?resumeId= 切换活跃简历(活跃简历 = URL 参数,4.12);下载走 /api/resume/download;
 // 删除确认弹窗 + toast + 刷新(级联清理存储文件由服务端 resume.delete 完成)。
 // 多份简历并存:每份独立,卡片只有 继续优化/查看/下载/删除,不存在「更换简历」。
+// 4.15:左上角「← 返回」—— 顶栏/结果页「查看全部简历」进入后可明确返回(应用内回上一页,直接打开回工作台)。
 import { useState } from "react";
 import Link from "next/link";
-import { Download, Eye, FileText, Plus, Sparkles, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Download, Eye, FileText, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
+import { goBackOrFallback } from "@/lib/client-back";
 
 function formatBytes(size: number | null | undefined): string {
   if (size == null) return "";
@@ -31,6 +34,7 @@ export function ResumeCenter() {
   const list = trpc.resume.list.useQuery();
   const remove = trpc.resume.delete.useMutation();
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const router = useRouter();
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -44,8 +48,19 @@ export function ResumeCenter() {
     }
   }
 
+  // 4.15:应用内导航(顶栏/「查看全部简历」)→ 回上一页;直接打开(外链/新标签)→ 回工作台
+  function handleBack() {
+    goBackOrFallback(router, "/dashboard");
+  }
+
   return (
-    <section className="rounded-card border border-hairline bg-surface p-6 shadow-card">
+    <>
+      {/* 4.15:左上角「← 返回」(与上传视图同款)—— 补齐简历中心自身的退出路径 */}
+      <Button type="button" variant="ghost" size="sm" onClick={handleBack} className="mb-2">
+        <ArrowLeft aria-hidden />
+        返回
+      </Button>
+      <section className="rounded-card border border-hairline bg-surface p-6 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-body-lg font-medium text-ink">我的简历</h2>
@@ -151,5 +166,6 @@ export function ResumeCenter() {
         </DialogContent>
       </Dialog>
     </section>
+    </>
   );
 }

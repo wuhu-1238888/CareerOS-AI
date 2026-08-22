@@ -9,6 +9,8 @@
 // 4.13:上传视图「从已有简历继续」→ handleSelectResume 切活跃行(?resumeId=);结果视图显示当前简历名(resumeName)。
 // 4.14:上传视图退出体验 —— ?upload=1&from=resumes 记住来源(简历中心);handleExitUpload 按来源动态返回
 // (来源为简历中心或无可返回的结果视图 → /resumes;否则退 uploadMode 回原视图);行切换 effect 首帧守卫防冷加载误复位。
+// 4.15:来源为简历中心时退出改为后退(上一历史条目即简历中心),避免 replace 产生两条相邻 /resumes
+// 历史,导致简历中心「← 返回」后退到同一页观感失效。
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -16,6 +18,7 @@ import { FileText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
+import { goBackOrFallback } from "@/lib/client-back";
 import { ResumeUpload } from "./resume-upload";
 import { ResumeReview } from "./resume-review";
 import { ResumeResult } from "./resume-result";
@@ -332,7 +335,13 @@ export function ResumeHub() {
   // 退出上传视图(4.14):按来源动态返回 —— 简历中心进入或无可返回的结果视图 → 简历中心;
   // 否则退 uploadMode 回原视图(URL 已是 /resume 或 /resume?resumeId=X,结果/失败视图会正确复现)。
   function handleExitUpload() {
-    if (uploadFrom === "resumes" || !hasResultView) {
+    if (uploadFrom === "resumes") {
+      // 4.15:来源是简历中心「新增简历」(上一历史条目即简历中心)→ 后退回到它,不 replace,
+      // 避免两条相邻 /resumes 历史让简历中心「← 返回」后退到同一页(观感失效)
+      goBackOrFallback(router, "/resumes");
+      return;
+    }
+    if (!hasResultView) {
       router.replace("/resumes");
       return;
     }
