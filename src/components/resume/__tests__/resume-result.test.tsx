@@ -1,10 +1,12 @@
 // 简历优化结果视图测试(4.5):方向与采纳计数渲染、全部接受(成功 toast + 失效刷新 / 失败 toast)、
 // 全部已采纳禁用、重新分析/修改信息回调、单条接受走 updateOptimization;
-// 4.7:导出工具条接线(ResumeExport 子组件以 stub 隔离,其内部行为由 resume-export.test.tsx 覆盖)
+// 4.7:导出工具条接线(ResumeExport 子组件以 stub 隔离,其内部行为由 resume-export.test.tsx 覆盖);
+// 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分)。
+// 注意:userEvent.setup() 会安装自己的剪贴板桩,因此 clipboard/execCommand 必须在 setup 之后 stub。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Toaster } from "sonner";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Toaster, toast } from "sonner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResumeResult, type ResultVersion } from "../resume-result";
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   acceptAllMutateAsync: vi.fn(),
   scoreAtsMutateAsync: vi.fn(),
   invalidateResume: vi.fn(),
+  writeText: vi.fn(),
+  execCommand: vi.fn(),
   exportProps: null as { finalText: string | null; canExport: boolean } | null,
 }));
 
@@ -76,18 +80,42 @@ function renderResult(onReanalyze = vi.fn(), onEdit = vi.fn()) {
   return { user, onReanalyze, onEdit };
 }
 
+function stubClipboard(writeText: unknown) {
+  Object.defineProperty(navigator, "clipboard", {
+    value: writeText === undefined ? undefined : { writeText },
+    configurable: true,
+    writable: true,
+  });
+}
+
+function stubExecCommand() {
+  Object.defineProperty(document, "execCommand", {
+    value: mocks.execCommand,
+    configurable: true,
+    writable: true,
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.exportProps = null;
   mocks.invalidateResume.mockResolvedValue(undefined);
   mocks.updateMutateAsync.mockResolvedValue({ id: "o1", status: "accepted" });
   mocks.acceptAllMutateAsync.mockResolvedValue({ ok: true });
+  mocks.writeText.mockResolvedValue(undefined);
+  mocks.execCommand.mockReturnValue(true);
   mocks.scoreAtsMutateAsync.mockResolvedValue({
     versionId: "v1",
     total: 72,
     level: "良好",
     runId: "run-ats",
   });
+});
+
+afterEach(() => {
+  stubClipboard(undefined);
+  // sonner 单例 store:同一 toast 文案跨用例存活,避免污染
+  toast.dismiss();
 });
 
 describe("ResumeResult 结果视图", () => {
@@ -153,7 +181,7 @@ describe("ResumeResult 结果视图", () => {
     renderResult();
     expect(screen.getByText("最终文本预览")).toBeInTheDocument();
     expect(
-      screen.getByText("与「复制最终文本」完全一致,按你原始简历的模块顺序输出")
+      screen.getByText("最终准备投递的简历全文,与复制按钮、导出 PDF 完全一致,按你原始简历的模块顺序输出")
     ).toBeInTheDocument();
     const pre = screen.getByLabelText("最终文本预览");
     expect(pre.textContent).toBe(version.finalText);
@@ -161,7 +189,56 @@ describe("ResumeResult 结果视图", () => {
     expect(mocks.exportProps?.finalText).toBe(version.finalText);
   });
 
-  it("finalText 为空:预览面板显示占位文案", () => {
+  it("信息层级(4.10-layout):预览在对比卡之后、ATS 评分之前", () => {
+    renderResult();
+    const preview = screen.getByLabelText("最终文本预览");
+    const cardText = screen.getByText("负责订单系统开发");
+    const atsHeading = screen.getByText("ATS 评分");
+    expect(
+      cardText.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      atsHeading.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy();
+  });
+
+  it("预览卡内复制按钮:writeText 收到与预览同源的 finalText + 成功 toast", async () => {
+    const { user } = renderResult();
+    stubClipboard(mocks.writeText);
+    await user.click(screen.getByRole("button", { name: "复制最终文本" }));
+    expect(mocks.writeText).toHaveBeenCalledWith(version.finalText);
+    expect(await screen.findByText("已复制最终文本")).toBeInTheDocument();
+  });
+
+  it("剪贴板不可用:回退 execCommand 复制成功 toast", async () => {
+    const { user } = renderResult();
+    stubClipboard(undefined);
+    stubExecCommand();
+    await user.click(screen.getByRole("button", { name: "复制最终文本" }));
+    expect(mocks.execCommand).toHaveBeenCalledWith("copy");
+    expect(await screen.findByText("已复制最终文本")).toBeInTheDocument();
+  });
+
+  it("剪贴板与 execCommand 均失败:错误 toast", async () => {
+    const { user } = renderResult();
+    stubClipboard(undefined);
+    stubExecCommand();
+    mocks.execCommand.mockReturnValue(false);
+    await user.click(screen.getByRole("button", { name: "复制最终文本" }));
+    expect(await screen.findByText("复制失败,请手动选择文本复制")).toBeInTheDocument();
+  });
+
+  it("零采纳:复制按钮禁用 + 提示(预览卡与导出工具条)", () => {
+    const noneAccepted: ResultVersion = {
+      ...version,
+      optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
+    };
+    render(<ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} />);
+    expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
+    expect(screen.getAllByText("尚未采纳任何修改").length).toBeGreaterThan(0);
+  });
+
+  it("finalText 为空:预览面板显示占位文案 + 复制按钮禁用", () => {
     render(
       <ResumeResult
         version={{ ...version, finalText: null }}
@@ -171,6 +248,7 @@ describe("ResumeResult 结果视图", () => {
     );
     expect(screen.queryByLabelText("最终文本预览")).toBeNull();
     expect(screen.getByText("采纳建议后,此处将显示最终简历全文")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
   });
 
   it("重新分析 / 修改信息:触发回调", async () => {

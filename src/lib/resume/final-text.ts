@@ -123,3 +123,18 @@ export function buildFinalResumeText(originalText: string, optimizations: Optimi
   }
   return result;
 }
+
+/** 版本 canonical finalText(4.10-layout 修订,单一构造入口):
+ * 预览 / 复制 / PDF 导出(serializeVersion)与 ATS 评分(scoreAts)全部经此构造,杜绝各链路自行组装导致文本漂移。
+ * 输入为 DB 行形状(文本列可空,落库路径保证非空 → 防御过滤);输出即「最终文本预览」渲染的同一字符串 */
+export function buildFinalTextForVersion(
+  originalText: string,
+  optimizations: { status: string; originalText: string | null; optimizedText: string | null }[]
+): string {
+  return buildFinalResumeText(
+    originalText,
+    optimizations.filter(
+      (o): o is OptimizationText => o.originalText !== null && o.optimizedText !== null
+    )
+  );
+}

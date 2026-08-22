@@ -738,6 +738,8 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 **防乱序纪律**:finalText 合成内部按位置重排;sectionOrder 全程有序数组,不经过 Object.entries/Map 中转;顺序判定不依赖任何异步结果与 DB 查询顺序。
 
+**canonical 单一构造入口(4.10-layout)**:`buildFinalTextForVersion(originalText, optimizations)` —— serializeVersion(预览/复制/PDF 导出)与 scoreAts(ATS 评分)共用同一函数与同一批 DB 行,ATS 分析对象构造性等于「最终文本预览」渲染的字符串;结果页信息层级:优化结果对比卡 → 最终文本预览(卡内复制按钮)→ ATS 评分。
+
 ## 十、M4 修订:提取层视觉排序(2026-08-22,任务 4.10 验收修复)
 
 **验收发现(真实 .docx)**:用户以真实 Word 简历验收,「最终文本预览」仍与原始简历模块顺序不一致。端到端定位证实:**乱序发生在提取层 A(originalText),sectionPlan/finalText/表单/复制/导出全部忠实继承**——构建链路无罪,是输入本身已乱序。

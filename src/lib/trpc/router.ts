@@ -16,7 +16,7 @@ import {
 import { analyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
-import { buildFinalResumeText, type OptimizationText } from "@/lib/resume/final-text";
+import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { buildSectionPlan, detectSections, parseStoredSections } from "@/lib/resume/section-order";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
@@ -140,16 +140,8 @@ function serializeVersion(
     atsReport: version.atsReport,
     atsScoredAt: version.atsScoredAt,
     createdAt: version.createdAt,
-    // 文本列在 Prisma 类型上可空,但落库路径(schema min(1))保证非空;防御过滤
-    finalText: originalText
-      ? buildFinalResumeText(
-          originalText,
-          version.optimizations.filter(
-            (o): o is typeof o & OptimizationText =>
-              o.originalText !== null && o.optimizedText !== null
-          )
-        )
-      : null,
+    // canonical finalText 单一构造入口(4.10-layout):预览/复制/PDF 导出与 ATS 评分同源
+    finalText: originalText ? buildFinalTextForVersion(originalText, version.optimizations) : null,
     optimizations: version.optimizations.map((o) => ({
       id: o.id,
       category: o.category,
@@ -1089,14 +1081,8 @@ export const appRouter = t.router({
           where: { resumeVersionId: version.id },
           orderBy: { order: "asc" },
         });
-        // 文本列在 Prisma 类型上可空,但落库路径(schema min(1))保证非空;防御过滤
-        const finalText = buildFinalResumeText(
-          resume.originalText,
-          optimizations.filter(
-            (o): o is typeof o & OptimizationText =>
-              o.originalText !== null && o.optimizedText !== null
-          )
-        );
+        // ATS 分析的正是「最终文本预览」的 canonical finalText(同一构造入口,4.10-layout)
+        const finalText = buildFinalTextForVersion(resume.originalText, optimizations);
         const outcome = await scoreAts({
           userId: ctx.userId,
           versionId: version.id,

@@ -325,7 +325,8 @@
 | 4.8 | 简历优化页面修复与布局:改写 Agent 输入契约修复(原文入参)+ 校验逐条过滤 + 状态机修复(失败落库/行归属护栏/方向回填/防双击)+ 表单全宽 + 左旧右新对比卡 | ✅ | `0fe2de1` + `0b59d80` + `4e66ca1` |
 | 4.9 | 简历改写状态卡死修复:完成判定改由轮询权威数据驱动 + LLM 3 分钟超时(可重试失败)+ stale 阈值 = 超时 + 1 分钟余量 | ✅ | `4834aa3` + `847f651` |
 | 4.10 | 简历模块顺序保真:detectSections/buildSectionPlan 确定性检测 + Resume.sectionOrder 快照 + 表单按原文顺序渲染(自定义只读/工作实习分开)+ 结果页最终文本预览面板 | ✅ | `30de79b` + `70f8bb1` + `47d2eb7` |
-| 4.10-fix | 提取层视觉排序:验收发现真实 .docx(文本框模板)与 z-order PDF 的 finalText 乱序 → 断点在提取层 → parser 按坐标重建阅读顺序(PDF items y/x 排序 + DOCX wp:anchor positionV/H 排序) | ✅ | (见本次提交) |
+| 4.10-fix | 提取层视觉排序:验收发现真实 .docx(文本框模板)与 z-order PDF 的 finalText 乱序 → 断点在提取层 → parser 按坐标重建阅读顺序(PDF items y/x 排序 + DOCX wp:anchor positionV/H 排序) | ✅ | `b34c334` |
+| 4.10-layout | 结果页信息层级重排:优化结果对比卡 → 最终文本预览 → ATS 评分(预览在优化结果之后、ATS 之前);复制按钮移入预览卡与预览同源;buildFinalTextForVersion 单一构造入口(serializeVersion 与 scoreAts 共用,ATS 分析对象 = 预览同一字符串) | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -442,3 +443,23 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 3. 竖排/旋转文本(PDF)与多栏排版不在支持范围
 4. 存量已乱序行不迁移:重新上传即按新提取器生成正确原文(与用户确认)
 5. 真实简历文件不进测试仓库(含个人信息),测试用合成 fixture 模拟同构结构
+
+## 2026-08 修订:结果页布局与 canonical 同源(任务 4.10-layout)
+
+### 产品决策(用户确认)
+
+结果页信息层级:**AI 分析(逐条修改对比)→ 优化结果 → 最终文本预览 → ATS 评分**。最终文本是本次优化流程的最终产出,ATS 评分是对最终产出的质量检测,故预览在优化结果之后、ATS 之前;ATS 不放在预览之前。
+
+- 用户认知流程:AI 分析 → 优化内容 → 查看最终投递文本 → 复制使用 → ATS 评分 → 按评分继续优化。
+- 「复制最终文本」按钮移入预览卡(贴合「预览 → 复制」流程),顶部工具条仅保留导出 PDF。
+- 「AI 分析结果」独立区(优势/问题/建议):当前改写输出只有逐条修改(改前/改后/原因),PRD 的改进建议已在 ATS 卡内;用户确认本次仅重排+同源校验,分析区作为新功能另立任务。
+
+### 实施
+
+- `resume-result.tsx`:预览 section 移到对比卡 `<ul>` 之后、ATS 卡之前;预览卡头部加复制按钮(navigator.clipboard + execCommand 回退,零采纳/空文本禁用);预览直接渲染服务端 `version.finalText`,与复制、导出 PDF 同源同一字符串,无二次组装。
+- `resume-export.tsx`:移除复制逻辑,仅保留导出 PDF(禁用态与提示不变)。
+- `final-text.ts`:新增 `buildFinalTextForVersion(originalText, optimizations)` 单一构造入口 —— `router.ts` 的 serializeVersion(预览/复制/导出)与 scoreAts(ATS 评分)共用同一函数与同一批 DB 行,ATS 分析对象构造性等于「最终文本预览」渲染的字符串。
+
+### 验证
+
+- resume-result 测试:新增信息层级顺序断言(预览在对比卡之后、ATS 之前,compareDocumentPosition)+ 预览卡复制 3 用例(成功/回退/失败)+ 零采纳与空文本禁用;resume-export 测试瘦身为仅 PDF;final-text 新增 helper 2 用例(与 buildFinalResumeText 一致/全空行退化为原文)。

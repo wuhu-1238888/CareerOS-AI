@@ -3,7 +3,12 @@
 // 无效条目丢弃不拖垮整次,≥1 条有效即成功;同短语多处出现取下一处不重叠命中/按位置升序)
 // + buildFinalResumeText(全 pending/全 accepted/混合/乱序输入/空白归一化替换/未匹配回退/重叠防御)
 import { describe, it, expect } from "vitest";
-import { buildFinalResumeText, normalizeWhitespace, validateModifications } from "../final-text";
+import {
+  buildFinalResumeText,
+  buildFinalTextForVersion,
+  normalizeWhitespace,
+  validateModifications,
+} from "../final-text";
 import type { OptimizationText } from "../final-text";
 import type { Modification } from "@/lib/resume/analysis-schemas";
 
@@ -175,5 +180,28 @@ describe("buildFinalResumeText", () => {
     expect(result).toContain("改写A");
     expect(result).not.toContain("改写B");
     expect(result).toContain("MySQL");
+  });
+});
+
+describe("buildFinalTextForVersion(canonical finalText 单一构造入口,4.10-layout)", () => {
+  // DB 行形状:文本列可空;serializeVersion(预览/复制/导出)与 scoreAts(ATS 评分)共用此入口
+  it("与 buildFinalResumeText 输出一致,并过滤空文本行", () => {
+    const rows = [
+      { status: "accepted", originalText: "Java、Spring Boot、MySQL", optimizedText: "技能改写" },
+      { status: "accepted", originalText: null, optimizedText: null }, // 防御过滤
+      { status: "rejected", originalText: "负责订单系统", optimizedText: "不应出现" },
+    ];
+    expect(buildFinalTextForVersion(original, rows)).toBe(
+      buildFinalResumeText(original, [opt("accepted", "Java、Spring Boot、MySQL", "技能改写")])
+    );
+    expect(buildFinalTextForVersion(original, rows)).not.toContain("不应出现");
+  });
+
+  it("全空文本行:退化为原文(与 serializeVersion/scoreAts 共用语义)", () => {
+    const rows = [
+      { status: "accepted", originalText: null, optimizedText: null },
+      { status: "accepted", originalText: null, optimizedText: "孤立改写" },
+    ];
+    expect(buildFinalTextForVersion(original, rows)).toBe(original);
   });
 });
