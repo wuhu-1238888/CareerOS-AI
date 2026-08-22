@@ -332,6 +332,7 @@
 | 4.13 | 简历中心:设置页「简历文件管理」整体迁移为顶级导航一级页面 /resumes(继续优化/查看/下载/删除 + 新增);结果页按钮改名「上传新简历」+「查看全部简历」入口 + 当前简历名;上传视图「从已有简历继续」列表切换活跃行;失败视图 editLabel 统一「上传新简历」 | ✅ | `1f68cac` |
 | 4.14 | 上传视图退出体验:← 返回按来源动态返回(简历优化进入 → 回原视图;?upload=1&from=resumes → /resumes;无结果视图 → /resumes)+ 面包屑定位;三态取消(未选文件/已选文件/解析中 AbortController 取消上传,取消不影响已有简历);选文件改待确认态,「开始分析」才上传;修复行切换 effect 冷加载首帧误复位 ?upload=1 | ✅ | `16a13e0` |
 | 4.15 | 简历中心返回:顶栏「简历中心」/结果页「查看全部简历」进入后左上角「← 返回」(应用内回上一页,直接打开/外链回工作台);共享 goBackOrFallback 辅助;hub from=resumes 退出改后退,避免相邻 /resumes 历史使返回按钮空转 | ✅ | `d798f0c` |
+| 4.16 | 导出 PDF 预览修复:PDFDownloadLink 嵌套锚点整页跳转 blob: URL(浏览器查看器、无返回入口)与 Back 后四重失效窗口 → 应用内预览浮层(真按钮 + BlobProvider 每次打开全新生成/关闭 revoke + resume-pdf-preview 返回/下载/三态/Escape);主视图零锚点 | ✅ | (见本次提交) |
 
 ## 主要修改
 
@@ -355,6 +356,7 @@
 - 4.13 修订后 **510/510(55 文件)全绿**(净增 8:upload 2[从已有简历继续] / hub 3[结果视图入口、点其他行切换、点当前行退出] / result 2[查看全部简历链接、当前简历名] / center 迁移净增 1[提取失败行待补全标注];topbar 4→5 入口计数更新)
 - 4.14 修订后 **525/525(55 文件)全绿**(upload 13→22[三态流程/重新选择/取消×2/解析中取消上传/卸载与竞态/面包屑×2]、hub 28→35[from=resumes 返回 /resumes、结果视图与失败视图返回、提取失败行与无简历返回 /resumes、冷加载首帧守卫、?upload=1 默认 from]、center href 断言更新为 from=resumes)
 - 4.15 修订后 **528/528(55 文件)全绿**(center +3[应用内后退/无历史回工作台/跨源回工作台];hub from=resumes 退出断言改为后退)
+- 4.16 修订后 **533/533(55 文件)全绿**(export 4→9[浮层开合/加载/失败/就绪 iframe+下载链接/返回/Escape/重新打开挂载计数])
 - 4.10 新增 27 个测试:section-order 22(标准顺序/归一化/同行标题/自定义切片/同形误判/无标题锚定/工作实习拆分/合并标题/多项目分区/stored 优先/兜底)+ 数据层 2(sectionOrder 入库 + sectionPlan 返回)+ review plan 模式 3 + result 预览面板 2
 - 4.10-fix 新增 20 个测试:pdf-position-sort 7(PDF 内容流 z-order → 视觉坐标排序)+ docx-extract 8(文本框 XML 逆序 → 坐标排序 / DECOY 忽略 / 流式段定位 / 无框退化)+ parser 集成 3(乱序 PDF / 文本框 DOCX / 无框 DOCX 回退 mammoth)+ upload 链路 2(乱序 PDF 与文本框 DOCX 上传 → originalText 以视觉顺序落库)
 - 4.9 新增 6 个测试:适配器超时映射 1 / orchestrator 超时落库 1 / latestRun stale 阈值(真实 DB)1 / hub 权威状态驱动 3
@@ -582,3 +584,26 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 - 测试:center +3(应用内后退 / 无历史回工作台 / 跨源回工作台);hub from=resumes 退出断言改后退(history.length ≥ 2,同源)。
 - 全套 **528/528(55 文件)全绿**;typecheck / lint 零错误。
 - 手动验收走查(dev):简历优化结果页 → [查看全部简历] → 简历中心 → [← 返回] → 回到结果页;任意页 → 顶栏[简历中心] → [← 返回] → 回到上一页;简历中心 → [新增简历] → [取消] → [← 返回] → 回到进入前的页面(不再空转);直接打开 /resumes(新标签)→ [← 返回] → 工作台。
+
+## 2026-08-22 修订:导出 PDF 应用内预览(任务 4.16)
+
+### 验收发现与根因
+
+用户验收发现「导出 PDF」进入的 PDF 预览页无返回/关闭按钮,浏览器 Back 后无法再次导出。探查实锤:**该「预览页」不是应用页面** —— PDFDownloadLink 自带外层 `<a href download>`,函数子节点又返回内层 `<a href={url}>`(无 download),嵌套锚点使点击跟随内层锚点整页跳转 blob: URL,浏览器内置 PDF 查看器接管页面(应用 UI 消失)。再次导出失败 = 四重静默失效窗口:Back 重载后动态 import 未完成(禁用占位)/ 生成中 href=undefined 死链 / 渲染失败 url 恒 null 且 children 忽略 error(按钮外观正常但永久无效)/ bfcache 恢复陈旧 blob URL 无重生成机制。
+
+### 产品决策
+
+保持方案 A:「导出 PDF」= 打开 PDF 预览,预览提供 返回 + 下载。预览从「浏览器整页导航」改为「应用内全屏浮层」,纯本地状态、零导航。
+
+### 实施
+
+- **resume-export.tsx**:删 PDFDownloadLink 与 ReactNode 桥接;「导出 PDF」改真按钮(主视图零锚点,禁用态不变)+ `previewOpen`;打开即挂载 BlobProvider(函数子节点原生有类型),关闭卸载 → usePDF revoke-on-unmount 释放旧 URL;每次打开全新生成。
+- **resume-pdf-preview.tsx(新增)**:纯展示浮层(z-50 覆盖顶栏,role=dialog)—— 头部 ← 返回/「PDF 预览」/「下载 PDF」(download 锚点,真下载);主体 loading/error/ready 三态(ready 为 iframe blob 预览);Escape 关闭 + 锁背景滚动。
+- DB/API/管线零改动;resume-result / resume-hub 零改动;finalText 透传不变,PDF 内容零变化。
+
+### 验证
+
+- 测试:export 4→9(零采纳/空文本禁用、开浮层透传 finalText、loading/error/ready 三态、返回关闭、**重新打开 = 全新挂载(挂载计数 2)**、Escape)。
+- 全套 **533/533(55 文件)全绿**;typecheck / lint 零错误;grep:PDFDownloadLink 仅存注释。
+- 手动验收走查(用户 7 Case,dev):导出 → 应用内浮层预览(顶栏被覆盖,应用 UI 未销毁);← 返回 → 结果页无损;连续 3 次导出/返回全成功;Escape 关闭;下载 → 返回 → 再导出成功;F5 后导出成功;零采纳禁用 + 提示不变。Network 无整页导航;关闭后无 blob 累积。
+- 已知限制:iOS Safari 内联 blob iframe 可能空白,「下载 PDF」兜底。

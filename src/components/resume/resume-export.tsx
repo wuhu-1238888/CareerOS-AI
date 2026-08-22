@@ -1,11 +1,16 @@
 "use client";
-// 简历导出工具条(4.7;4.10-layout 修订):仅导出 PDF —— 复制最终文本已移入结果页「最终文本预览」卡内,
-// 与预览同源同一字符串。@react-pdf/renderer 与 PDF 文档组件仅经 useEffect 动态 import
-// (react-pdf 引 window/canvas,SSR 路径 import 即崩)。
-// 零采纳修改时禁用并提示「尚未采纳任何修改」(拒绝=恢复原文,此时导出无意义;4.7「空简历导出禁用」语义)。
-import { useEffect, useState, type ReactNode } from "react";
-import { FileDown, Loader2 } from "lucide-react";
+// 简历导出工具条(4.7;4.10-layout 修订;4.16 修订):「导出 PDF」= 打开应用内 PDF 预览浮层。
+// 不再用 PDFDownloadLink —— 其外层 <a href download> 与项目内层 <a href={url}> 嵌套锚点使浏览器
+// 跟随内层锚点(无 download)整页跳转 blob: URL(浏览器 PDF 查看器、应用 UI 消失、无返回入口),
+// Back 返回后还叠加 动态 import 待定/加载中死链/渲染失败 url=null/bfcache 陈旧 四重失效窗口。
+// @react-pdf/renderer 与 PDF 文档组件仍仅经 useEffect 动态 import(react-pdf 引 window/canvas,
+// SSR 路径 import 即崩);BlobProvider 每次打开浮层重新挂载 = 全新生成,关闭卸载即 revoke 旧
+// blob URL(react-pdf usePDF 内置 revoke-on-unmount),重复导出零陈旧状态、零页面导航。
+// 零采纳修改时禁用并提示「尚未采纳任何修改」(拒绝=恢复原文,此时导出无意义;4.7 语义)。
+import { useEffect, useState } from "react";
+import { FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ResumePdfPreview } from "./resume-pdf-preview";
 
 type PdfRendererModule = typeof import("@react-pdf/renderer");
 type PdfDocModule = typeof import("./resume-pdf-document");
@@ -25,6 +30,8 @@ export function ResumeExport({
     doc: PdfDocModule;
   } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  // 4.16:预览浮层开合(纯本地状态;关闭即卸载 BlobProvider → revoke 旧 blob URL)
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,24 +58,28 @@ export function ResumeExport({
           导出 PDF
         </Button>
       ) : (
-        <modules.renderer.PDFDownloadLink
-          document={<modules.doc.ResumePdfDocument text={finalText ?? ""} />}
-          fileName="简历-优化版.pdf"
-        >
-          {/* react-pdf 3.4.5 的 children 类型(ReactNode | ReactElement<BlobProviderParams>)不接纳函数子节点,
-              但其实现即函数子节点(BlobProviderParams 含 blob/url/loading/error)→ 按项目先例桥接 */}
-          {((({ url, loading }: { url: string | null; loading: boolean }) => (
-            <Button asChild variant="secondary">
-              <a href={url ?? undefined}>
-                {loading ? <Loader2 className="animate-spin" aria-hidden /> : <FileDown aria-hidden />}
-                {loading ? "准备导出…" : "导出 PDF"}
-              </a>
-            </Button>
-          )) as unknown as ReactNode)}
-        </modules.renderer.PDFDownloadLink>
+        // 4.16:真按钮(主视图零锚点,不再有跳转/死链);打开浮层即挂载 BlobProvider 全新生成
+        <Button type="button" variant="secondary" onClick={() => setPreviewOpen(true)}>
+          <FileDown aria-hidden />
+          导出 PDF
+        </Button>
       )}
 
       {disabled && <span className="text-caption text-ink-muted">尚未采纳任何修改</span>}
+
+      {/* 4.16:BlobProvider 随浮层开合挂载/卸载。children 为函数子节点 —— BlobProvider 的
+          d.ts 原生接受函数子节点(BlobProviderParams),无需 PDFDownloadLink 的 ReactNode 桥接。
+          注意:document 元素每次 render 新建,浮层打开期间父级 re-render 会触发一次无谓的
+          重新生成(幂等、文本相同、浮层覆盖下用户不可见),属可接受开销,不加守卫。 */}
+      {previewOpen && modules && (
+        <modules.renderer.BlobProvider
+          document={<modules.doc.ResumePdfDocument text={finalText ?? ""} />}
+        >
+          {(state) => (
+            <ResumePdfPreview state={state} onClose={() => setPreviewOpen(false)} />
+          )}
+        </modules.renderer.BlobProvider>
+      )}
     </div>
   );
 }

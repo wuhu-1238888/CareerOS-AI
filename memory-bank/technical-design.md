@@ -748,6 +748,8 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 **简历中心返回(4.15 修订)**:4.14 补上了上传视图的退出路径,但 `/resumes` 本身(顶栏「简历中心」/结果页「查看全部简历」进入)仍无返回入口。4.15 在 ResumeCenter 顶部(内容左上角,与上传视图同款)加「← 返回」,新增共享辅助 `src/lib/client-back.ts` `goBackOrFallback(router, fallback)`:应用内导航 → `router.back()` 回上一页(保留 ?resumeId 与滚动位置);无应用内历史(history.length ≤ 1)或首载自外链 → `router.replace(fallback)` 兜底(简历中心用 /dashboard 工作台)。判别依据:pushState 不改变 document.referrer,首载来源可稳定区分(空 = 直接打开本应用;跨源 = 外链进入)。同时修正 hub 4.14 的 from=resumes 退出:原 `router.replace("/resumes")` 会在历史中留下两条相邻 /resumes(简历中心 → 新增简历 → 取消后,简历中心「← 返回」后退到同一页、观感失效),改为 `goBackOrFallback(router, "/resumes")` 后退回上一历史条目(即简历中心);无可返回结果视图分支仍 replace /resumes 不变。
 
+**导出 PDF 预览(4.16 修订)**:4.7 的 PDFDownloadLink 用法有结构性缺陷 —— 其自带外层 `<a href download>` 与应用侧函数子节点返回的内层 `<a href={url}>`(无 download)构成嵌套锚点,点击跟随内层锚点整页跳转 blob: URL → 浏览器内置 PDF 查看器接管页面(应用 UI 消失、无返回入口);Back 返回后再导出叠加四重失效窗口(动态 import 未完成→禁用占位 / 生成中 href=undefined 死链 / 渲染失败 url 恒 null 且 children 忽略 error / bfcache 恢复陈旧 blob URL 无重生成)。4.16 改为**应用内预览浮层**(保持方案 A「导出 = 打开预览」):resume-export 的「导出 PDF」改真按钮 + `previewOpen` 状态(主视图零锚点),打开即挂载 react-pdf `BlobProvider`(函数子节点原生有类型,无需 ReactNode 桥接);纯展示组件 `resume-pdf-preview.tsx` 渲染全屏固定浮层(z-50 覆盖顶栏,role=dialog)—— 头部 ← 返回/「PDF 预览」/「下载 PDF」(href=blobUrl + download,真下载);主体 loading 转圈/error 面板/ready iframe 三态;Escape 关闭 + 锁背景滚动。生命周期:BlobProvider 每次打开全新挂载(usePDF 每挂载新队列,react-pdf.browser.js:4335-4374)、关闭卸载 revoke 旧 URL(:4377-4383)→ 重复导出零陈旧状态、零页面导航。已知限制:iOS Safari 内联 blob iframe 可能空白,「下载 PDF」兜底。
+
 ## 十、M4 修订:提取层视觉排序(2026-08-22,任务 4.10 验收修复)
 
 **验收发现(真实 .docx)**:用户以真实 Word 简历验收,「最终文本预览」仍与原始简历模块顺序不一致。端到端定位证实:**乱序发生在提取层 A(originalText),sectionPlan/finalText/表单/复制/导出全部忠实继承**——构建链路无罪,是输入本身已乱序。
