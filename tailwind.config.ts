@@ -33,9 +33,49 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      // CareerOS 色板 + shadcn 语义槽(值经 src/styles/globals.css 的 HSL 变量映射到 DesignSystem)
+      // CareerOS 色板 + shadcn 语义槽(值经 src/styles/globals.css 的 HSL 变量映射到 DesignSystem)。
+      // 6.9 深色模式:主题相关色经 hsl(var(--careeros-*)) 变量化(透明度修饰符由 Tailwind 转
+      // <alpha-value> 形式);green-400~800 / violet-400·700 / chart.* / boxShadow 两主题一致保持静态。
       colors: {
         ...colors,
+        green: {
+          ...colors.green,
+          50: "hsl(var(--careeros-green-50))",
+          100: "hsl(var(--careeros-green-100))",
+        },
+        violet: {
+          ...colors.violet,
+          50: "hsl(var(--careeros-violet-50))",
+        },
+        ink: {
+          DEFAULT: "hsl(var(--careeros-ink))",
+          secondary: "hsl(var(--careeros-ink-secondary))",
+          muted: "hsl(var(--careeros-ink-muted))",
+          faint: "hsl(var(--careeros-ink-faint))",
+        },
+        canvas: "hsl(var(--careeros-canvas))",
+        surface: "hsl(var(--careeros-surface))",
+        sunken: "hsl(var(--careeros-sunken))",
+        hairline: {
+          DEFAULT: "hsl(var(--careeros-hairline))",
+          strong: "hsl(var(--careeros-hairline-strong))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--careeros-success))",
+          bg: "hsl(var(--careeros-success-bg))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--careeros-warning))",
+          bg: "hsl(var(--careeros-warning-bg))",
+        },
+        danger: {
+          DEFAULT: "hsl(var(--careeros-danger))",
+          bg: "hsl(var(--careeros-danger-bg))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--careeros-info))",
+          bg: "hsl(var(--careeros-info-bg))",
+        },
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         card: {

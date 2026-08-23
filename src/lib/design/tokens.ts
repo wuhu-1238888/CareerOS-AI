@@ -1,6 +1,10 @@
-// CareerOS AI 设计 token —— 值的唯一事实来源(design/DesignSystem.md front matter)
+// CareerOS AI 设计 token —— 值的唯一事实来源(design/DesignSystem.md front matter,含深色值表)
 // tailwind.config.ts 与开发专用 token 展示页均从此导入。
 // 业务代码禁止硬编码偏离值,一律使用 Tailwind 工具类(如 bg-green-600 / text-ink / rounded-card)。
+// 6.9 深色模式:主题相关色(下方 green-50/100、violet-50、ink 系、canvas/surface/sunken、hairline、
+// 语义色)运行时经 globals.css 的 --careeros-* CSS 变量解析(浅色值 = 本文件 hex 转 HSL),
+// 本文件保持浅色 hex 供 PDF 生成等非 DOM 消费者直接使用;green-400~800 / violet-400·700 /
+// chart.* / boxShadow 两主题一致。
 
 export const colors = {
   // 品牌绿:单一强调色,承载所有行动与成长语义

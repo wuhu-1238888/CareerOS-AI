@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { trpc } from "@/trpc/client";
 import { UserAvatar } from "./user-avatar";
 
@@ -139,6 +140,13 @@ export function Topbar() {
                   个人设置
                 </Link>
               </DropdownMenuItem>
+              {/* 外观(6.9):三态主题切换,独立成组;非菜单项,点击不关闭下拉 */}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-caption text-ink-muted">外观</DropdownMenuLabel>
+              <div className="px-2 pb-1.5 pt-0.5">
+                <ThemeToggle variant="menu" />
+              </div>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();

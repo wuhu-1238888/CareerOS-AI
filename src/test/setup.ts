@@ -24,3 +24,19 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     disconnect() {}
   };
 }
+
+// jsdom 未实现 matchMedia,ThemeProvider(6.9)挂载即调用;可监听的 stub,matches 恒 false(浅色)
+if (typeof window !== "undefined" && !window.matchMedia) {
+  const noop = () => {};
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: noop,
+      removeListener: noop,
+      addEventListener: noop,
+      removeEventListener: noop,
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList;
+}

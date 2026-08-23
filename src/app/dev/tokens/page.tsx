@@ -235,6 +235,41 @@ export default function TokensPage() {
           </div>
         </Section>
 
+        {/* 深色渲染效果(6.9):以 .dark 包裹预览容器,与页面级主题无关,零新机制 */}
+        <Section
+          title="深色渲染效果"
+          desc=".dark 包裹容器(值表见 design/DesignSystem.md「深色模式」章节);静态色两主题一致"
+        >
+          <div className="dark rounded-card border border-hairline bg-canvas p-6">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Swatch label="canvas" value="#101316" className="bg-canvas" />
+              <Swatch label="surface" value="#1d2125" className="bg-surface" />
+              <Swatch label="sunken" value="#161a1d" className="bg-sunken" />
+              <Swatch label="hairline" value="#39424a" className="bg-hairline" />
+              <Swatch
+                label="hairline-strong"
+                value="#454f59"
+                className="bg-hairline-strong"
+              />
+              <Swatch label="ink" value="#b6c2cf" className="bg-ink" />
+              <Swatch label="ink-secondary" value="#98a7b9" className="bg-ink-secondary" />
+              <Swatch label="ink-muted" value="#7b8ba3" className="bg-ink-muted" />
+              <Swatch label="ink-faint" value="#626f86" className="bg-ink-faint" />
+              <Swatch label="green-50" value="#11352a" className="bg-green-50" />
+              <Swatch label="green-100" value="#164532" className="bg-green-100" />
+              <Swatch label="violet-50" value="#241f45" className="bg-violet-50" />
+              <Swatch label="success" value="#2fbf88" className="bg-success" />
+              <Swatch label="success-bg" value="#12352a" className="bg-success-bg" />
+              <Swatch label="warning" value="#f5cd47" className="bg-warning" />
+              <Swatch label="warning-bg" value="#3a2c10" className="bg-warning-bg" />
+              <Swatch label="danger" value="#f87171" className="bg-danger" />
+              <Swatch label="danger-bg" value="#3c1f1f" className="bg-danger-bg" />
+              <Swatch label="info" value="#579dff" className="bg-info" />
+              <Swatch label="info-bg" value="#1d2c4d" className="bg-info-bg" />
+            </div>
+          </div>
+        </Section>
+
         {/* 字体族 */}
         <Section title="字体族(系统栈,零 webfont)">
           <div className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">

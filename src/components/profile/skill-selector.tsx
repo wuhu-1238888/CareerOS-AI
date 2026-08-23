@@ -63,7 +63,7 @@ export function SkillSelector({
                   "rounded-pill border px-3 py-1 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   selected
                     ? "border-green-600 bg-green-100 text-ink"
-                    : "border-hairline-strong bg-white text-ink-muted hover:border-ink-faint"
+                    : "border-hairline-strong bg-card text-ink-muted hover:border-ink-faint"
                 )}
               >
                 {selected ? "✓ " : ""}

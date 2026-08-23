@@ -554,7 +554,7 @@ export function ResumeReview({
                             "rounded-pill border px-3 py-1 text-body-sm",
                             exp.type === type
                               ? "border-green-600 bg-green-100 text-ink"
-                              : "border-hairline-strong bg-white text-ink-muted hover:border-ink-faint"
+                              : "border-hairline-strong bg-card text-ink-muted hover:border-ink-faint"
                           )}
                         >
                           {type}
@@ -694,7 +694,7 @@ export function ResumeReview({
                       "rounded-pill border px-3 py-1 text-body-sm",
                       direction === path
                         ? "border-green-600 bg-green-100 text-ink"
-                        : "border-hairline-strong bg-white text-ink-muted hover:border-ink-faint"
+                        : "border-hairline-strong bg-card text-ink-muted hover:border-ink-faint"
                     )}
                   >
                     {path}

@@ -228,8 +228,8 @@ export function RoadmapTimeline({
                     className={cn(
                       "flex size-8 shrink-0 items-center justify-center rounded-full text-body-sm",
                       status === "done" && "bg-green-600 text-white",
-                      status === "current" && "bg-white ring-2 ring-green-400",
-                      status === "future" && "bg-white ring-2 ring-hairline-strong"
+                      status === "current" && "bg-card ring-2 ring-green-400",
+                      status === "future" && "bg-card ring-2 ring-hairline-strong"
                     )}
                   >
                     {status === "done" ? (

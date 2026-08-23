@@ -72,9 +72,9 @@ export function CoachTimeline({ plan }: { plan: CoachPlan }) {
                 <span
                   className={cn(
                     "flex size-8 shrink-0 items-center justify-center rounded-full text-body-sm",
-                    milestoneTitle && "bg-white ring-2 ring-green-400 text-green-700",
+                    milestoneTitle && "bg-card ring-2 ring-green-400 text-green-700",
                     !milestoneTitle && week.week === 13 && "bg-green-600 text-white",
-                    !milestoneTitle && week.week !== 13 && "bg-white ring-2 ring-hairline-strong text-ink-muted"
+                    !milestoneTitle && week.week !== 13 && "bg-card ring-2 ring-hairline-strong text-ink-muted"
                   )}
                 >
                   {week.week}

@@ -14,6 +14,7 @@ import { trpc } from "@/trpc/client";
 import { profileAnalysisSchema, type ProfileAnalysis } from "@/lib/profile/analysis-schemas";
 import { diffRadar, diffAbilityTags, type AbilityTagChange } from "@/lib/profile/profile-diff";
 import { colors } from "@/lib/design/tokens";
+import { useTokenColor } from "@/lib/design/use-token-color";
 import { cn } from "@/lib/utils";
 
 // 变化徽章:颜色 + 文字双通道
@@ -34,6 +35,8 @@ export function HistoryCompare({
 }) {
   const previousQuery = trpc.profile.getVersion.useQuery({ id: previousId });
   const previousRow = previousQuery.data;
+  // 6.9:雷达 grid/tick 颜色经 CSS 变量读取(深色下静态色不可读)
+  const token = useTokenColor();
   // 加载中与解析失败一律隐藏区块(6.5 验收:previous 损坏不阻塞结果页)
   const previous = previousRow
     ? profileAnalysisSchema.safeParse(previousRow.aiAnalysis)
@@ -54,8 +57,8 @@ export function HistoryCompare({
         <div className="h-[280px]" aria-hidden>
           <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={radarData} outerRadius="70%">
-              <PolarGrid stroke={colors.hairline.strong} />
-              <PolarAngleAxis dataKey="dimension" tick={{ fill: colors.ink.muted, fontSize: 12 }} />
+              <PolarGrid stroke={token.hairlineStrong} />
+              <PolarAngleAxis dataKey="dimension" tick={{ fill: token.inkMuted, fontSize: 12 }} />
               <Radar
                 dataKey="previous"
                 stroke={colors.chart.violet}

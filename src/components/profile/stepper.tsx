@@ -34,7 +34,7 @@ export function Stepper({ steps, current }: { steps: StepperStep[]; current: num
                   "relative z-10 flex size-7 items-center justify-center rounded-full text-xs font-medium",
                   done && "bg-green-600 text-white",
                   active && "bg-ink text-white",
-                  !done && !active && "border border-hairline-strong bg-white text-ink-faint"
+                  !done && !active && "border border-hairline-strong bg-card text-ink-faint"
                 )}
               >
                 {done ? "✓" : i + 1}

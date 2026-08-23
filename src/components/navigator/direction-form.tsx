@@ -110,7 +110,7 @@ export function DirectionForm({
                         "rounded-control border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                         selected
                           ? "border-green-600 bg-green-100"
-                          : "border-hairline-strong bg-white hover:border-ink-faint"
+                          : "border-hairline-strong bg-card hover:border-ink-faint"
                       )}
                     >
                       <span className="flex items-center justify-between gap-2">
@@ -198,7 +198,7 @@ export function DirectionForm({
                     "rounded-pill border px-3 py-1 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                     selected
                       ? "border-green-600 bg-green-100 text-ink"
-                      : "border-hairline-strong bg-white text-ink-muted hover:border-ink-faint"
+                      : "border-hairline-strong bg-card text-ink-muted hover:border-ink-faint"
                   )}
                 >
                   {selected ? "✓ " : ""}

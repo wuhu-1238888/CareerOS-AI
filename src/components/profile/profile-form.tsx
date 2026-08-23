@@ -615,7 +615,7 @@ export function ProfileForm({
                           "rounded-pill border px-3 py-1 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                           selected
                             ? "border-green-600 bg-green-100 text-ink"
-                            : "border-hairline-strong bg-white text-ink-muted hover:border-ink-faint"
+                            : "border-hairline-strong bg-card text-ink-muted hover:border-ink-faint"
                         )}
                       >
                         {selected ? "✓ " : ""}
@@ -666,7 +666,7 @@ export function ProfileForm({
                     {data.targets.map((target) => (
                       <li
                         key={target}
-                        className="flex items-center gap-1 rounded-pill border border-hairline-strong bg-white px-3 py-1 text-body-sm text-ink"
+                        className="flex items-center gap-1 rounded-pill border border-hairline-strong bg-card px-3 py-1 text-body-sm text-ink"
                       >
                         {target}
                         <button

@@ -4,12 +4,37 @@
 
 /*
  * CareerOS AI 设计 token —— 值唯一来源 design/DesignSystem.md front matter
- * (hex 值与 Tailwind 主题另见 src/lib/design/tokens.ts)
- * 本文件将 shadcn/ui 语义变量重定向到 CareerOS 色板(HSL 三元组)。
+ * (hex 值与 Tailwind 主题另见 src/lib/design/tokens.ts;深色值表见同文件「深色模式」章节)
+ * --careeros-* 变量存「H S% L%」三元组,由 tailwind.config.ts 经 hsl() 包装供工具类消费,
+ * 供 JS 消费时由 use-token-color 同样以 hsl() 包装;浅色值 = tokens.ts hex 转 HSL。
  */
 
 @layer base {
   :root {
+    /* --careeros-*:CareerOS 色板(浅色主题) */
+    --careeros-canvas: 40 23% 97%; /* #faf9f7 */
+    --careeros-surface: 0 0% 100%; /* #ffffff */
+    --careeros-sunken: 43 23% 94%; /* #f3f1ec */
+    --careeros-hairline: 42 19% 89%; /* #e9e6df */
+    --careeros-hairline-strong: 43 15% 81%; /* #d6d2c8 */
+    --careeros-ink: 36 9% 11%; /* #1f1d1a */
+    --careeros-ink-secondary: 40 7% 32%; /* #57534b */
+    --careeros-ink-muted: 39 7% 46%; /* #7d776c */
+    --careeros-ink-faint: 40 10% 65%; /* #b0aa9e */
+    --careeros-green-50: 148 45% 94%; /* #eaf7f0 */
+    --careeros-green-100: 153 48% 88%; /* #d2efe2 */
+    --careeros-violet-50: 251 100% 97%; /* #f1eeff */
+    --careeros-success: 160 84% 29%; /* #0c8a5f = green-600 */
+    --careeros-success-bg: 148 45% 94%; /* #eaf7f0 = green-50 */
+    --careeros-warning: 26 90% 37%; /* #b45309 */
+    --careeros-warning-bg: 38 87% 94%; /* #fdf3e2 */
+    --careeros-danger: 0 57% 51%; /* #c93a3a */
+    --careeros-danger-bg: 0 81% 96%; /* #fdecec */
+    --careeros-info: 219 80% 55%; /* #2e6fe8 */
+    --careeros-info-bg: 219 91% 96%; /* #eaf1fe */
+    color-scheme: light;
+
+    /* shadcn/ui 语义变量重定向到 CareerOS 色板(HSL 三元组) */
     --background: 40 23% 97%; /* canvas */
     --foreground: 36 9% 11%; /* ink */
     --card: 0 0% 100%; /* surface */
@@ -43,7 +68,60 @@
     --sidebar-border: 42 19% 89%;
     --sidebar-ring: 160 84% 29%;
   }
-  /* 深色模式属阶段 2(已确认决策),Phase 1 仅提供浅色主题 */
+
+  /* 深色模式(6.9):.dark 挂 <html>,值表见 design/DesignSystem.md「深色模式」章节。
+     静态色(green-400~800 / violet-400·700 / chart.* / boxShadow)两主题一致,不在此覆盖 */
+  .dark {
+    --careeros-canvas: 210 16% 7%; /* #101316 */
+    --careeros-surface: 210 12% 13%; /* #1d2125 */
+    --careeros-sunken: 206 14% 10%; /* #161a1d */
+    --careeros-hairline: 208 13% 26%; /* #39424a */
+    --careeros-hairline-strong: 210 13% 31%; /* #454f59 */
+    --careeros-ink: 211 21% 76%; /* #b6c2cf */
+    --careeros-ink-secondary: 213 19% 66%; /* #98a7b9 */
+    --careeros-ink-muted: 216 18% 56%; /* #7b8ba3 */
+    --careeros-ink-faint: 218 16% 45%; /* #626f86 */
+    --careeros-green-50: 162 51% 14%; /* #11352a */
+    --careeros-green-100: 156 52% 18%; /* #164532 */
+    --careeros-violet-50: 248 38% 20%; /* #241f45 */
+    --careeros-success: 157 61% 47%; /* #2fbf88 */
+    --careeros-success-bg: 161 49% 14%; /* #12352a */
+    --careeros-warning: 46 90% 62%; /* #f5cd47 */
+    --careeros-warning-bg: 40 57% 15%; /* #3a2c10 */
+    --careeros-danger: 0 91% 71%; /* #f87171 */
+    --careeros-danger-bg: 0 32% 18%; /* #3c1f1f */
+    --careeros-info: 215 100% 67%; /* #579dff */
+    --careeros-info-bg: 221 45% 21%; /* #1d2c4d */
+    color-scheme: dark;
+
+    --background: 210 16% 7%; /* canvas */
+    --foreground: 211 21% 76%; /* ink */
+    --card: 210 12% 13%; /* surface */
+    --card-foreground: 211 21% 76%;
+    --popover: 210 12% 13%;
+    --popover-foreground: 211 21% 76%;
+    --primary: 160 84% 29%; /* green-600 静态:深色下仍为品牌强调色 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 206 14% 10%; /* sunken */
+    --secondary-foreground: 211 21% 76%;
+    --muted: 206 14% 10%;
+    --muted-foreground: 216 18% 56%; /* ink-muted */
+    --accent: 162 51% 14%; /* green-50 */
+    --accent-foreground: 159 76% 37%; /* green-400:深色 green-50 底上用亮绿文字 */
+    --destructive: 0 91% 71%; /* danger */
+    --destructive-foreground: 210 16% 7%; /* canvas:亮红按钮配深色文字(白字对比不足) */
+    --border: 208 13% 26%; /* hairline */
+    --input: 210 13% 31%; /* hairline-strong */
+    --ring: 160 84% 29%; /* green-600 */
+    --sidebar: 206 14% 10%;
+    --sidebar-foreground: 211 21% 76%;
+    --sidebar-primary: 160 84% 29%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 162 51% 14%;
+    --sidebar-accent-foreground: 159 76% 37%;
+    --sidebar-border: 208 13% 26%;
+    --sidebar-ring: 160 84% 29%;
+  }
 }
 
 @layer base {

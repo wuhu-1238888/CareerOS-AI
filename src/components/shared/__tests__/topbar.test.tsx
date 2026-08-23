@@ -80,6 +80,28 @@ describe("Topbar", () => {
     expect(mocks.push).toHaveBeenCalledWith("/login");
   });
 
+  it("用户菜单外观组(6.9):三态主题切换(无 Provider 时默认跟随系统选中)", async () => {
+    render(<Topbar />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "打开用户菜单" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("外观")).toBeInTheDocument();
+    const group = within(menu).getByRole("radiogroup", { name: "主题模式" });
+    const options = within(group).getAllByRole("radio");
+    expect(options).toHaveLength(3);
+    expect(within(group).getByRole("radio", { name: /跟随系统/ })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    expect(within(group).getByRole("radio", { name: /浅色/ })).toHaveAttribute(
+      "aria-checked",
+      "false"
+    );
+    expect(within(group).getByRole("radio", { name: /深色/ })).toHaveAttribute(
+      "aria-checked",
+      "false"
+    );
+  });
+
   it("移动端:汉堡按钮打开抽屉,抽屉内含 6 个导航链接", async () => {
     render(<Topbar />);
     const burger = screen.getByRole("button", { name: "打开导航菜单" });

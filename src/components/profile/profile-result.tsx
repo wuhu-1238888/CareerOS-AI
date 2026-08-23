@@ -30,6 +30,7 @@ import { HistoryCompare } from "./history-compare";
 import { trpc } from "@/trpc/client";
 import { profileAnalysisSchema } from "@/lib/profile/analysis-schemas";
 import { colors } from "@/lib/design/tokens";
+import { useTokenColor } from "@/lib/design/use-token-color";
 import { cn } from "@/lib/utils";
 
 type ResultProfile = {
@@ -97,6 +98,8 @@ export function ProfileResult({
   userName?: string;
 }) {
   const [shareOpen, setShareOpen] = useState(false);
+  // 6.9:雷达 grid/tick 颜色经 CSS 变量读取(深色下静态色不可读),SVG 属性不走 Tailwind 类
+  const token = useTokenColor();
   const versions = trpc.profile.listVersions.useQuery();
   const [viewingId, setViewingId] = useState<string | null>(null);
   const versionQuery = trpc.profile.getVersion.useQuery(
@@ -290,10 +293,10 @@ export function ProfileResult({
           <div className="h-[280px]" aria-hidden>
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} outerRadius="70%">
-                <PolarGrid stroke={colors.hairline.strong} />
+                <PolarGrid stroke={token.hairlineStrong} />
                 <PolarAngleAxis
                   dataKey="dimension"
-                  tick={{ fill: colors.ink.muted, fontSize: 12 }}
+                  tick={{ fill: token.inkMuted, fontSize: 12 }}
                 />
                 <Radar
                   dataKey="value"
