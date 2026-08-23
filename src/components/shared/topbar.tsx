@@ -1,5 +1,5 @@
 "use client";
-// 顶栏(64px):logo + 5 个一级入口(工作台/职业画像/成长路线/简历优化/简历中心)+ 头像下拉(设置/退出)。
+// 顶栏(64px):logo + 6 个一级入口(工作台/职业画像/成长路线/岗位匹配/简历优化/简历中心)+ 头像下拉(设置/退出)。
 // 当前入口高亮(aria-current + 绿色态);<768px 导航折叠为左侧抽屉。无侧栏、无渐变(DesignRules)。
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -22,6 +22,7 @@ export const NAV_ITEMS = [
   { href: "/dashboard", label: "工作台" },
   { href: "/profile", label: "职业画像" },
   { href: "/navigator", label: "成长路线" },
+  { href: "/matching", label: "岗位匹配" },
   { href: "/resume", label: "简历优化" },
   { href: "/resumes", label: "简历中心" },
 ] as const;

@@ -15,6 +15,9 @@ import {
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
+import { runMatch } from "@/lib/matching/pipeline";
+import { matchAnalysisSchema } from "@/lib/matching/analysis-schemas";
+import { matchingAgentInputSchema } from "@/lib/agents/matching.agent";
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
 import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
@@ -155,6 +158,68 @@ function serializeVersion(
       updatedAt: o.updatedAt,
     })),
   };
+}
+
+// JobMatch 行序列化(6.2):matchReport 经输出 Schema 防御解析(损坏回退 null);coachPlan 先做对象存在性
+// 防御(6.4 起经 coachPlanSchema 完整解析);jdTitle 供技能分析表单预填
+function serializeJobMatch(
+  row: {
+    jdText: string | null;
+    jdTitle: string | null;
+    matchReport: unknown;
+    coachPlan: unknown;
+    weeklyHours: number | null;
+    updatedAt: Date;
+  } | null
+) {
+  if (!row) return null;
+  return {
+    jdText: row.jdText,
+    jdTitle: row.jdTitle,
+    matchReport: matchAnalysisSchema.safeParse(row.matchReport).success ? row.matchReport : null,
+    coachPlan: row.coachPlan != null && typeof row.coachPlan === "object" ? row.coachPlan : null,
+    weeklyHours: row.weeklyHours,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// 匹配输入组装(6.2,服务端聚合,客户端只传 JD):
+// 画像摘要 = 最新画像 aiAnalysis 的摘要/能力/雷达/方向(截断 3000 字符,输入 Schema 上限);
+// 简历文本 = 最新简历最新版本的 canonical finalText(无 accepted 时即原文,仍为有效证据)
+async function readProfileSummaryForMatch(ctx: { prisma: Context["prisma"]; userId: string }) {
+  const profile = await ctx.prisma.careerProfile.findFirst({
+    where: { userId: ctx.userId },
+    orderBy: { version: "desc" },
+    select: { aiAnalysis: true },
+  });
+  const raw = profile?.aiAnalysis as
+    | { summary?: unknown; abilityTags?: unknown; radar?: unknown; directions?: unknown }
+    | null;
+  if (!raw || typeof raw !== "object") return null;
+  const compact = {
+    summary: raw.summary,
+    abilityTags: raw.abilityTags,
+    radar: raw.radar,
+    directions: raw.directions,
+  };
+  if (Object.values(compact).every((v) => v == null)) return null;
+  return JSON.stringify(compact, null, 2).slice(0, 3000);
+}
+
+async function readOptimizedResumeTextForMatch(ctx: { prisma: Context["prisma"]; userId: string }) {
+  const resume = await ctx.prisma.resume.findFirst({
+    where: { userId: ctx.userId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, originalText: true },
+  });
+  if (!resume?.originalText) return null;
+  const version = await ctx.prisma.resumeVersion.findFirst({
+    where: { resumeId: resume.id },
+    orderBy: { createdAt: "desc" },
+    include: { optimizations: { orderBy: { order: "asc" } } },
+  });
+  if (!version) return null;
+  return buildFinalTextForVersion(resume.originalText, version.optimizations);
 }
 
 // 运行时读取最新画像的能力标签(3.4 路线图生成输入):aiAnalysis.abilityTags 防御解析,无画像/损坏 → []
@@ -1141,6 +1206,104 @@ export const appRouter = t.router({
       await ctx.prisma.funnelEvent.create({ data: { userId: ctx.userId, event: "resume-export" } });
       return { ok: true };
     }),
+  }),
+
+  // 岗位匹配(6.2):JobMatch 每用户一行;匹配报告与教练计划(6.4)由两条独立管线按列 upsert。
+  // 输入组装(画像摘要/简历文本)全在服务端,客户端只传 JD 与纠偏反馈。
+  matching: t.router({
+    // 当前用户的匹配记录(匹配报告 + 教练计划);从未匹配 → null
+    get: protectedProcedure.query(async ({ ctx }) => {
+      const row = await ctx.prisma.jobMatch.findUnique({ where: { userId: ctx.userId } });
+      return serializeJobMatch(row);
+    }),
+
+    // 开始/重新匹配(6.2):服务端读最新画像与简历组装输入 → Matching Agent → 按列 upsert
+    run: protectedProcedure
+      .input(
+        z.object({
+          jdText: z.string().min(1, "请粘贴岗位描述").max(8000, "JD 最多 8000 字"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const profileSummary = await readProfileSummaryForMatch(ctx);
+        const optimizedResumeText = await readOptimizedResumeTextForMatch(ctx);
+        const outcome = await runMatch({
+          userId: ctx.userId,
+          jdText: input.jdText.trim(),
+          profileSummary,
+          optimizedResumeText,
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { runId: outcome.runId };
+      }),
+
+    // 纠偏重匹配(6.2)「这个要求我其实满足」:读落库 JD 原文 + 定向反馈重新匹配
+    correct: protectedProcedure
+      .input(
+        z.object({
+          requirementId: z.string().min(1).max(20),
+          note: z.string().min(1, "请说明你的情况").max(200, "说明最多 200 字"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const row = await ctx.prisma.jobMatch.findUnique({ where: { userId: ctx.userId } });
+        if (!row?.jdText) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "请先完成岗位匹配" });
+        }
+        // requirementId 必须存在于当前报告(防纠偏指向已失效条目)
+        const report = matchAnalysisSchema.safeParse(row.matchReport);
+        if (!report.success || !report.data.requirements.some((r) => r.id === input.requirementId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "该岗位要求已失效,请重新匹配" });
+        }
+        const profileSummary = await readProfileSummaryForMatch(ctx);
+        const optimizedResumeText = await readOptimizedResumeTextForMatch(ctx);
+        const outcome = await runMatch({
+          userId: ctx.userId,
+          jdText: row.jdText,
+          profileSummary,
+          optimizedResumeText,
+          feedback: [{ requirementId: input.requirementId, note: input.note }],
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { runId: outcome.runId };
+      }),
+
+    // 失败重试(6.2):从 run.input 重放,按 intent 双路(analyze-match / build-coach-plan,后者 6.4 接入)
+    retry: protectedProcedure
+      .input(z.object({ runId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findUnique({ where: { id: input.runId } });
+        if (!run || run.userId !== ctx.userId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
+        }
+        if (run.intent === "analyze-match") {
+          const parsed = matchingAgentInputSchema.safeParse(run.input);
+          if (!parsed.success) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新粘贴岗位描述" });
+          }
+          const outcome = await runMatch({ userId: ctx.userId, ...parsed.data });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { runId: outcome.runId };
+        }
+        throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
+      }),
+
+    // 最近一次匹配/教练 run(6.2):页面轮询(700ms)与刷新恢复的统一入口;按 intent 隔离(与画像/简历同构)
+    latestRun: protectedProcedure
+      .input(z.object({ intent: z.enum(["analyze-match", "build-coach-plan"]) }))
+      .query(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findFirst({
+          where: { userId: ctx.userId, intent: input.intent },
+          orderBy: { createdAt: "desc" },
+        });
+        return run ? serializeRun(run) : null;
+      }),
   }),
 
   // 工作台聚合(5.1):KPI 行 / Agent 顾问区 / 模块入口卡的单一数据源,纯读(见 src/lib/dashboard/stats.ts)
