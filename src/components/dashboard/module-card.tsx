@@ -16,7 +16,7 @@ export function ModuleCard({
   /** 最新进展一句话(无数据 → 引导文案) */
   progress: string;
   href: string;
-  /** 有数据 →「继续上次」;无数据 → 模块专属动词(开始/去生成/去上传) */
+  /** 分模块动词(工作台导航优化 P1):画像 继续查看/开始分析;路线图 继续学习/开始规划;简历 继续优化/上传简历 */
   actionLabel: string;
 }) {
   return (

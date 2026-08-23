@@ -48,6 +48,8 @@ export type DashboardStats = {
     lastActivityId: string | null;
     /** 最近工作简历文件名(粘贴路径为空) */
     lastActivityFileName: string | null;
+    /** 最近工作简历的优化版本数(按简历分组计数;无简历 → 0) */
+    lastActivityVersionCount: number;
   };
   weekTasks: {
     /** 本周完成的任务数(上海时区周一起) */
@@ -105,7 +107,7 @@ export async function computeDashboardStats(
 ): Promise<DashboardStats> {
   // 周边界只取一次(跨周一零点瞬间多次 new Date() 可能落进不同周)
   const { thisWeek, lastWeek } = shanghaiWeekStarts(new Date());
-  const [profiles, roadmap, resumesCount, versionCount, resumes, resumeRuns, weekTasks, lastWeekTasks, profileRun, roadmapRun, resumeRun] =
+  const [profiles, roadmap, resumesCount, versionCount, resumes, resumeRuns, versionGroups, weekTasks, lastWeekTasks, profileRun, roadmapRun, resumeRun] =
     await Promise.all([
       // 最新 + 上一版本画像(匹配度增量基线;含推荐方向按匹配度降序)
       prisma.careerProfile.findMany({
@@ -134,6 +136,12 @@ export async function computeDashboardStats(
         where: { userId, intent: { in: ["parse-resume", "rewrite-resume", "score-ats"] } },
         orderBy: { createdAt: "desc" },
         select: { input: true, createdAt: true },
+      }),
+      // 按简历分组的优化版本计数(单查):「最近工作简历」的版本数展示
+      prisma.resumeVersion.groupBy({
+        by: ["resumeId"],
+        where: { resume: { userId } },
+        _count: { _all: true },
       }),
       prisma.task.count({
         where: { stage: { roadmap: { userId } }, status: "completed", completedAt: { gte: thisWeek } },
@@ -178,6 +186,8 @@ export async function computeDashboardStats(
     }
   }
   lastActivity ??= latestResume;
+  const versionCountByResume = new Map(versionGroups.map((g) => [g.resumeId, g._count._all]));
+  const lastActivityVersionCount = lastActivity ? (versionCountByResume.get(lastActivity.id) ?? 0) : 0;
   const topScoreOf = (p: (typeof latest)) => {
     const top = p?.careerPaths[0];
     return top && typeof top.matchScore === "number" ? top.matchScore : null;
@@ -230,6 +240,7 @@ export async function computeDashboardStats(
       latestAt: latestResume ? latestResume.createdAt.toISOString() : null,
       lastActivityId: lastActivity?.id ?? null,
       lastActivityFileName: lastActivity?.fileName ?? null,
+      lastActivityVersionCount,
     },
     weekTasks: { completed: weekCompleted, delta },
     agents: {

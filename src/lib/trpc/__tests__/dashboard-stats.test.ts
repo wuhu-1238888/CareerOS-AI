@@ -57,6 +57,7 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
       latestAt: null,
       lastActivityId: null,
       lastActivityFileName: null,
+      lastActivityVersionCount: 0,
     });
     expect(stats.weekTasks).toEqual({ completed: 0, delta: null });
     expect(stats.agents.profile.status).toBe("idle");
@@ -166,6 +167,7 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
     // 无简历类 run → 最近工作简历回退最新创建行
     expect(stats.resume.lastActivityId).toBe(resumeId);
     expect(stats.resume.lastActivityFileName).toBeNull(); // 粘贴路径无文件名
+    expect(stats.resume.lastActivityVersionCount).toBe(2); // 该简历的两个版本计入最近工作口径
   });
 
   it("Agent 状态:running(带进度)/ succeeded(带末条文案)/ 失败;简历 Agent 取三 intent 最近一次", async () => {
