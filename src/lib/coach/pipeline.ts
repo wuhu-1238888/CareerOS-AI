@@ -10,7 +10,26 @@ import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
 import type { CoachPlan } from "@/lib/coach/analysis-schemas";
 import type { CoachAgentInput } from "@/lib/agents/coach.agent";
+import type { MatchAnalysis } from "@/lib/matching/analysis-schemas";
 import "@/lib/agents"; // 副作用:登记 Skill Coach Agent(intent: build-coach-plan)
+
+// 匹配报告 → 教练差距清单组装(6.4,router 层「一键发起」调用;纯函数便于测试):
+// 只取有对比条目的要求;gap 由对比状态映射(不足→大/接近→中/达标→小);
+// name 截断到教练输入上限 100 字;最多 15 条(教练输入 Schema 上限)。
+export function coachRequirementsFromReport(
+  report: MatchAnalysis
+): { name: string; importance: number; gap: "大" | "中" | "小" }[] {
+  const gapByStatus = { 不足: "大", 接近: "中", 达标: "小" } as const;
+  const statusByReq = new Map(report.items.map((item) => [item.requirementId, item.status]));
+  return report.requirements
+    .filter((r) => statusByReq.has(r.id))
+    .map((r) => ({
+      name: r.text.slice(0, 100),
+      importance: r.importance,
+      gap: gapByStatus[statusByReq.get(r.id)!],
+    }))
+    .slice(0, 15);
+}
 
 export type RunCoachPlanOutcome =
   | { ok: true; runId: string; plan: CoachPlan }

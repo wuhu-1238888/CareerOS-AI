@@ -18,6 +18,9 @@ import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStag
 import { runMatch } from "@/lib/matching/pipeline";
 import { matchAnalysisSchema } from "@/lib/matching/analysis-schemas";
 import { matchingAgentInputSchema } from "@/lib/agents/matching.agent";
+import { runCoachPlan, coachRequirementsFromReport } from "@/lib/coach/pipeline";
+import { coachPlanSchema } from "@/lib/coach/analysis-schemas";
+import { coachAgentInputSchema } from "@/lib/agents/coach.agent";
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
 import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
@@ -160,8 +163,8 @@ function serializeVersion(
   };
 }
 
-// JobMatch 行序列化(6.2):matchReport 经输出 Schema 防御解析(损坏回退 null);coachPlan 先做对象存在性
-// 防御(6.4 起经 coachPlanSchema 完整解析);jdTitle 供技能分析表单预填
+// JobMatch 行序列化(6.2):matchReport 与 coachPlan(6.4 起)均经输出 Schema 防御解析(损坏回退 null);
+// jdTitle 供技能分析表单预填目标岗位
 function serializeJobMatch(
   row: {
     jdText: string | null;
@@ -177,7 +180,7 @@ function serializeJobMatch(
     jdText: row.jdText,
     jdTitle: row.jdTitle,
     matchReport: matchAnalysisSchema.safeParse(row.matchReport).success ? row.matchReport : null,
-    coachPlan: row.coachPlan != null && typeof row.coachPlan === "object" ? row.coachPlan : null,
+    coachPlan: coachPlanSchema.safeParse(row.coachPlan).success ? row.coachPlan : null,
     weeklyHours: row.weeklyHours,
     updatedAt: row.updatedAt,
   };
@@ -1272,6 +1275,47 @@ export const appRouter = t.router({
         return { runId: outcome.runId };
       }),
 
+    // 生成 90 天提升计划(6.4):服务端从匹配报告组装教练输入——差距清单(coachRequirementsFromReport:
+    // name/importance 原样带出,status→gap 映射,无对比条目的要求跳过)+ 最新画像能力标签;
+    // 客户端只传目标岗位/每周投入/学习偏好(「一键发起」数据自动带出)。
+    coach: protectedProcedure
+      .input(
+        z.object({
+          targetPosition: z.string().min(1, "请填写目标岗位").max(50, "目标岗位最多 50 字"),
+          weeklyHours: z.number().int("每周投入须为整数").min(1, "每周投入至少 1 小时").max(80, "每周投入最多 80 小时"),
+          learningPreference: z.string().max(200, "学习偏好最多 200 字").optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const row = await ctx.prisma.jobMatch.findUnique({ where: { userId: ctx.userId } });
+        if (!row?.matchReport) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "请先完成岗位匹配" });
+        }
+        const report = matchAnalysisSchema.safeParse(row.matchReport);
+        if (!report.success) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "匹配报告已失效,请重新匹配" });
+        }
+        const requirements = coachRequirementsFromReport(report.data);
+        if (requirements.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "匹配报告缺少能力对比项,请重新匹配" });
+        }
+        const abilityTags = await readAbilityTags(ctx);
+        const outcome = await runCoachPlan({
+          userId: ctx.userId,
+          input: {
+            targetPosition: input.targetPosition.trim(),
+            requirements,
+            abilityBaseline: { abilityTags },
+            weeklyHours: input.weeklyHours,
+            learningPreference: input.learningPreference?.trim() || undefined,
+          },
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { runId: outcome.runId };
+      }),
+
     // 失败重试(6.2):从 run.input 重放,按 intent 双路(analyze-match / build-coach-plan,后者 6.4 接入)
     retry: protectedProcedure
       .input(z.object({ runId: z.string().min(1) }))
@@ -1286,6 +1330,18 @@ export const appRouter = t.router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新粘贴岗位描述" });
           }
           const outcome = await runMatch({ userId: ctx.userId, ...parsed.data });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { runId: outcome.runId };
+        }
+        // 6.4:教练 run 重放(输入为服务端组装对象,直接经输入 Schema 校验回放)
+        if (run.intent === "build-coach-plan") {
+          const parsed = coachAgentInputSchema.safeParse(run.input);
+          if (!parsed.success) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新生成提升计划" });
+          }
+          const outcome = await runCoachPlan({ userId: ctx.userId, input: parsed.data });
           if (!outcome.ok) {
             throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
           }

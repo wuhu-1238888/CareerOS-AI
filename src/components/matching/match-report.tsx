@@ -42,6 +42,7 @@ export function MatchReport({
   onCorrect,
   onRedo,
   onCoach,
+  coachExists = false,
 }: {
   report: MatchAnalysis;
   /** 用户线雷达:最新画像 aiAnalysis.radar(防御解析后传入);null 时仅画岗位线 */
@@ -52,6 +53,8 @@ export function MatchReport({
   onRedo?: () => void;
   /** 生成 90 天提升计划(6.4 接线;未接线时按钮禁用) */
   onCoach?: () => void;
+  /** 已有教练计划(6.4):CTA 文案变「查看 90 天提升计划」 */
+  coachExists?: boolean;
 }) {
   // 深色模式下 Recharts grid/tick 用 CSS 变量色(6.9);变量未定义时回退浅色 token
   const token = useTokenColor();
@@ -351,7 +354,7 @@ export function MatchReport({
               重新匹配
             </Button>
             <Button disabled={!onCoach || degraded} onClick={onCoach}>
-              生成 90 天提升计划
+              {coachExists ? "查看 90 天提升计划" : "生成 90 天提升计划"}
             </Button>
           </div>
         </div>
