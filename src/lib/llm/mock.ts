@@ -1,9 +1,9 @@
 // Mock 适配器:零 API 费用。可配置延迟模拟耗时;可注入 replyFn 供测试定制回复。
 // 默认回复按 Agent 名(LLMOptions.agentName,由 BaseAgent 传入)分发 schema 合规的演示 JSON
-// (matching/coach,见 mock-fixtures.ts),使 LLM_PROVIDER=mock 时浏览器端也能走通全链路;
+// (matching/coach/interview,见 mock-fixtures.ts),使 LLM_PROVIDER=mock 时浏览器端也能走通全链路;
 // 未识别 Agent 保持回显行为(输入传递断言与旧测试依赖)。
 import type { ChatMessage, LLMAdapter, LLMOptions, LLMResult, LLMStreamChunk } from "./adapter";
-import { mockCoachPlanFixture, mockMatchAnalysisFixture } from "./mock-fixtures";
+import { mockCoachPlanFixture, mockInterviewQuestionsFixture, mockMatchAnalysisFixture } from "./mock-fixtures";
 
 export type MockReplyFn = (messages: ChatMessage[], options?: LLMOptions) => string;
 
@@ -16,6 +16,10 @@ export const defaultMockReply: MockReplyFn = (messages, options) => {
   if (options?.agentName === "skill-coach-agent") {
     logDispatch("skill-coach-agent");
     return JSON.stringify(mockCoachPlanFixture(messages));
+  }
+  if (options?.agentName === "interview-question-agent") {
+    logDispatch("interview-question-agent");
+    return JSON.stringify(mockInterviewQuestionsFixture(messages));
   }
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   return `[mock] 已收到:${lastUser?.content ?? "(无用户消息)"}`;

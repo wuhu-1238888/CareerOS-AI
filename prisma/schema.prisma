@@ -8,6 +8,8 @@
 //      → profileId 改为可空;同时补 userId 直连列(无画像路线图的所有权链路)与 summary JSON 列(AI 概要)。
 //   5) 阶段 6(任务 6.2/6.4):JobMatch 每用户一行(userId 唯一),match_report 与 coach_plan 由两条
 //      独立管线先后写入 → 按列 upsert(非替换式),避免一方落库抹掉另一方。
+//   6) 阶段 7(任务 7.1):InterviewSession 每用户一行(userId 唯一),对话消息为派生数据不建消息表——
+//      questions/answers/report 均存本表 JSON 列;resumeText 为场次快照(开场后简历变更不影响进行中场次)。
 // 级联策略(验证要求明确):
 //   User 删除 → Cascade CareerProfile / Resume / Roadmap / FunnelEvent(派生事件随用户删除);AgentRun 观测日志保留(SetNull);
 //   CareerProfile 删除 → Cascade CareerPath / Roadmap;Roadmap → Cascade Stage → Task;
@@ -33,12 +35,13 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  profiles     CareerProfile[]
-  resumes      Resume[]
-  agentRuns    AgentRun[]
-  roadmaps     Roadmap[]
-  funnelEvents FunnelEvent[]
-  jobMatch     JobMatch?
+  profiles         CareerProfile[]
+  resumes          Resume[]
+  agentRuns        AgentRun[]
+  roadmaps         Roadmap[]
+  funnelEvents     FunnelEvent[]
+  jobMatch         JobMatch?
+  interviewSession InterviewSession?
 
   @@map("users")
 }
@@ -222,4 +225,28 @@ model JobMatch {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("job_matches")
+}
+
+// 模拟面试(7.1):每用户一行(userId 唯一,偏差 6)。对话消息为派生数据不建消息表:
+// questions = 出题 Agent 输出 [{id,type,question,followUpHints,evidence}];
+// answers = 逐题作答 [{questionId,answer,evaluation|null,followUpQuestion|null,followUpAnswer|null}]
+// (evaluation null = 评估失败待重试;followUpAnswer null = 追问已跳过);
+// report = 综合报告(7.3)。resumeText/面试类型/题数/目标岗位均为场次快照。
+model InterviewSession {
+  id                   String   @id @default(cuid(2))
+  userId               String   @unique @map("user_id")
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interviewType        String   @map("interview_type") // 行为面 | 技术面 | 案例面
+  questionCount        Int      @map("question_count") // 5 | 10 | 15(短/标准/完整三档)
+  targetPosition       String   @map("target_position") // 目标岗位(场次快照)
+  resumeText           String   @map("resume_text") @db.Text // 简历文本(场次快照,开场后变更不影响进行中场次)
+  status               String   @default("in_progress") @map("status") // in_progress | completed
+  questions            Json     @map("questions") // 出题 Agent 输出(读取方防御解析)
+  currentQuestionIndex Int      @default(0) @map("current_question_index") // 当前待答题目下标(0 起)
+  answers              Json     @default("[]") @map("answers") // 逐题作答记录(见模型注释)
+  report               Json?    @map("report") // 综合报告(7.3,Interview Report Agent 输出)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("interview_sessions")
 }

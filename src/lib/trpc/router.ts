@@ -21,6 +21,13 @@ import { matchingAgentInputSchema } from "@/lib/agents/matching.agent";
 import { runCoachPlan, coachRequirementsFromReport } from "@/lib/coach/pipeline";
 import { coachPlanSchema } from "@/lib/coach/analysis-schemas";
 import { coachAgentInputSchema } from "@/lib/agents/coach.agent";
+import { runInterviewQuestions, parseStoredQuestions, parseStoredAnswers } from "@/lib/interview/pipeline";
+import {
+  interviewTypeSchema,
+  interviewQuestionCountSchema,
+  interviewReportSchema,
+} from "@/lib/interview/analysis-schemas";
+import { interviewQuestionAgentInputSchema } from "@/lib/agents/interview-question.agent";
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
 import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
@@ -182,6 +189,36 @@ function serializeJobMatch(
     matchReport: matchAnalysisSchema.safeParse(row.matchReport).success ? row.matchReport : null,
     coachPlan: coachPlanSchema.safeParse(row.coachPlan).success ? row.coachPlan : null,
     weeklyHours: row.weeklyHours,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// InterviewSession 行序列化(7.1):questions/answers/report 均经输出 Schema 防御解析
+// (损坏回退 null → 前端按无有效场次处理,镜像 serializeJobMatch 先例);
+// interviewType/questionCount/status 为服务端写入时已校验的标量,原样透传。
+function serializeInterviewSession(
+  row: {
+    interviewType: string;
+    questionCount: number;
+    targetPosition: string;
+    status: string;
+    questions: unknown;
+    currentQuestionIndex: number;
+    answers: unknown;
+    report: unknown;
+    updatedAt: Date;
+  } | null
+) {
+  if (!row) return null;
+  return {
+    interviewType: row.interviewType,
+    questionCount: row.questionCount,
+    targetPosition: row.targetPosition,
+    status: row.status,
+    questions: parseStoredQuestions(row.questions),
+    currentQuestionIndex: row.currentQuestionIndex,
+    answers: parseStoredAnswers(row.answers),
+    report: interviewReportSchema.safeParse(row.report).success ? row.report : null,
     updatedAt: row.updatedAt,
   };
 }
@@ -1427,6 +1464,84 @@ export const appRouter = t.router({
     // 最近一次匹配/教练 run(6.2):页面轮询(700ms)与刷新恢复的统一入口;按 intent 隔离(与画像/简历同构)
     latestRun: protectedProcedure
       .input(z.object({ intent: z.enum(["analyze-match", "build-coach-plan"]) }))
+      .query(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findFirst({
+          where: { userId: ctx.userId, intent: input.intent },
+          orderBy: { createdAt: "desc" },
+        });
+        return run ? serializeRun(run) : null;
+      }),
+  }),
+
+  // 模拟面试(7.1 出题 / 7.2 对话 / 7.3 报告):InterviewSession 每用户一行,对话消息为派生数据
+  // (questions/answers/report 单行 JSON)。输入组装(简历文本/画像摘要)全在服务端,客户端只传
+  // 面试类型/档位/目标岗位;start = 覆盖式新建场次(单行模型必然,前端有进行中场次时先确认)。
+  interview: t.router({
+    // 当前用户的面试场次(题目/作答/报告);从未开始 → null
+    get: protectedProcedure.query(async ({ ctx }) => {
+      const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+      return serializeInterviewSession(row);
+    }),
+
+    // 开始面试(7.1):服务端读最新简历 canonical finalText 与画像摘要组装输入 → 出题 Agent →
+    // 题数 echo 校验 → 覆盖式 upsert(重置作答/进度/报告)
+    start: protectedProcedure
+      .input(
+        z.object({
+          interviewType: interviewTypeSchema,
+          questionCount: interviewQuestionCountSchema,
+          targetPosition: z.string().min(1, "请填写目标岗位").max(100, "目标岗位最多 100 字"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const resumeText = await readOptimizedResumeTextForMatch(ctx);
+        if (!resumeText) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "请先在简历中心上传简历" });
+        }
+        const profileSummary = await readProfileSummaryForMatch(ctx);
+        const outcome = await runInterviewQuestions({
+          userId: ctx.userId,
+          input: {
+            resumeText: resumeText.slice(0, 8000),
+            targetPosition: input.targetPosition.trim(),
+            interviewType: input.interviewType,
+            questionCount: input.questionCount,
+            profileSummary,
+          },
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        return { runId: outcome.runId };
+      }),
+
+    // 失败重试(7.1):从 run.input 重放(输入含场次简历快照,简历后续变更不影响重放);
+    // 7.2/7.3 接入评估/报告 intent 后扩展
+    retry: protectedProcedure
+      .input(z.object({ runId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const run = await ctx.prisma.agentRun.findUnique({ where: { id: input.runId } });
+        if (!run || run.userId !== ctx.userId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
+        }
+        if (run.intent === "generate-interview-questions") {
+          const parsed = interviewQuestionAgentInputSchema.safeParse(run.input);
+          if (!parsed.success) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新开始面试" });
+          }
+          const outcome = await runInterviewQuestions({ userId: ctx.userId, input: parsed.data });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { runId: outcome.runId };
+        }
+        throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
+      }),
+
+    // 最近一次出题 run(7.1):页面轮询(700ms)与刷新恢复的统一入口(镜像 matching.latestRun;
+    // 7.2/7.3 扩展评估/报告 intent)
+    latestRun: protectedProcedure
+      .input(z.object({ intent: z.enum(["generate-interview-questions"]) }))
       .query(async ({ ctx, input }) => {
         const run = await ctx.prisma.agentRun.findFirst({
           where: { userId: ctx.userId, intent: input.intent },

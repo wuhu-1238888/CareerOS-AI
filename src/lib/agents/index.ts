@@ -1,11 +1,12 @@
 // Agent 集中注册(2.3 起):应用启动路径(trpc router)引入本模块即完成登记,Orchestrator 按 intent 路由。
-// 3.3 起注册路线 Agent(全量 + 单阶段重生成);4.3 注册简历解析 Agent,4.4 改写,4.6 ATS;6.1 注册岗位匹配 Agent,6.3 注册技能教练 Agent。
+// 3.3 起注册路线 Agent(全量 + 单阶段重生成);4.3 注册简历解析 Agent,4.4 改写,4.6 ATS;6.1 注册岗位匹配 Agent,6.3 注册技能教练 Agent;7.1 注册模拟面试出题 Agent。
 import { registry } from "./registry";
 import { profileAgent } from "./profile.agent";
 import { navigatorAgent, navigatorStageAgent } from "./navigator.agent";
 import { resumeAtsAgent, resumeParseAgent, resumeRewriteAgent } from "./resume.agent";
 import { matchingAgent } from "./matching.agent";
 import { skillCoachAgent } from "./coach.agent";
+import { interviewQuestionAgent } from "./interview-question.agent";
 
 registry.register(profileAgent);
 registry.registerIntent("analyze-profile", "career-profile-analyzer");
@@ -23,6 +24,8 @@ registry.register(matchingAgent);
 registry.registerIntent("analyze-match", "job-matching-agent");
 registry.register(skillCoachAgent);
 registry.registerIntent("build-coach-plan", "skill-coach-agent");
+registry.register(interviewQuestionAgent);
+registry.registerIntent("generate-interview-questions", "interview-question-agent");
 
 export { registry };
 export { profileAgent, profileAnalysisSchema, profileRadarSchema } from "./profile.agent";
@@ -58,3 +61,16 @@ export { matchingAgent, matchingAgentInputSchema, matchAnalysisSchema } from "./
 export type { MatchingAgentInput, MatchAnalysis } from "./matching.agent";
 export { skillCoachAgent, coachAgentInputSchema, coachPlanSchema } from "./coach.agent";
 export type { CoachAgentInput, CoachPlan } from "./coach.agent";
+export {
+  interviewQuestionAgent,
+  interviewQuestionAgentInputSchema,
+  interviewQuestionsSchema,
+  interviewQuestionCountSchema,
+  interviewTypeSchema,
+} from "./interview-question.agent";
+export type {
+  InterviewQuestionAgentInput,
+  InterviewQuestions,
+  InterviewQuestionCount,
+  InterviewType,
+} from "./interview-question.agent";
