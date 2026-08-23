@@ -3,10 +3,10 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环),里程碑 M1 – M4 全部完成 + **M5 闭环整合任务 5.1 – 5.3 完成**(5.4 按用户指示未执行)
-- **最近更新**:2026-08-23,阶段 5 任务 5.3 完成并推送(commit `6f96b35`;5.1 = `be110d8`,5.2 = `890f69f`)
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
-- **当前状态**:**Stage 5(5.1–5.3)已实现,等待人工验收**。不执行 5.4 与 Stage 6(用户指示)。
-- **测试基线**:578 个测试 / 60 个文件全部通过;typecheck / lint / build 零错误;构建产物 .nft.json 验证 6/6 prompt 打入 tRPC Serverless 路由
+- **最近更新**:2026-08-23,工作台导航优化(「职业行动中心」)三轮 P0→P1→P2 完成并推送(`748ce1d` / `e318c40` / `c4edad9`;含前期轮次 `5c89f00` / `e64a978` / `d4c6004`)
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
+- **当前状态**:**Stage 5(5.1–5.3)已实现 + 工作台导航优化三轮完成,等待人工验收**。不执行 5.4 与 Stage 6(用户指示)。
+- **测试基线**:602 个测试 / 61 个文件全部通过;typecheck / lint 零错误;构建产物 .nft.json 验证 6/6 prompt 打入 tRPC Serverless 路由
 
 ## 已完成的工作
 
@@ -659,3 +659,35 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 
 - 生产部署暂缓(用户决策):生产数据库未创建(创建指导见 deployment-checklist.md 第二节)、DeepSeek Key 未提供(生产 LLM 已确认 = DeepSeek)、Vercel Blob Store 未创建
 - 浏览器人工走查项待用户验收:工作台四态/首页跳转/三条数据流转全链路/部署清单第四节生产验收
+
+# 工作台导航优化(「职业行动中心」,2026-08-23,commit `5c89f00` / `e64a978` / `d4c6004` / `748ce1d` / `e318c40` / `c4edad9`)
+
+用户验收反馈:工作台是「数据展示型」而非「行动中心」,要求回答三问(职业状态怎么样 / 上次做到哪里 / 下一步做什么),分三轮交付,每轮测试后暂停验收。
+
+## 完成情况表
+
+| 轮次 | 内容 | commit |
+|---|---|---|
+| 前期 P0 | 三顾问卡分进对应模块;简历入口深链最近工作简历 `?resumeId=`(AgentRun.input 扫描派生,零 schema 变更) | `5c89f00` |
+| 前期修复 | /resumes 纳入 middleware 保护 | `e64a978` |
+| 前期 P1 | 模块 CTA 分模块动词 + 空态(开始分析/开始规划/上传简历)+ 推荐下一步规则链 | `d4c6004` |
+| 新 P0 | 「下一步建议」行动卡(green-50+左绿边横幅,规则链注入,全部完成→中性文案无 CTA);两排语义(AI 洞察「AI 最近帮你发现了什么」/ 我的工作「你上次做到哪里」);**卡片主体≠CTA**(主体=查看模块总览,CTA=继续当前工作深链:画像 `/profile#glance`、路线图 `/navigator?focus=current`、简历 `/resume?resumeId=`) | `748ce1d` |
+| 新 P1 | 模块 CTA 与行动卡 CTA 尾部 ArrowRight 图标;KPI「匹配度」→「岗位匹配度」 | `e318c40` |
+| 新 P2 | KPI「简历版本数」→「待处理建议」(最近工作简历最新优化版本的 Optimization pending 计数,无简历/无版本 → 「—」不伪造 0);DesignRules/PRD/technical-design/progress 文档同步 | `c4edad9` |
+
+## 主要修改
+
+- **数据层**:`stats.ts` 顺序追加一查 `pendingCount`(依赖 lastActivity 派生结果,非 N+1;查询预算 12 并行 + 1 顺序);`versionCount` 字段保留(API 兼容)
+- **前端**:`next-step-card.tsx`(新组件)/ `module-card.tsx` 双链接(主体拉伸 Link + CTA z-10,不嵌套)/ `agent-card.tsx` 底部行动提示行 / `dashboard-view.tsx` 五区块重排(问候 → 下一步建议 → KPI → AI 洞察 → 我的工作)/ `profile-result.tsx` `#glance` mount 滚动 / `roadmap-timeline.tsx` `?focus=current`(读 window.location.search 免 Suspense,ref 守卫防 refetch 重滚)/ DesignRules Dashboard 章节同步(结构顺序 + 「卡片主体与 CTA 禁止同页」规则)
+- **无 schema 变更、无新路由、无新 UI 框架、无 AI 推荐系统**(规则链基于真实业务状态)
+
+## 测试结果
+
+- 新 P0 后 599/599(61 文件);P1 后 599;P2 后 **602/602(61 文件)全绿**
+- 新增测试:module-card 双链接 3 + roadmap-timeline focus=current 4(含 fake timers + scrollIntoView mock)+ profile-result #glance 2 + dashboard-stats pendingCount 3(计数正确/最新版本口径/无版本 null)+ dashboard-view 规则链与双链接断言重写
+
+## 已知限制
+
+- score-ats run 的 input 不含 resumeId → 不参与「最近工作简历」派生(technical-design 已记)
+- 路线图阶段级「上次停留」持久化需新增字段,当前阶段由 task.status=in_progress 派生(不实现)
+- 画像/路线图空态:卡片主体与 CTA 同页(模块页即创建流程,用户已确认)

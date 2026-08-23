@@ -769,3 +769,19 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 **验证**:新增 20 个测试(pdf-position-sort 7 + docx-extract 8 + parser 集成 3 + upload 链路 2),全套 490/490(55 文件);真实 .docx spike 验证输出 = 视觉顺序(13 boxes、无重复、无 DECOY)。
 
 **已知取舍**:仅按框级坐标排序,框内多行按文档序(文本框内部分行罕见);align 型无 posOffset → y=null 置尾按文档序兜底;存量乱序行(4.10-fix 前上传)originalText 已落库乱序,不迁移,需重新上传。
+
+## 十一、工作台导航优化修订(2026-08-23,任务「职业行动中心」三轮 P0→P1→P2)
+
+**背景**:工作台 5.1 交付为数据展示型,用户验收要求升级为「职业行动中心」——回答 ①我的职业状态怎么样(KPI)②我上次做到哪里(我的工作)③我下一步应该做什么(下一步建议)。
+
+**前期轮次(`5c89f00` / `e64a978` / `d4c6004`)**:三顾问卡分进对应模块;简历入口深链最近工作简历 `?resumeId=`(AgentRun intent ∈ parse/rewrite/score-ats 的 input.resumeId 扫描派生,悬空 id 跳过,无有效 run 回退最新创建行,零 schema 变更);/resumes 纳入 middleware 保护;模块 CTA 分模块动词 + 空态 + 推荐下一步规则链。
+
+**新 P0(`748ce1d`)**:「下一步建议」升级为轻量行动卡(green-50 底 + 左 3px 绿边,复用简历分析页「建议采纳」视觉;computeNextStep 规则链六条基于 dashboard.stats 真实状态,全部完成 → 中性文案无 CTA,不引入 AI 推荐系统);两排语义重定义 —— 上排 AI 洞察「AI 最近帮你发现了什么」(顾问卡 + 底部行动提示),下排 我的工作「你上次做到哪里」;**卡片主体 ≠ CTA**(主体 = 查看模块总览:画像/路线图 → 模块页,简历 → /resumes;CTA = 继续当前工作,深链定位):画像 `/profile#glance`(mount effect 滚动最近分析核心结论)、路线图 `/navigator?focus=current`(直接读 window.location.search 免 useSearchParams/Suspense;目标 = 首个含 task.status=in_progress 的阶段,无则首个未完成阶段,ref 守卫防 refetch 重滚)、简历 `/resume?resumeId=`(最近工作简历)。
+
+**新 P1(`e318c40`)**:模块 CTA 与行动卡 CTA 尾部 ArrowRight(aria-hidden,不影响可访问名,Button [&_svg]:size-4);KPI「匹配度」→「岗位匹配度」。
+
+**新 P2(`c4edad9`)**:KPI「简历版本数」→「待处理建议」= 最近工作简历最新优化版本(orderBy createdAt desc, id desc 决胜)的 `_count.optimizations.where({status:"pending"})`;无简历/无版本 → null(KPI「—」,不伪造 0);versionCount 字段保留(API 兼容)。stats 查询预算 = 12 并行 + 1 顺序(pendingCount 依赖 lastActivity 派生结果,顺序追加一查,非 N+1)。
+
+**已知限制(不变)**:score-ats run 的 input 不含 resumeId → 不参与最近工作简历派生;路线图阶段级「上次停留」持久化需新增字段,当前阶段由 in_progress 派生(不实现);画像/路线图空态时卡片主体与 CTA 同页(模块页即创建流程)。
+
+**验证**:每轮 typecheck / lint / 全量测试绿;P2 后 602/602(61 文件)。
