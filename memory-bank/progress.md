@@ -2,11 +2,11 @@
 
 ## 当前项目状态
 
-- **阶段**:Phase 1(MVP 核心闭环),里程碑 M1 – M4 全部完成 + **M5 闭环整合任务 5.1 – 5.3 完成**(5.4 按用户指示未执行)
-- **最近更新**:2026-08-23,工作台导航优化(「职业行动中心」)三轮 P0→P1→P2 完成并推送(`748ce1d` / `e318c40` / `c4edad9`;含前期轮次 `5c89f00` / `e64a978` / `d4c6004`)
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
-- **当前状态**:**Stage 5(5.1–5.3)已实现 + 工作台导航优化三轮完成,等待人工验收**。不执行 5.4 与 Stage 6(用户指示)。
-- **测试基线**:602 个测试 / 61 个文件全部通过;typecheck / lint 零错误;构建产物 .nft.json 验证 6/6 prompt 打入 tRPC Serverless 路由
+- **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10 与阶段 7 按用户指示未执行
+- **最近更新**:2026-08-23,Stage 6 全部完成(6.9 深色模式 `56d2477` 收尾);等待 **Phase 2 整体验收**(验收清单见 stage6-acceptance-checklist.md)
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
+- **当前状态**:**Stage 6 已实现,等待 Phase 2 整体验收(链路验收 + Phase 1 回归)**。不执行 6.10 与阶段 7(用户指示)。
+- **测试基线**:703 个测试 / 75 个文件全部通过;typecheck / lint 零错误;生产构建成功(深色变量编译产物已验证);prompt 打包 8/8(matching/coach 新增 2 份)打入 tRPC Serverless 路由
 
 ## 已完成的工作
 
@@ -293,6 +293,7 @@
 8. **Recharts 在 jsdom 无尺寸**:组件测试改用 HTML 图例文本断言(已 polyfill ResizeObserver);雷达图真实渲染与响应式需浏览器人工走查
 9. **真实 DeepSeek 分析质量未验证**:样例集与 Mock 输出已固化,管线正确性已测;待用户提供 Key 后改 `.env` 做真实请求(与遗留 #1 同源)
 10. **生产部署暂缓(用户决策,2026-08-23)**:5.3 代码已交付;生产数据库未创建、DeepSeek Key 未提供(已确认生产 LLM = DeepSeek)。完整清单与步骤见 deployment-checklist.md
+11. **Coach echo 不一致边缘态(6.3,风险 4 落位)**:LLM 输出 weeklyHours 与输入不符时 run 成功但不落库(ok:false,AgentRun 按 succeeded 记录);重试从 AgentRun.input 重放可恢复,真实 LLM 下出现频率待验证
 
 ## 下一步 Implementation Step
 
@@ -694,12 +695,48 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 
 ---
 
-# Stage 6(增强能力 6.1–6.9,进行中)
+# Stage 6 完成(增强能力 6.1–6.9,2026-08-23)
 
-> 用户指示(2026-08-23):一次执行 6.1–6.9;6.10 与阶段 7 不执行。逐任务 commit+push;6.1–6.6 已提交(详见各 commit);各任务详情、测试基线与整体验收在 6.9 完成后的文档回合统一补齐。
+> 用户指示(2026-08-23):一次执行 6.1–6.9;6.10 与阶段 7 不执行。逐任务 commit+push,每任务实现 → 测试 → typecheck/lint → 全量绿 → 推送。6.7 微信登录按用户拍板本轮暂缓(零代码,仅文档记录)。各任务偏差记录已同步 implementation-plan.md 对应小节。
 
-## 任务 6.7 微信登录 —— 本轮暂缓(用户拍板,零代码)
+## 完成情况表
 
-- **决策(2026-08-23)**:接入微信开放平台扫码登录需先完成应用注册并取得 **AppID/AppSecret**(当前无凭据;且 OAuth 回调域名须为已备案域名,开发期无法完整联调)→ 本轮暂缓,零代码。
-- implementation-plan.md 6.7 小节已按偏差记录约定标注状态;绑定/合并策略与验证标准保持原文定义不变,凭据就绪后按该节实现。
-- Phase 2 验收标准中「微信登录可用」一项相应降级为「待凭据,暂缓」。
+| 任务 | 内容 | 状态 | commit |
+|---|---|---|---|
+| 6.1 | Matching Agent(JD 拆解→能力映射→差距计算→六维雷达→投递建议,intent `analyze-match`)+ prompt + 3 份手工标注样例集;JobMatch 单表按列 upsert;无画像两层降级;纠偏结构化 `[{requirementId, note}]` | ✅ | `f02fc1f` |
+| 6.2 | 岗位匹配页 /matching(顶栏新一级入口 + middleware):JD 粘贴表单 → 匹配报告六区块(Hero 大数字+建议徽章/逐项对比/双线雷达/隐性需求/投递建议)→ 逐项纠偏弹窗重匹配;无画像引导卡;matching tRPC 命名空间(get/run/correct/retry/latestRun) | ✅ | `cb0d2e4` |
+| 6.3 | SkillCoachAgent(intent `build-coach-plan`,**13 周固定**)+ prompt + 3 样例集;预算/P0 矩阵/week 连续/milestone 四组 superRefine;echo 交叉校验不落库;资源免费前置 | ✅ | `beab976` |
+| 6.4 | 技能分析 = matching hub 视图态(无新路由):coach-setup(预填 JD 标题 + 周时与 Navigator 对齐)→ coach-plan(优先级矩阵/13 周时间线/资源卡/里程碑风险);matching.coach 一键数据自动带出 | ✅ | `3d09147` |
+| 6.5 | 画像能力变化追踪:profile-diff 纯函数(diffRadar/diffAbilityTags)+ history-compare(最新 vs 次新,双线雷达 + 提升/下降/新增徽章);单版本/旧版本查看自动隐藏 | ✅ | `00ee990` |
+| 6.6 | 简历多版本:listVersions/getVersion/duplicateVersion(深拷贝,ATS 置 null)/deleteVersion(末版禁删,原文不动);版本选择器在 ResumeResult 内部,既有逻辑零改动 | ✅ | `b43cf3e` |
+| 6.7 | 微信登录:本轮暂缓(用户拍板,零代码;待微信开放平台 AppID/AppSecret) | ⏸️ | `01413fa` |
+| 6.8 | 分享卡片:ShareCard 两变体(profile/roadmap,NodeTrail 品牌元素,分值条替代雷达)+ ShareDialog(html-to-image 动态 import,toPng pixelRatio 2 → 临时 a 下载,失败可重试);画像/路线图两入口 | ✅ | `fe017ba` |
+| 6.9 | 深色模式:20 个 `--careeros-*` 变量(浅+深)+ tailwind 静态 token 变量化 + ThemeProvider/ThemeToggle(顶栏头像菜单 + 设置页三态)+ layout 防 FOUC + use-token-color 三处 Recharts + 12 处 bg-white→bg-card + dev/tokens 深色区 | ✅ | `56d2477` |
+
+## 主要修改
+
+- **Schema**:新增 JobMatch 单表(每用户一行 `userId @unique`,jdText/jdTitle/matchReport/coachPlan/weeklyHours,User 级联删),迁移 `add_job_match`;**按列 upsert** 支持匹配/教练两条管线先后写入互不覆盖
+- **Agent 两个**:MatchingAgent / SkillCoachAgent(intent `analyze-match` / `build-coach-plan`),prompt 两份(matching/job-matching.md、coach/skill-coach.md),样例集 6 份手工标注;`agents/index.ts` 注册;prompt 打包 6→8 份
+- **管线两个**:runMatch(无画像归一化)/ runCoachPlan(echo 交叉校验 + 资源免费前置),镜像画像管线骨架(progressChain + adapter 注入 + AgentRun 日志 + 失败不落行)
+- **tRPC**:matching 命名空间 6 端点(get/run/correct/coach/retry/latestRun,失败 BAD_GATEWAY);resume 命名空间 4 端点(listVersions/getVersion/duplicateVersion/deleteVersion)
+- **前端**:matching-hub 状态机(6.2 报告 → 6.4 coach 视图态)/ match-form / match-report / gap-correction-dialog / coach-setup / coach-plan / coach-timeline;history-compare(6.5);resume-result 版本选择器(6.6);share-card / share-dialog(6.8,html-to-image 新依赖);theme-provider / theme-toggle / appearance-form + layout 防 FOUC(6.9);topbar 加「岗位匹配」入口 + 「外观」组
+- **主题基建**:globals.css 双主题 `--careeros-*` 变量表 + color-scheme + shadcn 变量 remap;tailwind.config 主题 key 变量化(透明度修饰符编译为 `hsl(var(--x) / 0.5)` 已验证);tokens.ts 保持浅色 hex 供 PDF 消费
+
+## 测试结果
+
+- 每个任务提交前全量测试绿;6.9 后全套 **703/703(75 文件)全绿**;typecheck / lint 零错误
+- 6.9 新增 13 用例 / 3 文件:theme-provider 7(默认 system/切深色挂类+持久化+themechange/system 跟随 matchMedia/显式 dark 不监听/存储值恢复/非法值回退/系统深色偏好)、theme-toggle 3(radiogroup 三态/aria-checked 转移+持久化/card 变体)、appearance-form 2(说明文案随主题)、topbar 外观组 1
+- 生产构建成功:`.dark` 变量块与双 color-scheme 进入产物;`bg-sunken/50` → `hsl(var(--careeros-sunken)/.5)` 透明度修饰符验证通过;prompt 打包 8/8 .nft.json 验证
+- grep 自检:变更文件零新增硬编码色值;`bg-white` 业务类零残留(12 处已转 bg-card)
+
+## 已知问题(遗留)
+
+1. **风险 4 落位**:Coach「run 成功但 echo 不符不落库」边缘态(LLM 篡改 weeklyHours 回显)——ok:false 不落库、AgentRun 按 succeeded 记录、客户端重试从 AgentRun.input 重放可恢复;真实 LLM 下该路径的出现频率待验证
+2. Matching/Coach 真实 LLM 分析质量未验证(样例集 + Mock 已固化,与遗留 #1/#9 同源,待 DeepSeek Key)
+3. 分享卡为浅色底截图(DesignRules 已明确),不含雷达图(分值条替代,html-to-image 对 Recharts SVG 截图不可靠)
+4. 微信登录待微信开放平台凭据(任务 6.7 暂缓,策略不变)
+5. 深色模式浏览器人工走查项:全站页面深色下四态与对比度逐页走查待用户验收(dev/tokens 深色区可自查)
+
+## 下一步
+
+**Phase 2 整体验收**(清单见 stage6-acceptance-checklist.md):粘贴 JD → 匹配报告 → 一键 90 天提升计划链路;画像更新后匹配度/技能分析随能力变化更新;画像历史对比与简历多版本;分享卡片与深色模式;Phase 1 全量回归。

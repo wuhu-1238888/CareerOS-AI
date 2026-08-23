@@ -785,3 +785,53 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 **已知限制(不变)**:score-ats run 的 input 不含 resumeId → 不参与最近工作简历派生;路线图阶段级「上次停留」持久化需新增字段,当前阶段由 in_progress 派生(不实现);画像/路线图空态时卡片主体与 CTA 同页(模块页即创建流程)。
 
 **验证**:每轮 typecheck / lint / 全量测试绿;P2 后 602/602(61 文件)。
+
+## 十二、M6 补记:Phase 2 增强能力(2026-08-23,任务 6.1–6.9 落地确认)
+
+M6(岗位匹配/技能教练/画像对比/简历多版本/分享卡片/深色模式)实施中形成的新架构决策,以实际代码为准:
+
+### 12.1 JobMatch 单表 + 按列 upsert(匹配与教练两条管线并发写)
+
+**Schema**(迁移 `add_job_match`):`JobMatch` 每用户一行(`userId @unique`),列 `jdText/jdTitle/matchReport/coachPlan/weeklyHours`,User 级联删。**按列 upsert** 是核心决策:matchReport 与 coachPlan 由两条独立管线先后写入,替换式 upsert 会让后者抹掉前者;`runMatch` 只写 `{jdText, jdTitle, matchReport}`,`runCoachPlan` 只写 `{coachPlan, weeklyHours}`,互不覆盖。
+
+**管线**(镜像画像管线骨架:progressChain 串行进度落库 + adapter 测试注入 + AgentRun 日志):
+- `src/lib/matching/pipeline.ts` `runMatch`:服务端组装 `profileSummary`(readAbilityTags 等画像数据)与 `optimizedResumeText`(最新简历最终文本)→ MatchingAgent(intent `analyze-match`)→ **无画像归一化**(profileSummary==null → 强制 items=[]、overallScore=null、recommendation=null,降级为「仅拆解不匹配」)→ upsert 只写自己的列。
+- `src/lib/coach/pipeline.ts` `runCoachPlan`:输入 `{targetPosition, requirements[{name, importance, gap}], abilityBaseline, weeklyHours, learningPreference}` → SkillCoachAgent(intent `build-coach-plan`)→ 成功后三件套:**①echo 交叉校验**(`output.weeklyHours !== input.weeklyHours` → ok:false 不落库,防 LLM 篡改回显;重试从 AgentRun.input 重放)②resources 免费前置排序 ③upsert 只写 coachPlan/weeklyHours。
+
+**Coach 周数固定 13 周**(12×7=84 < 90 天;13 周 = 91 天覆盖 90 天验证项):schema `weeks min(13).max(13)`,superRefine 四处(每周 ΣestimatedMinutes ≤ weeklyHours×60;P0⇔importance≥4 且 gap=大、P1⇔(importance≥4 且 gap≠大)或(importance=3 且 gap=大)、其余 P2;week 连续 1..13;milestone.week ∈ 1..13)。
+
+**Agent 注册**:`agents/index.ts` 注册 MatchingAgent(`job-matching-agent`,prompt `matching/job-matching.md`)与 SkillCoachAgent(`skill-coach-agent`,prompt `coach/skill-coach.md`),registerIntent `analyze-match` / `build-coach-plan`;prompt 打包经 outputFileTracingIncludes 由 6 份增至 8 份(build 后 .nft.json 验证)。
+
+**纠偏结构化**:Matching 输出 requirements 带稳定 `id`(`req-1`…),纠偏反馈 `[{requirementId, note}]` 定位到具体要求;`matching.correct` 读 JobMatch.jdText 重匹配。
+
+### 12.2 matching 命名空间 API(matching hub 状态机视图态,6.2+6.4)
+
+tRPC `matching` 命名空间:`get`(serializeJobMatch 防御解析 matchReport/coachPlan Json 列)、`run`(服务端组装画像+简历 → runMatch)、`correct({requirementId, note})`、`coach({targetPosition, weeklyHours, learningPreference})`(无 matchReport → BAD_REQUEST「请先完成岗位匹配」;服务端从 matchReport 组装 requirements + readAbilityTags)、`retry`(按 intent 双路重放 AgentRun.input)、`latestRun({intent: "analyze-match" | "build-coach-plan"})`;失败 BAD_GATEWAY(outcome.error)。
+
+**6.4 技能分析 = matching hub 的视图态**(无新路由):状态机 form → 分析 → 报告 → coach-setup(预填 JD 标题 + `roadmap.get` 周时对齐 Navigator)→ coach 分析 → coach-plan;数据经 JobMatch 持久化;「一键发起」= 服务端从 matchReport 自动组装教练输入。coachPlan 已存在时报告 CTA 变「查看 90 天提升计划」。顶栏仅新增「岗位匹配」一个一级入口(/matching,与 /resumes 均入 middleware)。
+
+### 12.3 画像能力变化追踪(6.5)
+
+`src/lib/profile/profile-diff.ts` 纯函数 `diffRadar`(六维差值)与 `diffAbilityTags`(等级序 基础<熟练<精通 → 新增/提升/下降);`history-compare.tsx` 内部 getVersion 读**次新版本**(`listVersions[1].id`,最新 vs 次新),双线雷达(当前绿/上次紫)+ 能力变化列表(提升=绿底↑/下降=红底↓/新增=绿描边「新增」,颜色+文字双通道);仅查看最新版且 versions.length > 1 时渲染(单版本/切旧版本查看时自然隐藏);previous 解析失败 → 隐藏区块不崩。
+
+### 12.4 简历多版本(6.6)
+
+resume 命名空间四端点(全部 requireOwnedXxx 护栏):
+- `listVersions({resumeId})` — select {id, targetDirection, atsScore, createdAt} 降序
+- `getVersion({versionId})` — include resume.originalText,复用 `serializeVersion`(finalText 合成一致)
+- `duplicateVersion({versionId})` — 深拷贝 targetDirection+changes+optimizations(状态原样),ATS 三列 null(atsStale 天然正确,显示「尚未评分」)
+- `deleteVersion({versionId})` — 剩余 1 个 → BAD_REQUEST「至少保留一个优化版本」;级联删 Optimization,Resume 行与 originalText/parsedData 不动
+
+版本选择器放 ResumeResult 内部(镜像 profile-result 自持模式),hub 仅加 `resumeId` prop;复制/删除后 invalidate listVersions/get/getVersion + setViewingId(null);所有既有逻辑(accept/reject/导出/ATS)自动作用于当前查看行,零改动。
+
+### 12.5 分享卡片:客户端截图(6.8)
+
+**方案**:html-to-image 客户端截图(非服务端渲染、非公开 URL)——`ShareCard` 两变体(profile:昵称/摘要/能力标签/优势 3 条/推荐方向+匹配度大数字/**分值条替代雷达**(html-to-image 对 Recharts SVG 截图不可靠);roadmap:目标方向/概要/阶段列表/总进度),固定 `w-[560px]`,含 NodeTrail 品牌元素(纯 div 圆点+连线,DesignSystem 允许的三处场景之一)与 AiBadge;数据全部由调用方从**已鉴权 tRPC 现有查询**以 props 传入(零新 API、零公开 URL)。
+
+`ShareDialog`:SSR 安全 = useEffect 动态 import html-to-image(加载失败禁用按钮);`toPng(ref, {pixelRatio: 2})` → dataURL → 临时 `<a download>`;失败 toast「生成图片失败,请重试」可重试。入口:画像结果页 Hero「分享画像卡」、路线图概览带「分享路线图」。首屏不膨胀(动态 import,/profile First Load JS 无增长)。
+
+### 12.6 主题架构:静态 token 变量化 + 三态切换(6.9)
+
+**换肤机制(类名零改动)**:`globals.css` 的 `:root` / `.dark` 各定义 20 个 `--careeros-*` CSS 变量,存「H S% L%」三元组(浅色值 = tokens.ts hex 转 HSL,深色值见 DesignSystem.md front matter `darkColors:`);`tailwind.config.ts` 把主题相关 key(canvas/surface/sunken/hairline×2/ink×4/green-50·100/violet-50/语义色 8 个)包装为 `hsl(var(--careeros-x))` —— Tailwind 透明度修饰符编译为 `hsl(var(--careeros-sunken) / 0.5)`,既有 `bg-primary/90` 先例证明可行;green-400~800 / violet-400·700 / chart.* / boxShadow 保持静态(两主题一致)。`.dark` 同时设 `color-scheme: dark` + shadcn 变量 remap(destructive-foreground 换 canvas 深色文字——白字对 `#f87171` 2.77:1 不达标;accent-foreground 换 green-400)。**tokens.ts 保持浅色 hex** 供 PDF 生成等非 DOM 消费者;`use-token-color` hook(getComputedStyle 读变量 + `themechange` 监听)接三处 Recharts 雷达 grid/tick(profile-result/history-compare/match-report),PDF 保持浅色。
+
+**三态切换(手写 ~90 行,不引 next-themes)**:`ThemeProvider`(localStorage `careeros-theme`,非法值回退 system;system 态挂 matchMedia change 监听;`classList.toggle("dark")` + 派发 `themechange` 事件;隐私模式写失败静默);`ThemeToggle` 两变体(menu=顶栏头像下拉「外观」组,card=设置页「外观」卡;radiogroup 语义 + aria-checked);`layout.tsx` `<html suppressHydrationWarning>` + `<head>` 内联脚本防 FOUC。业务适配:7 文件 12 处 `bg-white` → `bg-card`;dev/tokens 页新增「深色渲染效果」区(`<div className="dark">` 包裹预览,零新机制)。

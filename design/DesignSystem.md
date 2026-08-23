@@ -36,6 +36,30 @@ colors:
   chart-blue: "#4e9bf0"
   chart-gray: "#a8a29a"
 
+# 深色主题(6.9):仅覆盖「换肤变量」;静态色(green-400~800 / violet-400·700 / chart.* / boxShadow)两主题一致。
+# 运行时经 globals.css 的 --careeros-* CSS 变量(tokens.ts 保持浅色 hex 供 PDF 等非 DOM 消费者)
+darkColors:
+  canvas: "#101316"
+  surface: "#1d2125"
+  sunken: "#161a1d"
+  hairline: "#39424a"
+  hairline-strong: "#454f59"
+  ink: "#b6c2cf"
+  ink-secondary: "#98a7b9"
+  ink-muted: "#7b8ba3"
+  ink-faint: "#626f86"
+  green-50: "#11352a"
+  green-100: "#164532"
+  violet-50: "#241f45"
+  success: "#2fbf88"
+  success-bg: "#12352a"
+  warning: "#f5cd47"
+  warning-bg: "#3a2c10"
+  danger: "#f87171"
+  danger-bg: "#3c1f1f"
+  info: "#579dff"
+  info-bg: "#1d2c4d"
+
 typography:
   display:
     fontSize: 32px
@@ -342,7 +366,25 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 - 绿色只做行动与成长语义;红色只做错误与下降语义;蓝色只做中性提示——三者绝不互相替换。
 - 主按钮绿与成功绿同族是刻意设计:在 CareerOS 里,"行动"和"成长"是同一件事。
 - 所有文本/背景组合 ≥ 4.5:1;12px 以下文本用 `ink-secondary` 起步,禁用 `ink-faint` 承载信息。
-- 无渐变、无玻璃拟态、无霓虹。深色模式暂不在 MVP 范围(Phase 2 规划,届时以 token 换肤实现)。
+- 无渐变、无玻璃拟态、无霓虹。深色模式已实现(任务 6.9),规则见下节「深色模式」——**两主题下所有文本/背景组合均须 ≥4.5:1**。
+
+### 深色模式(任务 6.9)
+
+三态主题:**跟随系统(system)/ 浅色(light)/ 深色(dark)**。入口 = 顶栏头像菜单「外观」组 + 设置页「外观」卡;`localStorage careeros-theme` 持久化(system 态监听 `prefers-color-scheme` 变化),首屏防 FOUC 由 layout `<head>` 内联脚本先行上 `.dark` 类。
+
+**值表见 front matter `darkColors:`**(唯一事实来源)。设计规则:
+
+| 规则 | 内容 |
+|---|---|
+| 阶梯反转 | 深色底为暖蓝灰阶梯(Linear 式深色 + 暖色适配):`canvas #101316` → `surface #1d2125` → `sunken #161a1d`(凹陷面比卡片面更深);hairline 提亮 `#39424a` / `#454f59`;文字四级 `ink #b6c2cf` → `ink-faint #626f86` |
+| 叠加面变体 | green-50/violet-50/语义色 bg 不再是「浅色填充」,深色下改为对应色相的**深色叠加面**(green-50 `#11352a`、green-100 `#164532`、violet-50 `#241f45`、success-bg `#12352a` 等),其上文字用提亮语义色变体(success `#2fbf88`、warning `#f5cd47`、danger `#f87171`、info `#579dff`) |
+| 静态色 | green-400~800 / violet-400·700 / chart.* / boxShadow **两主题一致**(暖黑 rgba 阴影在深色底自然成立;green-600 主按钮白字两主题同为 4.75:1);语义徽章选中文案配色需在深色下逐项走查 |
+| color-scheme | `.dark` 设 `color-scheme: dark`(:root 设 `light`),原生控件/滚动条随主题 |
+| 实现机制 | 主题相关 token 经 CSS 变量 `hsl(var(--careeros-x))` 包装(变量存「H S% L%」三元组,透明度修饰符编译为 `hsl(var(--careeros-x) / 0.5)`);组件类名零改动;tokens.ts 保持浅色 hex 供 PDF 等非 DOM 消费者 |
+| JS 消费者 | Recharts 等 SVG 图表的 grid/tick 色经 `use-token-color` hook(getComputedStyle 读 `--careeros-*` + 监听 `themechange` 事件)随主题刷新 |
+| shadcn 变量 remap | 深色下 `--destructive-foreground` 换 canvas 深色文字(白字对 `#f87171` 仅 2.77:1 不达标)、`--accent-foreground` 换 green-400(对 green-50 叠加面可达标) |
+
+**验证纪律**:全站页面深色下四态与对比度逐页走查;grep 零新增硬编码色值;dev/tokens 页含「深色渲染效果」区(`.dark` 包裹预览容器)。
 
 ---
 
@@ -439,7 +481,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 └────────────────────────────────────────────────────────┘
 ```
 
-- **顶栏 64px**:白底 + `hairline` 下边线,sticky。4 个一级入口(工作台/职业画像/成长路线/简历优化)——MVP 只有 4 个目的地,不需要侧栏(这是消费级产品的决定,不同于企业级三明治导航)。
+- **顶栏 64px**:白底 + `hairline` 下边线,sticky。6 个一级入口(工作台/职业画像/成长路线/岗位匹配/简历优化/简历中心)——不需要侧栏(这是消费级产品的决定,不同于企业级三明治导航)。
 - **居中容器 1160px**:个人工作台感,不是全屏管理后台。32px 边距(768px 以下 24px)。
 - **页面头**:标题 + 描述 + 主行动按钮右对齐。每页一个主行动。
 - **宽表单页**(如简历上传/简历核对修正):全宽(继承 1160px 内容容器),按字段类型组织——短字段 2 列、长描述与技能文本全宽(2026-08 修订:原「表单 640px」规则仅保留给多步采集表单,解决简历页核心内容区过窄的问题);**多步表单**(画像采集):640px + 顶部步进器 + 底部固定前后按钮。
