@@ -6,6 +6,8 @@
 //      AgentRun 增加 progress JSON 列(1.6 生命周期事件落库,任务 2.4 分析中刷新恢复);
 //   4) M3(任务 3.1)调整:任务 3.2 支持「无画像用户手动输入方向」,而 Roadmap.profileId 原为必填外键
 //      → profileId 改为可空;同时补 userId 直连列(无画像路线图的所有权链路)与 summary JSON 列(AI 概要)。
+//   5) 阶段 6(任务 6.2/6.4):JobMatch 每用户一行(userId 唯一),match_report 与 coach_plan 由两条
+//      独立管线先后写入 → 按列 upsert(非替换式),避免一方落库抹掉另一方。
 // 级联策略(验证要求明确):
 //   User 删除 → Cascade CareerProfile / Resume / Roadmap / FunnelEvent(派生事件随用户删除);AgentRun 观测日志保留(SetNull);
 //   CareerProfile 删除 → Cascade CareerPath / Roadmap;Roadmap → Cascade Stage → Task;
@@ -36,6 +38,7 @@ model User {
   agentRuns    AgentRun[]
   roadmaps     Roadmap[]
   funnelEvents FunnelEvent[]
+  jobMatch     JobMatch?
 
   @@map("users")
 }
@@ -202,4 +205,21 @@ model FunnelEvent {
 
   @@index([userId, event, createdAt])
   @@map("funnel_events")
+}
+
+// 岗位匹配(6.2)+ 技能教练计划(6.4):每用户一行,匹配报告与教练计划由两条独立管线
+// 先后按列 upsert(偏差 5)。jdTitle 用于技能分析表单预填目标岗位。
+model JobMatch {
+  id          String   @id @default(cuid(2))
+  userId      String   @unique @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jdText      String?  @map("jd_text") @db.Text // 用户粘贴的 JD 原文(纠偏重匹配时重放)
+  jdTitle     String?  @map("jd_title") // JD 岗位名(Matching Agent 输出,预填技能分析)
+  matchReport Json?    @map("match_report") // Matching Agent 输出(读取方防御解析)
+  coachPlan   Json?    @map("coach_plan") // Coach Agent 输出(同上)
+  weeklyHours Int?     @map("weekly_hours") // 技能分析表单每周投入小时(重生成时覆盖)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("job_matches")
 }
