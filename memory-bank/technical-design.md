@@ -846,3 +846,15 @@ resume 命名空间四端点(全部 requireOwnedXxx 护栏):
 - **`BaseAgent.parseOutput` 失败日志**(`NODE_ENV !== "test"` 才输出):`[careeros][agent:<name>] 输出解析失败:<字段级 zod 错误>` + 原始输出前 500 字符——定位真实 Provider 下解析失败的字段。
 
 效果:mock 下「粘贴 JD → 匹配报告 → 一键 90 天计划」浏览器全链路可走通(演示数据);真实分析质量仍待 DeepSeek Key。测试 +9(712/712,76 文件)。
+
+### 12.8 Coach 优先级矩阵确定性归一化(2026-08-23 补)
+
+问题:用户配置真实 DeepSeek Key 后,教练计划连续 3 次 502「AI 返回了无法识别的结果」——`[careeros][agent:skill-coach-agent] 输出解析失败` 日志显示真实 LLM 反复违反 superRefine ②(优先级标签/排序违规即拒),如「测试文档编写 P0 与重要性 5/差距 中 不一致」「客户沟通与协作 P2 与重要性 4/差距 小 不一致」「矩阵未按重要性/差距降序」→ 整份计划被拒。
+
+修复:**确定性产品规则不信任模型自报**——superRefine ② 整体移除,改为 `.transform()` 归一化:
+
+- `expectedPriority(importance, gapSize)`:P0 ⇔ importance≥4 且 gap=大;P1 ⇔ (importance≥4 且 gap≠大) 或 (importance=3 且 gap=大);其余 P2——标签由 (importance, gapSize) 重算,不采用模型自报值;
+- 排序按 importance 降序、gapSize(大>中>小)降序重排;
+- 保留的 superRefine:①每周 ΣestimatedMinutes ≤ weeklyHours×60 ③周次连续 1..13 ④里程碑周 ∈ 1..13——**客观数值/结构约束仍严格拒绝**,主观标签约束改为归一化(与项目既有归一化哲学一致:资源免费前置、无画像归一化、echo 交叉校验)。
+
+实现要点:transform 使 `z.infer` = 输出类型;`expectedPriority` 必须显式标注返回类型 `"P0" | "P1" | "P2"`——嵌套三元 + `||` 组合 TS 会推断成 string,导致消费侧 `PRIORITY_STYLE[item.priority]` 索引报错(TS7053)。测试 +1(713/713,76 文件):既有 2 违规用例改归一化断言 + 新增「真实 LLM 典型违规组合」复刻用例(5 条乱序违规矩阵 → 归一化顺序与标签)。

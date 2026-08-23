@@ -2,8 +2,10 @@
 // 差距优先级矩阵 + 90 天提升计划(固定 13 周 = 91 天,覆盖 90 天验证口径)+ 里程碑 + 资源 + 风险。
 // 关键约束(superRefine):
 //  ① 每周任务总时长 ≤ 用户每周投入(weeklyHours 回显字段,跨字段校验依据);
-//  ② 优先级与 (importance, gapSize) 严格对应且按重要性降序(P0:重要≥4 且差距大);
 //  ③ 周次必须连续 1..13;④ 里程碑周次落在 1..13 内。
+// ② 优先级矩阵(P0:重要≥4 且差距大)不再「违规即拒」(2026-08-23 修正,见下方 transform):
+//   真实 LLM 反复自报违规标签(如重要性 5/差距中 标 P0、重要性 4/差距小 标 P2)导致整个计划被拒,
+//   改为确定性归一化——P0/P1/P2 由 (importance, gapSize) 重算 + 按重要性/差距降序重排,不信任模型自报。
 import { z } from "zod";
 
 export const coachPlanSchema = z
@@ -94,36 +96,7 @@ export const coachPlanSchema = z
       }
     });
 
-    // ② 优先级一致性:P0 ⇔ importance≥4 且 gap=大;P1 ⇔ (importance≥4 且 gap≠大) 或 (importance=3 且 gap=大);
-    //    其余 P2。且矩阵按 importance 降序、gapSize(大>中>小)降序排列。
-    const expectedPriority = (importance: number, gapSize: "大" | "中" | "小") =>
-      importance >= 4 && gapSize === "大"
-        ? "P0"
-        : (importance >= 4 && gapSize !== "大") || (importance === 3 && gapSize === "大")
-          ? "P1"
-          : "P2";
-    const gapRank = { 大: 2, 中: 1, 小: 0 } as const;
-    value.priorityMatrix.forEach((item, index) => {
-      if (item.priority !== expectedPriority(item.importance, item.gapSize)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `${item.skill} 的优先级 ${item.priority} 与重要性 ${item.importance}/差距 ${item.gapSize} 不一致`,
-          path: ["priorityMatrix", index, "priority"],
-        });
-      }
-      const previous = value.priorityMatrix[index - 1];
-      if (
-        previous &&
-        (previous.importance < item.importance ||
-          (previous.importance === item.importance && gapRank[previous.gapSize] < gapRank[item.gapSize]))
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `优先级矩阵未按重要性/差距降序排列(${previous.skill} 应排在 ${item.skill} 之后)`,
-          path: ["priorityMatrix", index],
-        });
-      }
-    });
+    // ② 已移除(2026-08-23):原「优先级标签/排序违规 → 拒绝整个输出」改为 transform 确定性归一化(见下方)。
 
     // ③ 周次连续 1..13(13 周 = 91 天,覆盖 90 天口径)
     const weekNumbers = value.weeks.map((w) => w.week);
@@ -146,5 +119,23 @@ export const coachPlanSchema = z
         });
       }
     });
+  })
+  .transform((value) => {
+    // ② 优先级归一化(2026-08-23):P0/P1/P2 由 (importance, gapSize) 确定性推导,不信任模型自报标签
+    //    (真实 LLM 反复违规:重要性 5/差距中 标 P0、重要性 4/差距小 标 P2、矩阵乱序 → 此前整份计划被拒);
+    //    标签重算 + 按重要性降序、差距(大>中>小)降序重排,保证 UI 的优先级矩阵恒满足产品规则。
+    // 显式标注返回类型:嵌套三元 + || 的组合 TS 会推断成 string,导致 z.infer 的 priority 类型退化为
+    // string(消费侧 PRIORITY_STYLE[item.priority] 索引报错);标注为字面量联合保持类型精确
+    const expectedPriority = (importance: number, gapSize: "大" | "中" | "小"): "P0" | "P1" | "P2" =>
+      importance >= 4 && gapSize === "大"
+        ? "P0"
+        : (importance >= 4 && gapSize !== "大") || (importance === 3 && gapSize === "大")
+          ? "P1"
+          : "P2";
+    const gapRank = { 大: 2, 中: 1, 小: 0 } as const;
+    const priorityMatrix = value.priorityMatrix
+      .map((item) => ({ ...item, priority: expectedPriority(item.importance, item.gapSize) }))
+      .sort((a, b) => b.importance - a.importance || gapRank[b.gapSize] - gapRank[a.gapSize]);
+    return { ...value, priorityMatrix };
   });
 export type CoachPlan = z.infer<typeof coachPlanSchema>;

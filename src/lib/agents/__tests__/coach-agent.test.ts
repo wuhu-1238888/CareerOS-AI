@@ -70,22 +70,43 @@ describe("Skill Coach Agent 边界用例", () => {
     );
   });
 
-  it("模型输出违反 P0 规则(重要 5 差距大却标 P1)→ AgentOutputError", async () => {
+  it("模型自报违规优先级(重要 5 差距大却标 P1)→ 归一化为 P0,不拒绝(2026-08-23 修正)", async () => {
     const invalid: CoachPlan = structuredClone(base.mockOutput);
     invalid.priorityMatrix[0]!.priority = "P1";
     const adapter = new MockAdapter(0, () => JSON.stringify(invalid));
-    await expect(skillCoachAgent.execute(base.input, {}, { adapter })).rejects.toBeInstanceOf(
-      AgentOutputError
-    );
+    const result = await skillCoachAgent.execute(base.input, {}, { adapter });
+    expect(result.data.priorityMatrix[0]).toMatchObject({ skill: "Redis 与缓存", priority: "P0" });
   });
 
-  it("模型输出矩阵未按重要性降序 → AgentOutputError", async () => {
+  it("模型输出矩阵未按重要性降序 → 归一化重排,不拒绝(2026-08-23 修正)", async () => {
     const invalid: CoachPlan = structuredClone(base.mockOutput);
     invalid.priorityMatrix = [invalid.priorityMatrix[3]!, invalid.priorityMatrix[0]!];
     const adapter = new MockAdapter(0, () => JSON.stringify(invalid));
-    await expect(skillCoachAgent.execute(base.input, {}, { adapter })).rejects.toBeInstanceOf(
-      AgentOutputError
-    );
+    const result = await skillCoachAgent.execute(base.input, {}, { adapter });
+    const importances = result.data.priorityMatrix.map((m) => m.importance);
+    expect(importances).toEqual([...importances].sort((a, b) => b - a));
+    expect(result.data.priorityMatrix[0]!.skill).toBe("Redis 与缓存");
+  });
+
+  it("真实 LLM 典型违规组合(重要 5/差距中 标 P0、重要 4/差距小 标 P2、乱序)→ 全部归一化", async () => {
+    // 复刻 2026-08-23 DeepSeek 实际输出:重要性高但差距非「大」被标 P0、重要性 4 差距小被标 P2、矩阵乱序
+    const invalid: CoachPlan = structuredClone(base.mockOutput);
+    invalid.priorityMatrix = [
+      { skill: "测试文档编写", importance: 5, gapSize: "中", priority: "P0", reason: "x" },
+      { skill: "软件测试流程", importance: 4, gapSize: "中", priority: "P0", reason: "x" },
+      { skill: "计算机基础知识", importance: 5, gapSize: "小", priority: "P2", reason: "x" },
+      { skill: "客户沟通与协作", importance: 4, gapSize: "小", priority: "P2", reason: "x" },
+      { skill: "性能测试工具", importance: 3, gapSize: "中", priority: "P1", reason: "x" },
+    ];
+    const adapter = new MockAdapter(0, () => JSON.stringify(invalid));
+    const result = await skillCoachAgent.execute(base.input, {}, { adapter });
+    expect(result.data.priorityMatrix.map((m) => [m.skill, m.priority])).toEqual([
+      ["测试文档编写", "P1"], // 重要 5 + 差距中 → P1(不是模型自报的 P0);同重要性时差距大者在前
+      ["计算机基础知识", "P1"], // 重要 5 + 差距小 → P1(不是模型自报的 P2)
+      ["软件测试流程", "P1"],
+      ["客户沟通与协作", "P1"], // 重要 4 + 差距小 → P1(不是模型自报的 P2)
+      ["性能测试工具", "P2"], // 重要 3 + 差距中 → P2(不是模型自报的 P1)
+    ]);
   });
 
   it("模型输出 12 周(周数不足)→ AgentOutputError", async () => {

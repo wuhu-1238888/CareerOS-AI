@@ -370,7 +370,7 @@
 - 依赖:任务 1.6(Agent 基座)。
 - 验证:样例集:输出通过 schema 校验;计划覆盖 90 天且每周任务数与每周投入时间匹配(时间预算一致性);差距排序与「重要性 × 差距」矩阵一致(抽查);资源推荐均标注免费/付费。
 - 产出物:Coach Agent + Prompt + 样例集。
-- **状态:2026-08-23 已完成**(commit `beab976`)。偏差记录:①周数**固定 13 周**(12 周=84 天 < 90 天,13 周=91 天覆盖 90 天验收);②成功落库前 **echo 交叉校验**(output.weeklyHours ≠ input.weeklyHours → ok:false 不落库,重试从 AgentRun.input 重放);③resources 免费前置排序。
+- **状态:2026-08-23 已完成**(commit `beab976`)。偏差记录:①周数**固定 13 周**(12 周=84 天 < 90 天,13 周=91 天覆盖 90 天验收);②成功落库前 **echo 交叉校验**(output.weeklyHours ≠ input.weeklyHours → ok:false 不落库,重试从 AgentRun.input 重放);③resources 免费前置排序;④2026-08-23 修正:superRefine ②「优先级标签/排序违规即拒」改为 **transform 确定性归一化**——真实 DeepSeek 反复自报违规标签(重要性 5/差距中 标 P0、重要性 4/差距小 标 P2、矩阵乱序)导致整份计划被拒,P0/P1/P2 改由 (importance, gapSize) 重算 + 按重要性/差距降序重排(不信任模型自报;预算/周连续/里程碑仍严格拒绝)。
 
 **任务 6.4 技能分析页**
 
