@@ -10,6 +10,7 @@ export const config = {
     "/profile/:path*",
     "/navigator/:path*",
     "/resume/:path*",
+    "/resumes/:path*",
     "/settings/:path*",
   ],
 };
