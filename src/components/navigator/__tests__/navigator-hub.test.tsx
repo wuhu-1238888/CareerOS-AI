@@ -57,6 +57,9 @@ const mocks = vi.hoisted(() => ({
   invalidateRoadmap: vi.fn(),
 }));
 
+// 6.8:ShareDialog 动态 import html-to-image,jsdom 下统一 mock(下载行为在 share-dialog.test 覆盖)
+vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
+
 vi.mock("@/trpc/client", () => ({
   trpc: {
     useUtils: () => ({
@@ -349,5 +352,21 @@ describe("NavigatorHub 状态机", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: "太难了" }));
     expect(await screen.findByText("AI 返回了无法识别的结果,请稍后重试")).toBeInTheDocument();
     expect(mocks.invalidateRoadmap).not.toHaveBeenCalled();
+  });
+
+  it("分享路线图(6.8):概览带按钮打开分享对话框,卡片数据与时间线同源", async () => {
+    mocks.roadmapData = roadmapData;
+    render(<NavigatorHub />);
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "分享路线图" }));
+    expect(await screen.findByText("分享图片")).toBeInTheDocument();
+    expect(screen.getByText("下载图片后分享到微信、朋友圈或其他渠道")).toBeInTheDocument();
+    // 卡片:标题 + 路径文案(概览带也有一份 → 2 处)+ 阶段列表 + 总进度
+    expect(screen.getByText("我的成长路线")).toBeInTheDocument();
+    expect(screen.getAllByText("成为「后端开发」的 6 个月 路径")).toHaveLength(2);
+    expect(screen.getByLabelText("成长阶段")).toHaveTextContent("夯实基础");
+    expect(screen.getByLabelText("成长阶段")).toHaveTextContent("框架进阶");
+    expect(screen.getByText("总进度 0% · 每周 10 小时")).toBeInTheDocument();
   });
 });

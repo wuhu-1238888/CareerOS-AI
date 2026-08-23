@@ -10,6 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { DirectionForm, type DirectionFormInput, type SuggestedDirection } from "./direction-form";
 import { RoadmapTimeline } from "./roadmap-timeline";
+import { ShareCard } from "@/components/shared/share-card";
+import { ShareDialog } from "@/components/shared/share-dialog";
 import { AnalysisView } from "@/components/profile/analysis-view";
 
 function friendlyError(err: unknown): string {
@@ -31,6 +33,7 @@ export function NavigatorHub() {
   const [regenerateMode, setRegenerateMode] = useState(false);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [regeneratingStageId, setRegeneratingStageId] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const lastInput = useRef<DirectionFormInput | null>(null);
   const finishedRef = useRef(false);
 
@@ -194,15 +197,41 @@ export function NavigatorHub() {
       />
     );
   } else if (hasRoadmap && roadmap.data) {
+    // 分享卡片(6.8)总进度:与 RoadmapTimeline 概览带同一计算口径(完成任务 / 全部任务)
+    const totalTasks = roadmap.data.stages.reduce((sum, stage) => sum + stage.tasks.length, 0);
+    const completedTasks = roadmap.data.stages.reduce(
+      (sum, stage) => sum + stage.tasks.filter((task) => task.status === "completed").length,
+      0
+    );
+    const sharePercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
     view = (
-      <RoadmapTimeline
-        roadmap={roadmap.data}
-        onRegenerate={handleRegenerate}
-        onToggleTask={handleToggleTask}
-        onFeedbackTask={handleFeedbackTask}
-        regeneratingStageId={regeneratingStageId}
-        pendingTaskId={pendingTaskId}
-      />
+      <>
+        <RoadmapTimeline
+          roadmap={roadmap.data}
+          onRegenerate={handleRegenerate}
+          onShare={() => setShareOpen(true)}
+          onToggleTask={handleToggleTask}
+          onFeedbackTask={handleFeedbackTask}
+          regeneratingStageId={regeneratingStageId}
+          pendingTaskId={pendingTaskId}
+        />
+        <ShareDialog open={shareOpen} onOpenChange={setShareOpen} fileName="careeros-路线图分享.png">
+          <ShareCard
+            data={{
+              variant: "roadmap",
+              targetDirection: roadmap.data.targetDirection,
+              totalDuration: roadmap.data.summary?.totalDuration ?? null,
+              finalGoal: roadmap.data.summary?.finalGoal ?? null,
+              weeklyHours: roadmap.data.weeklyHours,
+              stages: roadmap.data.stages.map((stage) => ({
+                name: stage.name,
+                goal: stage.goal,
+              })),
+              percent: sharePercent,
+            }}
+          />
+        </ShareDialog>
+      </>
     );
   } else if (failedRun) {
     view = (

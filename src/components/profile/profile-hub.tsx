@@ -163,6 +163,7 @@ export function ProfileHub() {
         initial={profile.data}
         onCorrect={() => setCorrectionOpen(true)}
         onUpdate={() => enterFormMode("update")}
+        userName={me.data.name ?? undefined}
       />
     );
   } else if (failedRun) {

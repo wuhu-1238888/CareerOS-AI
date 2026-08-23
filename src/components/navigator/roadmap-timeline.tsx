@@ -5,7 +5,7 @@
 // 遵循 DesignSystem「Career Roadmap」与 DesignRules「职业路线页」:无横向甘特图、一屏 ≤4 阶段、
 // 无完成弹窗庆祝、无付费课程引导;任务状态符号 + 文字双通道;全 token 类名,零硬编码色值。
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiBadge } from "@/components/shared/ai-badge";
 import { cn } from "@/lib/utils";
@@ -71,6 +71,7 @@ function stageIsDone(stage: TimelineStage): boolean {
 export function RoadmapTimeline({
   roadmap,
   onRegenerate,
+  onShare,
   onToggleTask,
   onFeedbackTask,
   regeneratingStageId,
@@ -79,6 +80,8 @@ export function RoadmapTimeline({
   roadmap: TimelineRoadmap;
   /** 概览带「重新生成」入口(hub 注入);未提供时按钮不显示 */
   onRegenerate?: () => void;
+  /** 6.8 概览带「分享路线图」入口(hub 注入,照 onRegenerate 模式);未提供时按钮不显示 */
+  onShare?: () => void;
   /** 3.5 接线:任务三态切换(未提供时任务只读) */
   onToggleTask?: (taskId: string, nextStatus: string) => void;
   /** 3.5 接线:任务反馈(太难了/已经会了,触发单阶段重生成) */
@@ -190,6 +193,12 @@ export function RoadmapTimeline({
             <div className="mt-1.5 flex items-center gap-3">
               {currentStageName ? (
                 <span className="text-caption text-ink-muted">当前阶段:{currentStageName}</span>
+              ) : null}
+              {onShare ? (
+                <Button type="button" variant="ghost" onClick={onShare}>
+                  <Share2 aria-hidden />
+                  分享路线图
+                </Button>
               ) : null}
               {onRegenerate ? (
                 <Button type="button" variant="secondary" onClick={onRegenerate}>

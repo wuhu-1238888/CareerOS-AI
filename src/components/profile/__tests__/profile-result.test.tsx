@@ -39,6 +39,9 @@ vi.mock("@/trpc/client", () => ({
   },
 }));
 
+// 6.8:ShareDialog 动态 import html-to-image,jsdom 下统一 mock(下载行为在 share-dialog.test 覆盖)
+vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
+
 const analysis: ProfileAnalysis = {
   summary: "计算机专业应届生,具备后端开发与数据处理的实践基础。",
   abilityTags: [
@@ -255,5 +258,19 @@ describe("ProfileResult", () => {
     window.history.replaceState({}, "", "/profile");
     render(<ProfileResult initial={row} />);
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("分享画像卡(6.8):Hero 按钮打开分享对话框,卡片数据与页面同源", async () => {
+    render(<ProfileResult initial={row} userName="张伟" />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "分享画像卡" }));
+    expect(await screen.findByText("分享图片")).toBeInTheDocument();
+    expect(screen.getByText("下载图片后分享到微信、朋友圈或其他渠道")).toBeInTheDocument();
+    // 卡片:昵称 + 摘要(页面概要卡也有一份 → 2 处)+ 能力标签列表(页面 + 卡片 → 2 份)
+    expect(screen.getByText("张伟")).toBeInTheDocument();
+    expect(screen.getAllByText(analysis.summary)).toHaveLength(2);
+    expect(screen.getAllByLabelText("能力标签")).toHaveLength(2);
+    // 分值条替代雷达:卡片用「六维能力」列表,页面用「雷达数据」列表,数据同源
+    expect(screen.getByLabelText("六维能力")).toBeInTheDocument();
+    expect(screen.getByLabelText("雷达数据")).toBeInTheDocument();
   });
 });

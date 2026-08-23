@@ -178,6 +178,19 @@ describe("RoadmapTimeline 概览带(UI/UX 优化)", () => {
     expect(screen.getByRole("button", { name: "重新生成" })).toBeInTheDocument();
   });
 
+  it("6.8 分享:提供 onShare 渲染「分享路线图」并触发回调", async () => {
+    const onShare = vi.fn();
+    render(<RoadmapTimeline roadmap={roadmap} onShare={onShare} />);
+    const button = screen.getByRole("button", { name: "分享路线图" });
+    await userEvent.setup().click(button);
+    expect(onShare).toHaveBeenCalledTimes(1);
+  });
+
+  it("6.8 分享:未提供 onShare 时按钮不渲染", () => {
+    render(<RoadmapTimeline roadmap={roadmap} />);
+    expect(screen.queryByRole("button", { name: "分享路线图" })).toBeNull();
+  });
+
   it("全部阶段完成:总进度 100% 且不显示当前阶段名", () => {
     const allDone: TimelineRoadmap = {
       ...roadmap,

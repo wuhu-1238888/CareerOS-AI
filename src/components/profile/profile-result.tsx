@@ -13,7 +13,7 @@ import {
   PolarAngleAxis,
   Radar,
 } from "recharts";
-import { Check, ChevronDown, Compass, FileText, X } from "lucide-react";
+import { Check, ChevronDown, Compass, FileText, Share2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -23,6 +23,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AiBadge } from "@/components/shared/ai-badge";
+import { ShareCard } from "@/components/shared/share-card";
+import { ShareDialog } from "@/components/shared/share-dialog";
 import { ProfileGlance, CONFIDENCE_STYLE } from "./profile-glance";
 import { HistoryCompare } from "./history-compare";
 import { trpc } from "@/trpc/client";
@@ -84,13 +86,17 @@ export function ProfileResult({
   initial,
   onCorrect,
   onUpdate,
+  userName,
 }: {
   initial: ResultProfile;
   /** 2.6 纠偏入口:未接线时「这不是我」按钮禁用 */
   onCorrect?: () => void;
   /** 2.7 主动更新入口:回到表单预填最新数据;未接线时「更新信息」按钮禁用 */
   onUpdate?: () => void;
+  /** 6.8 分享卡昵称(hub 从 user.me 传入;未提供时卡片不显示昵称行) */
+  userName?: string;
 }) {
+  const [shareOpen, setShareOpen] = useState(false);
   const versions = trpc.profile.listVersions.useQuery();
   const [viewingId, setViewingId] = useState<string | null>(null);
   const versionQuery = trpc.profile.getVersion.useQuery(
@@ -175,6 +181,10 @@ export function ProfileResult({
           <div className="flex gap-2">
             <Button variant="ghost" disabled={!onUpdate} onClick={onUpdate}>
               更新信息
+            </Button>
+            <Button variant="ghost" onClick={() => setShareOpen(true)}>
+              <Share2 aria-hidden />
+              分享画像卡
             </Button>
             <Button variant="ghost" asChild>
               <Link href="/resume">
@@ -407,6 +417,28 @@ export function ProfileResult({
           </div>
         </div>
       </section>
+
+      {/* 分享画像卡(6.8):Hero「分享画像卡」入口;数据全部来自已解析的 analysis,无新查询 */}
+      <ShareDialog open={shareOpen} onOpenChange={setShareOpen} fileName="careeros-画像分享.png">
+        <ShareCard
+          data={{
+            variant: "profile",
+            nickname: userName,
+            summary: analysis.summary,
+            abilityTags: analysis.abilityTags,
+            strengths: analysis.strengths.slice(0, 3).map((strength) => ({
+              title: strength.title,
+            })),
+            topDirection: analysis.directions[0]
+              ? {
+                  name: analysis.directions[0].name,
+                  matchScore: analysis.directions[0].matchScore,
+                }
+              : null,
+            radar: radarData,
+          }}
+        />
+      </ShareDialog>
     </div>
   );
 }
