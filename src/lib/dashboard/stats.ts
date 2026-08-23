@@ -50,6 +50,8 @@ export type DashboardStats = {
     lastActivityFileName: string | null;
     /** 最近工作简历的优化版本数(按简历分组计数;无简历 → 0) */
     lastActivityVersionCount: number;
+    /** 最近工作简历最新优化版本的待处理建议数(无简历/无版本 → null,KPI 显示「—」不伪造 0) */
+    pendingCount: number | null;
   };
   weekTasks: {
     /** 本周完成的任务数(上海时区周一起) */
@@ -188,6 +190,17 @@ export async function computeDashboardStats(
   lastActivity ??= latestResume;
   const versionCountByResume = new Map(versionGroups.map((g) => [g.resumeId, g._count._all]));
   const lastActivityVersionCount = lastActivity ? (versionCountByResume.get(lastActivity.id) ?? 0) : 0;
+  // 待处理建议(工作台导航优化 P2):最近工作简历最新优化版本(createdAt desc,id desc 决胜)的
+  // Optimization(status=pending)计数 —— 「最新版本」口径与结果页一致,旧版本遗留 pending 不计。
+  // 依赖 lastActivity 派生结果 → 顺序追加一查(非 N+1);查询预算 = 12 并行 + 1 顺序。
+  // 无简历/无版本 → null(KPI 显示「—」,不伪造 0)。
+  const pendingCount = lastActivity
+    ? await prisma.resumeVersion.findFirst({
+        where: { resumeId: lastActivity.id },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { _count: { select: { optimizations: { where: { status: "pending" } } } } },
+      })
+    : null;
   const topScoreOf = (p: (typeof latest)) => {
     const top = p?.careerPaths[0];
     return top && typeof top.matchScore === "number" ? top.matchScore : null;
@@ -241,6 +254,7 @@ export async function computeDashboardStats(
       lastActivityId: lastActivity?.id ?? null,
       lastActivityFileName: lastActivity?.fileName ?? null,
       lastActivityVersionCount,
+      pendingCount: pendingCount?._count.optimizations ?? null,
     },
     weekTasks: { completed: weekCompleted, delta },
     agents: {

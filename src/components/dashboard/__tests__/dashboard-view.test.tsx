@@ -64,6 +64,7 @@ function emptyStats(): DashboardStats {
       lastActivityId: null,
       lastActivityFileName: null,
       lastActivityVersionCount: 0,
+      pendingCount: null,
     },
     weekTasks: { completed: 0, delta: null },
     agents: {
@@ -102,6 +103,7 @@ function contentStats(): DashboardStats {
       lastActivityId: "resume-r1",
       lastActivityFileName: "简历.docx",
       lastActivityVersionCount: 3,
+      pendingCount: 2,
     },
     weekTasks: { completed: 3, delta: 1 },
     agents: {
@@ -157,7 +159,7 @@ describe("DashboardView", () => {
     expect(screen.getByText("从职业画像开始你的探索")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "开始职业探索" })).toHaveAttribute("href", "/profile");
     expect(screen.queryByText("岗位匹配度")).toBeNull();
-    expect(screen.queryByText("简历版本数")).toBeNull();
+    expect(screen.queryByText("待处理建议")).toBeNull();
     expect(screen.queryByText("下一步建议")).toBeNull(); // 空态走引导卡,不重复给下一步
   });
 
@@ -171,9 +173,10 @@ describe("DashboardView", () => {
     expect(screen.getByText("88")).toBeInTheDocument();
     expect(screen.getByText("路线图进度")).toBeInTheDocument();
     expect(screen.getByText("43%")).toBeInTheDocument();
-    expect(screen.getByText("简历版本数")).toBeInTheDocument();
-    expect(screen.getAllByText("3")).toHaveLength(2); // 简历版本数 = 3 且 本周任务 = 3
+    expect(screen.getByText("待处理建议")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument(); // 待处理建议 = 2(最近版本 2 条 pending)
     expect(screen.getByText("本周任务")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument(); // 本周任务 = 3(简历版本数已由待处理建议替换)
     // 增量徽章
     expect(screen.getByText("较上次 +16%")).toBeInTheDocument();
     expect(screen.getByText("较上周 +1")).toBeInTheDocument();

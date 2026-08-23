@@ -1,6 +1,7 @@
 // @vitest-environment node
 // 工作台聚合查询测试(5.1,真实写库):KPI 数据、增量徽章基线、Agent 状态(含 running 超时判死)、
-// 上海时区周边界、task.updateStatus 完成时间维护、用户数据隔离
+// 上海时区周边界、task.updateStatus 完成时间维护、用户数据隔离、
+// 待处理建议(最近工作简历最新版本 pending 计数,工作台导航优化 P2)
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import bcrypt from "bcryptjs";
 import { createCaller } from "../router";
@@ -58,6 +59,7 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
       lastActivityId: null,
       lastActivityFileName: null,
       lastActivityVersionCount: 0,
+      pendingCount: null,
     });
     expect(stats.weekTasks).toEqual({ completed: 0, delta: null });
     expect(stats.agents.profile.status).toBe("idle");
@@ -358,6 +360,62 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
     // 乙 → 自己的简历
     const statsB = await caller(userIdB).dashboard.stats();
     expect(statsB.resume.lastActivityId).toBe(bResume);
+  });
+
+  it("待处理建议:最近工作简历最新版本 pending 计数(工作台导航优化 P2)", async () => {
+    const { id: resumeId } = await caller(userIdA).resume.createFromText({
+      text: "甲的新简历 数据分析师 三年经验\n技能:SQL Python",
+    });
+    const version = await prisma.resumeVersion.create({
+      data: { resumeId, targetDirection: "数据分析", changes: {} },
+    });
+    await prisma.optimization.createMany({
+      data: [
+        { resumeVersionId: version.id, status: "pending", order: 0 },
+        { resumeVersionId: version.id, status: "pending", order: 1 },
+        { resumeVersionId: version.id, status: "accepted", order: 2 },
+      ],
+    });
+    const stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(resumeId); // 无有效 run → 回退最新创建行
+    expect(stats.resume.pendingCount).toBe(2); // 仅 pending 计入,accepted 不计
+  });
+
+  it("待处理建议取最新版本口径:旧版本有 pending、新版本无 → 0", async () => {
+    const { id: resumeId } = await caller(userIdA).resume.createFromText({
+      text: "甲的另一份简历 产品经理 两年经验",
+    });
+    // 旧版本(显式旧 createdAt,避免同毫秒落库导致口径不确定)带 1 条 pending
+    const oldVersion = await prisma.resumeVersion.create({
+      data: {
+        resumeId,
+        targetDirection: "产品经理",
+        changes: {},
+        createdAt: new Date(Date.now() - 60 * 1000),
+      },
+    });
+    await prisma.optimization.create({
+      data: { resumeVersionId: oldVersion.id, status: "pending", order: 0 },
+    });
+    // 新版本无 pending(仅 1 条 accepted)
+    const newVersion = await prisma.resumeVersion.create({
+      data: { resumeId, targetDirection: "产品经理", changes: {} },
+    });
+    await prisma.optimization.create({
+      data: { resumeVersionId: newVersion.id, status: "accepted", order: 0 },
+    });
+    const stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(resumeId);
+    expect(stats.resume.pendingCount).toBe(0); // 最新版本口径:旧版本遗留 pending 不计
+  });
+
+  it("待处理建议:有简历无优化版本 → null(KPI「—」,不伪造 0)", async () => {
+    const { id: resumeId } = await caller(userIdA).resume.createFromText({
+      text: "甲的第三份简历 测试工程师 一年经验",
+    });
+    const stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(resumeId);
+    expect(stats.resume.pendingCount).toBeNull();
   });
 });
 

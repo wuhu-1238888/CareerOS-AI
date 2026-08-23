@@ -218,7 +218,7 @@ export function DashboardView() {
             <p className="mt-4 text-body-sm text-ink-secondary">路线图任务已全部完成,保持节奏</p>
           )}
 
-          {/* ③ KPI 行:岗位匹配度 / 路线图进度 / 简历版本数 / 本周任务(大数字 + 增量徽章) */}
+          {/* ③ KPI 行:岗位匹配度 / 路线图进度 / 待处理建议 / 本周任务(大数字 + 增量徽章) */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               label="岗位匹配度"
@@ -229,7 +229,10 @@ export function DashboardView() {
               label="路线图进度"
               value={data.roadmap.progress != null ? `${data.roadmap.progress}%` : "—"}
             />
-            <StatCard label="简历版本数" value={String(data.resume.versionCount)} />
+            <StatCard
+              label="待处理建议"
+              value={data.resume.pendingCount != null ? String(data.resume.pendingCount) : "—"}
+            />
             <StatCard
               label="本周任务"
               value={String(data.weekTasks.completed)}
