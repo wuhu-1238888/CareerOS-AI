@@ -835,3 +835,14 @@ resume 命名空间四端点(全部 requireOwnedXxx 护栏):
 **换肤机制(类名零改动)**:`globals.css` 的 `:root` / `.dark` 各定义 20 个 `--careeros-*` CSS 变量,存「H S% L%」三元组(浅色值 = tokens.ts hex 转 HSL,深色值见 DesignSystem.md front matter `darkColors:`);`tailwind.config.ts` 把主题相关 key(canvas/surface/sunken/hairline×2/ink×4/green-50·100/violet-50/语义色 8 个)包装为 `hsl(var(--careeros-x))` —— Tailwind 透明度修饰符编译为 `hsl(var(--careeros-sunken) / 0.5)`,既有 `bg-primary/90` 先例证明可行;green-400~800 / violet-400·700 / chart.* / boxShadow 保持静态(两主题一致)。`.dark` 同时设 `color-scheme: dark` + shadcn 变量 remap(destructive-foreground 换 canvas 深色文字——白字对 `#f87171` 2.77:1 不达标;accent-foreground 换 green-400)。**tokens.ts 保持浅色 hex** 供 PDF 生成等非 DOM 消费者;`use-token-color` hook(getComputedStyle 读变量 + `themechange` 监听)接三处 Recharts 雷达 grid/tick(profile-result/history-compare/match-report),PDF 保持浅色。
 
 **三态切换(手写 ~90 行,不引 next-themes)**:`ThemeProvider`(localStorage `careeros-theme`,非法值回退 system;system 态挂 matchMedia change 监听;`classList.toggle("dark")` + 派发 `themechange` 事件;隐私模式写失败静默);`ThemeToggle` 两变体(menu=顶栏头像下拉「外观」组,card=设置页「外观」卡;radiogroup 语义 + aria-checked);`layout.tsx` `<html suppressHydrationWarning>` + `<head>` 内联脚本防 FOUC。业务适配:7 文件 12 处 `bg-white` → `bg-card`;dev/tokens 页新增「深色渲染效果」区(`<div className="dark">` 包裹预览,零新机制)。
+
+### 12.7 Mock 演示数据分发(2026-08-23 补)
+
+问题:`.env` 默认 `LLM_PROVIDER="mock"`,Mock 原为「回显最后一条用户消息」纯文本 → extractJson 失败 → AgentOutputError → 匹配/教练在浏览器端必走失败分支。修复(用户拍板「mock 必须符合前端类型要求」):
+
+- **`LLMOptions` 增 `agentName` 字段**(BaseAgent 的 `llmOptions()` 恒携带 `config.name`;真实 Provider 忽略,DeepSeek 等只映射 model/temperature/maxTokens)。
+- **`src/lib/llm/mock-fixtures.ts`**:`mockMatchAnalysisFixture()`(与 6.1 样例集 backend-with-profile 同源,固定夹具);`mockCoachPlanFixture(messages)`(容错解析末条用户消息 → weeklyHours 原样回显 + 差距清单按 schema 同源规则推导优先级矩阵并降序 + 13 周每周 1 任务,单任务时长 `min(120, max(20, weeklyHours×30))` 保证 ≤ 预算一半)。
+- **`mock.ts` 默认回复按 agentName 分发**(job-matching-agent / skill-coach-agent → 演示 JSON;未知 Agent 保持回显——旧测试与输入传递断言依赖),dev 环境打印 `[careeros][mock] agent=…` 分发日志。
+- **`BaseAgent.parseOutput` 失败日志**(`NODE_ENV !== "test"` 才输出):`[careeros][agent:<name>] 输出解析失败:<字段级 zod 错误>` + 原始输出前 500 字符——定位真实 Provider 下解析失败的字段。
+
+效果:mock 下「粘贴 JD → 匹配报告 → 一键 90 天计划」浏览器全链路可走通(演示数据);真实分析质量仍待 DeepSeek Key。测试 +9(712/712,76 文件)。

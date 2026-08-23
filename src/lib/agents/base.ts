@@ -153,6 +153,7 @@ export abstract class BaseAgent<TInput = unknown, TOutput = unknown> {
     try {
       raw = extractJson(text);
     } catch {
+      this.logParseFailure("输出不是合法 JSON", text);
       throw new AgentOutputError(this.config.name, text, "输出不是合法 JSON");
     }
     const parsed = this.config.outputSchema.safeParse(raw);
@@ -160,15 +161,27 @@ export abstract class BaseAgent<TInput = unknown, TOutput = unknown> {
       const details = parsed.error.issues
         .map((issue) => `${issue.path.join(".") || "(根)"}: ${issue.message}`)
         .join("; ");
+      this.logParseFailure(details, text);
       throw new AgentOutputError(this.config.name, text, details);
     }
     return parsed.data as TOutput;
   }
 
+  /** 解析失败排障日志(2026-08 补):agent 名 + 字段级 zod 错误 + 原始输出预览;测试环境静默 */
+  private logParseFailure(details: string, rawText: string) {
+    if (process.env.NODE_ENV === "test") return;
+    console.log(
+      `[careeros][agent:${this.config.name}] 输出解析失败:${details}\n` +
+        `[careeros][agent:${this.config.name}] 原始输出前 500 字符:${rawText.slice(0, 500)}`
+    );
+  }
+
   private llmOptions() {
-    const options: { model?: string; temperature?: number } = {};
+    const options: { model?: string; temperature?: number; agentName?: string } = {};
     if (this.config.model) options.model = this.config.model;
     if (this.config.temperature !== undefined) options.temperature = this.config.temperature;
-    return Object.keys(options).length > 0 ? options : undefined;
+    // Mock 适配器按 agentName 分发演示数据;真实 Provider 忽略该字段
+    options.agentName = this.config.name;
+    return options;
   }
 }

@@ -39,6 +39,11 @@ export interface LLMOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /**
+   * 发起调用的 Agent 名(config.name)。仅供 Mock 适配器按 Agent 分发 schema 合规的演示数据;
+   * 真实 Provider(deepseek/openai/anthropic)忽略该字段。
+   */
+  agentName?: string;
 }
 
 export interface LLMUsage {

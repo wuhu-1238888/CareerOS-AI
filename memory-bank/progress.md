@@ -3,10 +3,10 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10 与阶段 7 按用户指示未执行
-- **最近更新**:2026-08-23,Stage 6 全部完成(6.9 深色模式 `56d2477` 收尾);工程侧验收终跑通过(703/703 测试 + typecheck/lint 干净),剩余 = 用户浏览器走查 **Phase 2 整体验收**(清单见 stage6-acceptance-checklist.md,P0/P1 表待用户填写)
+- **最近更新**:2026-08-23,修复「匹配页报错无法识别结果」——mock 模式按 agentName 分发 schema 合规演示数据(匹配/教练全链路可在浏览器走通)+ Agent 解析失败字段级日志;工程侧验收终跑通过(712/712 测试 + typecheck/lint 干净),剩余 = 用户浏览器走查 **Phase 2 整体验收**(清单见 stage6-acceptance-checklist.md,P0/P1 表待用户填写)
 - **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
 - **当前状态**:**Stage 6 已实现,等待 Phase 2 整体验收(链路验收 + Phase 1 回归)**。不执行 6.10 与阶段 7(用户指示)。
-- **测试基线**:703 个测试 / 75 个文件全部通过;typecheck / lint 零错误;生产构建成功(深色变量编译产物已验证);prompt 打包 8/8(matching/coach 新增 2 份)打入 tRPC Serverless 路由
+- **测试基线**:712 个测试 / 76 个文件全部通过;typecheck / lint 零错误;生产构建成功(深色变量编译产物已验证);prompt 打包 8/8(matching/coach 新增 2 份)打入 tRPC Serverless 路由
 
 ## 已完成的工作
 
@@ -724,7 +724,7 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 
 ## 测试结果
 
-- 每个任务提交前全量测试绿;6.9 后全套 **703/703(75 文件)全绿**;typecheck / lint 零错误
+- 每个任务提交前全量测试绿;6.9 后全套 **703/703(75 文件)全绿**;mock 演示数据修复后 **712/712(76 文件)全绿**;typecheck / lint 零错误
 - 6.9 新增 13 用例 / 3 文件:theme-provider 7(默认 system/切深色挂类+持久化+themechange/system 跟随 matchMedia/显式 dark 不监听/存储值恢复/非法值回退/系统深色偏好)、theme-toggle 3(radiogroup 三态/aria-checked 转移+持久化/card 变体)、appearance-form 2(说明文案随主题)、topbar 外观组 1
 - 生产构建成功:`.dark` 变量块与双 color-scheme 进入产物;`bg-sunken/50` → `hsl(var(--careeros-sunken)/.5)` 透明度修饰符验证通过;prompt 打包 8/8 .nft.json 验证
 - grep 自检:变更文件零新增硬编码色值;`bg-white` 业务类零残留(12 处已转 bg-card)
@@ -732,7 +732,7 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 ## 已知问题(遗留)
 
 1. **风险 4 落位**:Coach「run 成功但 echo 不符不落库」边缘态(LLM 篡改 weeklyHours 回显)——ok:false 不落库、AgentRun 按 succeeded 记录、客户端重试从 AgentRun.input 重放可恢复;真实 LLM 下该路径的出现频率待验证
-2. Matching/Coach 真实 LLM 分析质量未验证(样例集 + Mock 已固化,与遗留 #1/#9 同源,待 DeepSeek Key)
+2. Matching/Coach 真实 LLM 分析质量未验证(样例集 + Mock 已固化,与遗留 #1/#9 同源,待 DeepSeek Key)。**Mock 演示数据说明**(2026-08-23 补):`LLM_PROVIDER=mock` 时默认 Mock 按 agentName 分发 schema 合规演示数据,浏览器可走通匹配/教练全链路;匹配报告为固定夹具(与粘贴的 JD 内容无关,positionTitle 固定「后端开发工程师」),教练计划由输入动态生成(weeklyHours 回显、矩阵按重要性×差距推导)
 3. 分享卡为浅色底截图(DesignRules 已明确),不含雷达图(分值条替代,html-to-image 对 Recharts SVG 截图不可靠)
 4. 微信登录待微信开放平台凭据(任务 6.7 暂缓,策略不变)
 5. 深色模式浏览器人工走查项:全站页面深色下四态与对比度逐页走查待用户验收(dev/tokens 深色区可自查)

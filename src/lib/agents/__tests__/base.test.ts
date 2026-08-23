@@ -2,7 +2,7 @@
 // BaseAgent 单测(1.6):执行过 schema、进度多条有序增量、非法输入/输出报领域错误、Prompt 文件加载
 import { describe, it, expect } from "vitest";
 import { MockAdapter } from "@/lib/llm/mock";
-import type { ChatMessage } from "@/lib/llm/adapter";
+import type { ChatMessage, LLMAdapter, LLMOptions } from "@/lib/llm/adapter";
 import { extractJson } from "../base";
 import { AgentInputError, AgentOutputError } from "../types";
 import { SummaryAgent, VALID_JSON_REPLY, summaryOutputSchema, DEFAULT_CONTEXT } from "./fixtures";
@@ -78,6 +78,22 @@ describe("BaseAgent.execute", () => {
     await expect(
       agent.execute(validInput, DEFAULT_CONTEXT, { adapter: adapterWith(wrongShape) })
     ).rejects.toThrow(/未通过校验/);
+  });
+
+  it("complete 调用携带 options.agentName = config.name(Mock 分发依据,2026-08 补)", async () => {
+    const capturedOptions: (LLMOptions | undefined)[] = [];
+    const spyAdapter: LLMAdapter = {
+      name: "spy",
+      async complete(_messages: ChatMessage[], options?: LLMOptions) {
+        capturedOptions.push(options);
+        return { text: VALID_JSON_REPLY, model: "spy", usage: { inputTokens: 0, outputTokens: 0 } };
+      },
+      async *stream() {
+        yield { delta: "" };
+      },
+    };
+    await agent.execute(validInput, DEFAULT_CONTEXT, { adapter: spyAdapter });
+    expect(capturedOptions[0]).toMatchObject({ agentName: "sample-summary" });
   });
 });
 
