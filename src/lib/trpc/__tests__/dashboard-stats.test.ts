@@ -127,8 +127,10 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
     });
     // t1 经 updateStatus 完成 → completedAt = 现在(本周)
     await caller(userIdA).navigator.task.updateStatus({ taskId: t1.id, status: "completed" });
-    // t2 直接落库上周完成时间(模拟历史完成)
-    const lastWeek = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    // t2 直接落库上周完成时间(模拟历史完成)。
+    // 锚定「now - 7 天」:对周一起的周边界,任意星期几运行都落在 [上周一, 本周一)(2026-08-24 修正:
+    // 原 now-8 天在周一运行时落到两周前,weekTasks.delta 断言 0 变 1)
+    const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     await prisma.task.update({ where: { id: t2.id }, data: { status: "completed", completedAt: lastWeek } });
     await caller(userIdA).navigator.task.updateStatus({ taskId: t3.id, status: "in_progress" });
 
