@@ -858,3 +858,36 @@ resume 命名空间四端点(全部 requireOwnedXxx 护栏):
 - 保留的 superRefine:①每周 ΣestimatedMinutes ≤ weeklyHours×60 ③周次连续 1..13 ④里程碑周 ∈ 1..13——**客观数值/结构约束仍严格拒绝**,主观标签约束改为归一化(与项目既有归一化哲学一致:资源免费前置、无画像归一化、echo 交叉校验)。
 
 实现要点:transform 使 `z.infer` = 输出类型;`expectedPriority` 必须显式标注返回类型 `"P0" | "P1" | "P2"`——嵌套三元 + `||` 组合 TS 会推断成 string,导致消费侧 `PRIORITY_STYLE[item.priority]` 索引报错(TS7053)。测试 +1(713/713,76 文件):既有 2 违规用例改归一化断言 + 新增「真实 LLM 典型违规组合」复刻用例(5 条乱序违规矩阵 → 归一化顺序与标签)。
+
+---
+
+## 十三、M7 补记:模拟面试(2026-08-24,任务 7.1–7.3 落地确认)
+
+### 13.1 数据模型:InterviewSession 单行 upsert
+
+- 单表每用户一行(`userId @unique`,镜像 JobMatch 先例):interviewType(行为面/技术面/案例面)/ questionCount(5|10|15)/ targetPosition / resumeText(场次快照 @db.Text)/ status(in_progress|completed)/ questions Json / currentQuestionIndex / answers Json / report Json?;迁移 `add_interview_session`。
+- **对话消息为派生数据,不建消息表**:questions + answers(questionId/answer/evaluation|null/followUpQuestion|null/followUpAnswer|null)单行存储,序列化层防御解析(损坏回退 null → 前端按无有效场次处理)。
+- **场次快照自洽**:resumeText/岗位/题型在 start 时快照,简历后续变更不影响已开场次(评估/报告重放亦以场次数据为准);开始新场次 = 覆盖式 upsert 重置全部(前端确认 Dialog)。
+
+### 13.2 三 Agent + 三 intent + 四管线
+
+- interview-question-agent(温度 0.7,intent `generate-interview-questions`):输入简历快照+岗位+类型+档位;五类题型全出现;输出经 pipeline 层 **echo 交叉校验**(questions.length ≠ questionCount → ok:false 不落库,重试从 run.input 重放)。
+- interview-answer-evaluator(温度 0,intent `evaluate-interview-answer`):每题独立 AgentRun(输入含问题快照+答案+简历快照+岗位);输出内容/表达 1-10 + 改进建议 + 追问(nullable)。
+- interview-report-agent(温度 0,intent `generate-interview-report`):输入 = 已评估题汇总摘要(每题 answer 截 800 字);只产出定性四要素(总体评价/突出优势/主要短板/1-2 重点改进方向),**均分由前端对已评估题确定性计算**(不信任 LLM 算术)。
+- 管线四个(镜像 coach 骨架:progressChain + adapter 注入 + AgentRun 日志 + 失败透传):runInterviewQuestions / runEvaluateAnswer(事务内答案先落库 + 评估写入,追问 null → index+1)/ runFollowUpAnswer(不触发 LLM)/ runInterviewReport(失败保持 in_progress;成功 report 落库 + status completed)。
+
+### 13.3 tRPC interview 命名空间(9 端点)
+
+get / start(服务端组装简历文本+画像摘要,覆盖式新建)/ submitAnswer(等待式:含 LLM 评估)/ evaluate(评估失败重试,重读该题已存答案)/ submitFollowUp / skipFollowUp / finish(双保险「至少完成一道题」,允许提前结束,未答/未评估不计入)/ retry(三路重放:run.input 仅作合法性门,评估/报告重放时按当前场次重组)/ latestRun。全走 requireOwnedXxx 护栏;失败 BAD_GATEWAY 中文兜底;serializeInterviewSession 返回解析后值(report: InterviewReport | null)。
+
+### 13.4 打字机渲染方案(替代 SSE,用户拍板)
+
+全项目无 SSE/WebSocket 基建 → 流式渲染 = **服务端落库后前端逐字渲染**:use-typewriter hook(rAF 每 20ms 批 2-3 字;`prefers-reduced-motion` 一次到位;setTimeout 回退保证 jsdom 测试可推进);仅本轮新出现的气泡打字(typedQuestions/typedFollowUps 集合登记),刷新恢复的历史消息整段渲染;等待期「面试官正在思考」气泡 role=status(不挂 aria-live,避免整段朗读)。
+
+### 13.5 页面状态机与恢复
+
+interview-hub 镜像 matching-hub(700ms 轮询 + finishedRef + runForView 防串),视图优先级:报告在途/失败 AnalysisView → 出题在途/失败 AnalysisView → setup → chat → 报告视图 → 进行中场次恢复 → 历史失败 run 恢复 → setup;双 finishedRef(出题/报告)各自驱动「run 已 succeeded 但场次未刷新」的恢复路径;报告失败视图「重试」会话内直接 finish,有失败报告 run(刷新恢复)则 retry 重放。
+
+### 13.6 防护与安全
+
+middleware matcher + authConfig.protectedPaths 两份列表:/interview 已两处齐备(未登录 307 → /login);发现 /matching、/resumes 不在 protectedPaths 的既有缺口(本轮范围外未动,记录于 progress.md 遗留 #2);userId 隔离:全部读写真身 `where: { userId: ctx.userId }`,runForView/latestRun 按 intent+userId 过滤防串。

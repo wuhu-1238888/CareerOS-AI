@@ -261,6 +261,31 @@ components:
   empty-state:
     padding: 64px 24px
     textColor: "{colors.ink-muted}"
+  # 模拟面试对话区(7.2/7.3,DesignRules 特许唯一聊天式布局):全部引用既有 token,零新增色值
+  interview-bubble-interviewer:
+    backgroundColor: "{colors.sunken}"
+    border: 1px solid "{colors.hairline}"
+    rounded: "{rounded.modal}"
+    padding: 12px 16px
+    typography: "{typography.body}"
+  interview-bubble-user:
+    backgroundColor: "{colors.green-600}"
+    textColor: "#ffffff"
+    rounded: "{rounded.modal}"
+    padding: 12px 16px
+    typography: "{typography.body}"
+  interview-eval-card:
+    backgroundColor: "{colors.sunken}"
+    border: 1px solid "{colors.hairline}"
+    rounded: "{rounded.modal}"
+    padding: 16px
+  interview-typing:
+    backgroundColor: "{colors.sunken}"
+    border: 1px solid "{colors.hairline}"
+    rounded: "{rounded.modal}"
+    padding: 12px 16px
+    typography: "{typography.body-sm}"
+    textColor: "{colors.ink-muted}"
 ---
 
 # CareerOS AI 设计系统

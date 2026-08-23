@@ -2,11 +2,11 @@
 
 ## 当前项目状态
 
-- **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10 与阶段 7 按用户指示未执行
-- **最近更新**:2026-08-23,修复「匹配页报错无法识别结果」两轮——①mock 模式按 agentName 分发 schema 合规演示数据(匹配/教练全链路可在浏览器走通)+ Agent 解析失败字段级日志;②真实 DeepSeek 下教练计划因优先级矩阵自报违规标签被整体拒绝 → superRefine ② 改为 transform 确定性归一化(P0/P1/P2 由 importance×gapSize 重算 + 降序重排,不信任模型自报;预算/周连续/里程碑仍严格拒绝);工程侧验收终跑通过(713/713 测试 + typecheck/lint 干净),剩余 = 用户浏览器走查 **Phase 2 整体验收**(清单见 stage6-acceptance-checklist.md,P0/P1 表待用户填写)
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
-- **当前状态**:**Stage 6 已实现,等待 Phase 2 整体验收(链路验收 + Phase 1 回归)**。不执行 6.10 与阶段 7(用户指示)。
-- **测试基线**:713 个测试 / 76 个文件全部通过;typecheck / lint 零错误;生产构建成功(深色变量编译产物已验证);prompt 打包 8/8(matching/coach 新增 2 份)打入 tRPC Serverless 路由
+- **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)** 全部完成并推送、**Stage 7(7.1–7.3)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10、7.4/7.5 与阶段 8 按用户指示未执行
+- **最近更新**:2026-08-24,完成 Stage 7(7.1–7.3)——模拟面试全链路:出题 Agent(三档 5/10/15 题)→ 特许对话界面(打字机渲染 + 每题即时评估 + 追问)→ 综合报告(定性四要素 + 前端确定性均分);三个 commit `da1684d` / `6157be4` / `fb24846` 已推送;834/834 测试 + typecheck/lint/build 全绿;剩余 = 用户浏览器走查 **Stage 7 人工验收**
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9、7.1 – 7.3 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
+- **当前状态**:**Stage 7(7.1–7.3)已实现,可以进入人工验收**。不执行 6.10、7.4/7.5 与阶段 8(用户指示)。
+- **测试基线**:834 个测试 / 85 个文件全部通过;typecheck / lint 零错误;生产构建成功(/interview 8.47kB);prompt 打包 11/11(interview 新增 3 份)打入 tRPC Serverless 路由
 
 ## 已完成的工作
 
@@ -741,3 +741,41 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 ## 下一步
 
 **Phase 2 整体验收**(清单见 stage6-acceptance-checklist.md):粘贴 JD → 匹配报告 → 一键 90 天提升计划链路;画像更新后匹配度/技能分析随能力变化更新;画像历史对比与简历多版本;分享卡片与深色模式;Phase 1 全量回归。
+
+---
+
+# Stage 7 完成(模拟面试 7.1–7.3,2026-08-24)
+
+> 用户指示(2026-08-24):执行 7.1–7.3 一次完成;7.4/7.5 与阶段 8 不执行。先 Plan Mode 确认方案(已批准),7.1→7.2→7.3 顺序执行、任务间内部阶段性验证、逐任务 commit+push。用户拍板 4 项产品决策:①顶栏一级入口「模拟面试」→ /interview;②场次三档(短 5/标准 10/完整 15);③流式渲染 = 打字机渲染(非 SSE);④每题答完立即展示评分徽章 + 改进建议 + 可追问。各任务偏差记录已同步 implementation-plan.md 对应小节。
+
+## 完成情况表
+
+| 任务 | 内容 | 状态 | commit |
+|---|---|---|---|
+| 7.1 | 出题 Agent `interview-question-agent`(温度 0.7,intent `generate-interview-questions`)+ prompt + 3 份手工标注样例集;输入 = 简历快照 + 岗位 + 面试类型 + 档位;五类题型全出现 + 题数 echo 交叉校验不落库;InterviewSession 单表(每用户一行,userId @unique,questions/answers/report 三 JSON 列,对话消息派生不建表);tRPC interview 命名空间 get/start/latestRun/retry(出题路径) | ✅ | `da1684d` |
+| 7.2 | 面试对话界面(DesignRules L188 特许对话形态,全产品唯一聊天式布局):面试官气泡 + 用户答案 + 逐题推进 + 追问(可跳过、至多一次、不二次评估)+ 行为面 STAR 提示;打字机渲染(useTypewriter rAF,仅新气泡打字,历史消息整段恢复,reduced-motion 一次到位);思考气泡 role=status + 在途禁用;评估等待式每题即时评分徽章(数值+文字双通道)+ 失败「重试评估」;键盘操作完整(Enter/Shift+Enter/isComposing);中断恢复(刷新直接回对话);middleware + authConfig.protectedPaths 防护;topbar 一级入口;mock 评估分支 | ✅ | `6157be4` |
+| 7.3 | 报告 Agent `interview-report-agent`(温度 0,intent `generate-interview-report`)+ report.md;每题独立 AgentRun 评估(内容/表达 1-10 + 改进建议 + 追问);finish 端点(双保险「至少完成一道题」,允许提前结束,未答/未评估不计入);报告定性四要素 + 均分前端确定性计算;综合报告视图(返回对话/开始新面试确认 Dialog/report null 兜底)+ chat 完成态只读回顾 + hub 报告状态机(在途/失败/恢复/重放);mock 报告 fixture 分支 | ✅ | `fb24846` |
+
+## 主要修改
+
+- **Schema**:新增 InterviewSession 单表(每用户一行 `userId @unique`,interviewType/questionCount/targetPosition/resumeText(场次快照)/status/questions/currentQuestionIndex/answers/report,User 级联删),迁移 `add_interview_session`;**按列 upsert** 出题/评估/追问/报告四管线先后写入互不覆盖;开始新场次覆盖旧场次(前端确认 Dialog)
+- **Agent 三个**:interview-question-agent(0.7)/ interview-answer-evaluator(0)/ interview-report-agent(0),prompt 三份(interview/question.md、evaluate.md、report.md),样例集 3 份手工标注;`agents/index.ts` 注册;prompt 打包 8→11 份
+- **管线四个**:runInterviewQuestions(echo 校验)/ runEvaluateAnswer(事务:答案先落库 + 评估写入,index 推进)/ runFollowUpAnswer(不触发 LLM)/ runInterviewReport(已评估题汇总摘要,answer 截 800 字);镜像画像管线骨架(progressChain + adapter 注入 + AgentRun 日志 + 失败透传)
+- **tRPC**:interview 命名空间 9 端点(get/start/submitAnswer/evaluate/submitFollowUp/skipFollowUp/finish/retry/latestRun);序列化防御解析(questions/answers/report 损坏回退 null,report 返回解析后值);retry 三路重放(run.input 合法性门,评估/报告重放时按当前场次重读重组)
+- **前端**:interview page + hub 状态机(无简历引导卡/setup/出题 AnalysisView/chat/报告 AnalysisView/report,镜像 matching-hub 700ms 轮询 + finishedRef + 双 finishedRef 恢复)/ interview-setup(三档 radio)/ interview-chat(特许对话形态 + 打字机)/ interview-report(均分 + 四要素);topbar 加「模拟面试」入口 + middleware matcher;mock 演示数据按 agentName 分发 6 分支
+
+## 测试结果
+
+- 三个 commit 各自全量绿;**7.3 后全套 834/834(85 文件)全绿**;typecheck / lint 零错误;生产构建成功(/interview 8.47kB);prompt 打包 11/11 .nft.json 验证(interview 3 份)
+- 7.1 新增:Agent 出题测试(五类覆盖/出处可查/换岗位差异/echo/registry)+ 管线出题 upsert + 接口 start/get/retry/latestRun;7.2 新增:评估 Agent + 管线评估/追问事务 + 接口四端点 + chat 组件(打字机/键盘/追问/思考气泡/结束 Dialog)+ hub 状态机 + use-typewriter hook + topbar 改;7.3 新增 36 用例:报告 Agent 9 + 报告管线 7(含提前结束/截断/失败不串)+ 接口 finish/报告 retry 6 + 报告视图 6 + hub 报告态 6 + chat 完成态 2
+- 手动走查(mock,dev server):顶栏入口 → 无简历引导卡(新账号)→ 完整跑 5 题短面试(五题五评估 + 追问 + 逐题评分徽章)→ 结束确认 → 综合报告(均分/四要素)→ 开始新面试确认回表单;中途刷新恢复;键盘操作;未登录 /interview 307 → /login
+
+## 已知问题(遗留)
+
+1. **真实 LLM 评估/报告质量未验证**:评估稳定性(同一答案分差 ≤2)与报告四要素质量在 mock 下达标(固定输出分差 0),DeepSeek 真实质量待 Key 验证(与遗留 #2 同源);mock 演示数据 = 固定评估 {8,7} 与固定报告夹具,浏览器可走通全链路
+2. **既有防护缺口(未动,超出本轮范围)**:`/matching`、`/resumes` 不在 authConfig.protectedPaths(middleware matcher 有、authorized 回调无 → 未登录访问页面渲染但数据接口 401;`/interview` 已在 7.2 修复)。如需统一收紧建议下一轮单独处理
+3. 面试场次为简历/岗位快照:简历后续变更不影响已开场次(自洽设计);开始新场次覆盖旧场次后旧报告不可见(单行模型,UI 已确认提示)
+
+## 下一步
+
+**Stage 7 人工验收**(用户浏览器走查):完整跑一场面试(建议短 5 题)→ 每题评分/追问 → 提前结束与全部答完两条路径 → 综合报告 → 返回对话只读回顾 → 开始新面试;Phase 1/2 回归不受影响(新增模块零改动既有功能)。
