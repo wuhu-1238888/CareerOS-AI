@@ -218,10 +218,10 @@ export function DashboardView() {
             <p className="mt-4 text-body-sm text-ink-secondary">路线图任务已全部完成,保持节奏</p>
           )}
 
-          {/* ③ KPI 行:匹配度 / 路线图进度 / 简历版本数 / 本周任务(大数字 + 增量徽章) */}
+          {/* ③ KPI 行:岗位匹配度 / 路线图进度 / 简历版本数 / 本周任务(大数字 + 增量徽章) */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
-              label="匹配度"
+              label="岗位匹配度"
               value={data.profile.matchScore != null ? String(data.profile.matchScore) : "—"}
               delta={matchDelta}
             />

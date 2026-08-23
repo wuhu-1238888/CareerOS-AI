@@ -2,7 +2,7 @@
 // 主体(拉伸覆盖卡面)= 查看模块总览;CTA(ghost 按钮)= 继续当前工作(深链定位,由 actionHref 注入)。
 // 双链接不嵌套:主体为 absolute inset-0 拉伸 Link,CTA 以 relative z-10 浮于其上;hover 上浮与 AgentCard 一致。
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
+import { ArrowRight, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function ModuleCard({
@@ -43,7 +43,10 @@ export function ModuleCard({
       <p className="mt-3 flex-1 text-body-sm text-ink-muted">{progress}</p>
       <div className="relative z-10 mt-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link href={actionHref}>{actionLabel}</Link>
+          <Link href={actionHref}>
+            {actionLabel}
+            <ArrowRight aria-hidden />
+          </Link>
         </Button>
       </div>
     </div>

@@ -138,7 +138,7 @@ describe("DashboardView", () => {
     const { container } = render(<DashboardView />);
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
     expect(screen.queryByText(/你好/)).toBeNull();
-    expect(screen.queryByText("匹配度")).toBeNull();
+    expect(screen.queryByText("岗位匹配度")).toBeNull();
   });
 
   it("错误态:友好错误卡 + 重试触发 refetch", async () => {
@@ -156,7 +156,7 @@ describe("DashboardView", () => {
     expect(screen.getByText(/你好,甲/)).toBeInTheDocument();
     expect(screen.getByText("从职业画像开始你的探索")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "开始职业探索" })).toHaveAttribute("href", "/profile");
-    expect(screen.queryByText("匹配度")).toBeNull();
+    expect(screen.queryByText("岗位匹配度")).toBeNull();
     expect(screen.queryByText("简历版本数")).toBeNull();
     expect(screen.queryByText("下一步建议")).toBeNull(); // 空态走引导卡,不重复给下一步
   });
@@ -167,7 +167,7 @@ describe("DashboardView", () => {
     expect(screen.getByText(/你好,甲/)).toBeInTheDocument();
     expect(screen.getByText("本周完成 3 个任务,路线图进度 43%")).toBeInTheDocument();
     // KPI 眉标与数值
-    expect(screen.getByText("匹配度")).toBeInTheDocument();
+    expect(screen.getByText("岗位匹配度")).toBeInTheDocument();
     expect(screen.getByText("88")).toBeInTheDocument();
     expect(screen.getByText("路线图进度")).toBeInTheDocument();
     expect(screen.getByText("43%")).toBeInTheDocument();
@@ -185,13 +185,12 @@ describe("DashboardView", () => {
     // 「下一步建议」行动卡(规则 5:路线图 6/14 未完成)
     expect(screen.getByText("下一步建议")).toBeInTheDocument();
     expect(screen.getByText("继续推进成长路线")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "继续成长路线" })).toHaveAttribute(
-      "href",
-      "/navigator?focus=current"
-    );
+    const nextStepCta = screen.getByRole("link", { name: "继续成长路线" });
+    expect(nextStepCta).toHaveAttribute("href", "/navigator?focus=current");
+    expect(nextStepCta.querySelector("svg")).not.toBeNull(); // P1:行动卡 CTA 尾部箭头(aria-hidden)
   });
 
-  it("无基线:匹配度/本周任务均无徽章(较上次/较上周不渲染)", () => {
+  it("无基线:岗位匹配度/本周任务均无徽章(较上次/较上周不渲染)", () => {
     mocks.statsData = {
       ...contentStats(),
       profile: { ...contentStats().profile, matchScore: null, matchScoreDelta: null },
@@ -200,7 +199,7 @@ describe("DashboardView", () => {
     render(<DashboardView />);
     expect(screen.queryByText(/较上次/)).toBeNull();
     expect(screen.queryByText(/较上周/)).toBeNull();
-    expect(screen.getByText("—")).toBeInTheDocument(); // 匹配度无数据占位
+    expect(screen.getByText("—")).toBeInTheDocument(); // 岗位匹配度无数据占位
   });
 
   it("Agent 顾问区:已完成/待命/分析中三态 badge + 运行中进度条(60%)与文案", () => {
@@ -290,7 +289,7 @@ describe("DashboardView", () => {
       profile: { ...contentStats().profile, analyzed: false, matchScore: null, matchScoreDelta: null, directionCount: 0 },
     };
     render(<DashboardView />);
-    expect(screen.getByText("匹配度")).toBeInTheDocument();
+    expect(screen.getByText("岗位匹配度")).toBeInTheDocument();
     // 卡片主体与 CTA(空态同页:模块页即创建流程)
     expect(screen.getByRole("link", { name: "查看职业画像" })).toHaveAttribute("href", "/profile");
     expect(screen.getByRole("link", { name: "开始分析" })).toHaveAttribute("href", "/profile");

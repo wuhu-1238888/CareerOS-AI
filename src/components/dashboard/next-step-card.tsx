@@ -3,7 +3,7 @@
 // 轻量横幅式区块:非整卡染色、非 Hero、无 AI 紫、无渐变;数据与文案由 dashboard-view 的
 // computeNextStep 规则链注入(基于真实业务状态,不引入 AI 推荐系统)。
 import Link from "next/link";
-import { Compass } from "lucide-react";
+import { ArrowRight, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function NextStepCard({
@@ -34,7 +34,10 @@ export function NextStepCard({
         <p className="mt-0.5 text-body-sm text-ink-secondary">{text}</p>
       </div>
       <Button type="button" asChild>
-        <Link href={href}>{cta}</Link>
+        <Link href={href}>
+          {cta}
+          <ArrowRight aria-hidden />
+        </Link>
       </Button>
     </div>
   );

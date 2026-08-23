@@ -20,10 +20,9 @@ describe("ModuleCard 双链接(卡片主体 ≠ CTA)", () => {
     );
     expect(screen.getAllByRole("link")).toHaveLength(2); // 双链接不嵌套
     expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resumes");
-    expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute(
-      "href",
-      "/resume?resumeId=r1"
-    );
+    const cta = screen.getByRole("link", { name: "继续优化" });
+    expect(cta).toHaveAttribute("href", "/resume?resumeId=r1");
+    expect(cta.querySelector("svg")).not.toBeNull(); // P1:CTA 尾部箭头图标(aria-hidden 不进可访问名)
   });
 
   it("CTA 目标由 actionHref 注入,可与主体同页(空态例外:模块页即创建流程)", () => {
