@@ -1,4 +1,5 @@
-// 画像结果视图测试(2.5):概要/优势展开/不足来源/雷达图例/方向卡/发展建议/版本切换/数据异常守卫/页面头动作
+// 画像结果视图测试(2.5):概要/优势展开/不足来源/雷达图例/方向卡/发展建议/版本切换/数据异常守卫/页面头动作/
+// 深链定位 #glance(工作台「继续查看」滚动到核心结论)
 // 布局优化(2026-08-20):核心结论带与底部行动区复用真实数据,同一文本可出现多处
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -218,5 +219,24 @@ describe("ProfileResult", () => {
     expect(button).toBeEnabled();
     await userEvent.setup().click(button);
     expect(onCorrect).toHaveBeenCalledTimes(1);
+  });
+
+  it("深链定位(工作台导航优化 P0):#glance 挂载后滚动到核心结论", () => {
+    const scrollIntoView = vi.fn();
+    // jsdom 无 scrollIntoView,挂 mock 验证滚动定位
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.history.replaceState({}, "", "/profile#glance");
+    render(<ProfileResult initial={row} />);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
+    window.history.replaceState({}, "", "/profile");
+  });
+
+  it("无 #glance:不触发滚动", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.history.replaceState({}, "", "/profile");
+    render(<ProfileResult initial={row} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

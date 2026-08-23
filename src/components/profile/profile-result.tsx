@@ -4,7 +4,7 @@
 // 推荐方向 2 列 Grid(匹配度大数字)→ 发展建议时间线 → 底部下一步行动区(仅复用已实现入口)。
 // 渲染前对 aiAnalysis 做 Schema 校验(DB 回读不直接信任);版本选择器(listVersions + getVersion)支持查看旧版本;
 // 页面头动作:规划成长路线 → /navigator、优化简历 → /resume、这不是我(2.6 接线,onCorrect 未提供时禁用)。
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ResponsiveContainer,
@@ -97,6 +97,14 @@ export function ProfileResult({
     { enabled: viewingId !== null }
   );
 
+  // 工作台深链定位(工作台导航优化 P0):/profile#glance 直达最近一次画像分析「核心结论」。
+  // 原生 hash 锚点在客户端渲染后不保证生效,挂载后手动滚动一次。
+  useEffect(() => {
+    if (window.location.hash === "#glance") {
+      document.getElementById("profile-glance")?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, []);
+
   const row: ResultProfile = viewingId && versionQuery.data ? versionQuery.data : initial;
   const parsed = profileAnalysisSchema.safeParse(row.aiAnalysis);
 
@@ -186,13 +194,15 @@ export function ProfileResult({
         </div>
       </div>
 
-      {/* 核心结论带:数秒内理解核心职业状态 */}
-      <ProfileGlance
-        confidenceLevel={analysis.confidence.level}
-        topStrengths={topStrengths}
-        topWeakness={topWeakness}
-        topDirection={topDirection}
-      />
+      {/* 核心结论带:数秒内理解核心职业状态(工作台「继续查看」深链定位目标 #glance) */}
+      <div id="profile-glance" className="scroll-mt-24">
+        <ProfileGlance
+          confidenceLevel={analysis.confidence.level}
+          topStrengths={topStrengths}
+          topWeakness={topWeakness}
+          topDirection={topDirection}
+        />
+      </div>
 
       {/* 概要卡:摘要 + 置信度(左),能力标签(右) */}
       <section className="rounded-card border border-hairline bg-surface p-6 shadow-card">

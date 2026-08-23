@@ -4,7 +4,7 @@
 // 默认展开首个未完成阶段;展开区 = 阶段目标全宽 + 学习内容/实践项目/检查点/资源 2 列网格 + 任务行式列表)。
 // 遵循 DesignSystem「Career Roadmap」与 DesignRules「职业路线页」:无横向甘特图、一屏 ≤4 阶段、
 // 无完成弹窗庆祝、无付费课程引导;任务状态符号 + 文字双通道;全 token 类名,零硬编码色值。
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiBadge } from "@/components/shared/ai-badge";
@@ -101,6 +101,33 @@ export function RoadmapTimeline({
       )
   );
 
+  // 工作台深链定位(工作台导航优化 P0):/navigator?focus=current 直达当前进行中阶段。
+  // 目标阶段 = 首个含 in_progress 任务的阶段,无则首个未完成阶段(默认已展开);全部完成则不动。
+  // 直接读 window.location.search(免 useSearchParams 的 Suspense 要求);ref 守卫保证仅首次挂载执行,
+  // 数据 refetch(如任务状态切换)不重复滚动。
+  const focusHandled = useRef(false);
+  useEffect(() => {
+    if (focusHandled.current) return;
+    focusHandled.current = true;
+    if (new URLSearchParams(window.location.search).get("focus") !== "current") return;
+    const inProgressStage = roadmap.stages.find((stage) =>
+      stage.tasks.some((task) => task.status === "in_progress")
+    );
+    const targetId =
+      inProgressStage?.id ?? (firstIncomplete !== -1 ? roadmap.stages[firstIncomplete]?.id : null);
+    if (!targetId) return;
+    setOpenStages((prev) => {
+      if (prev.has(targetId)) return prev;
+      const next = new Set(prev);
+      next.add(targetId);
+      return next;
+    });
+    const timer = setTimeout(() => {
+      document.querySelector(`[data-stage-id="${targetId}"]`)?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [roadmap, firstIncomplete]);
+
   const totalTasks = roadmap.stages.reduce((sum, stage) => sum + stage.tasks.length, 0);
   const completedTasks = roadmap.stages.reduce(
     (sum, stage) => sum + stage.tasks.filter((task) => task.status === "completed").length,
@@ -185,7 +212,7 @@ export function RoadmapTimeline({
             const doneCount = stage.tasks.filter((task) => task.status === "completed").length;
             const badge = STAGE_BADGE[status];
             return (
-              <li key={stage.id} className="flex gap-4">
+              <li key={stage.id} data-stage-id={stage.id} className="flex scroll-mt-24 gap-4">
                 {/* 时间线轨道:节点 + 连线(轨道列保持 32px,阶段卡吃掉剩余宽度) */}
                 <div className="flex flex-col items-center" aria-hidden>
                   <span

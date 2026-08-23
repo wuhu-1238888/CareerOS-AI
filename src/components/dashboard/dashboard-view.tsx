@@ -1,12 +1,15 @@
 "use client";
-// 工作台(5.1,DesignRules Dashboard):问候行 → KPI 行 → Agent 顾问区 → 模块入口区。
-// 工作台导航优化(P0/P1):简历入口深链最近工作简历(?resumeId=,4.12 机制复用);模块 CTA 分模块动词
-// (继续查看/继续学习/继续优化,空态 开始分析/开始规划/上传简历);问候行「推荐下一步」规则链
-// computeNextStep(基于 dashboard.stats 真实状态,首个命中即给出,无 AI 推荐系统)。
+// 工作台(5.1,DesignRules Dashboard;工作台导航优化 P0):问候行 → 「下一步建议」行动卡 → KPI 行
+// → AI 洞察区(Agent 顾问) → 我的工作区(模块入口)。
+// 两排语义:AI 洞察 = 「AI 最近帮你发现了什么」(顾问卡 + 底部行动提示);我的工作 = 「你上次做到哪里」
+// (卡片主体 = 查看模块总览;CTA = 继续当前工作,深链定位:画像 /profile#glance、路线图 /navigator?focus=current、
+// 简历 /resume?resumeId= 最近工作简历)。「下一步建议」= computeNextStep 规则链(基于 dashboard.stats
+// 真实状态,首个命中即给出,无 AI 推荐系统;全部完成 → 中性文案无 CTA)。模块 CTA 分模块动词
+// (继续查看/继续学习/继续优化,空态 开始分析/开始规划/上传简历)。
 // 四态齐全:加载 = 与真实布局同尺寸骨架屏(零位移);空 = 新用户引导空态(主 CTA「开始职业探索」);
 // 错误 = 友好错误卡 + 重试;内容 = 有数据用户的完整工作台。
 // 数据源:dashboard.stats 单次聚合(任一 Agent 运行中时 700ms 轮询,与分析页同节奏)。
-// 2.7 画像过期提示(>7 天)保留在问候行,不随重构丢失。首屏 4 个区块 ≤7 组件;无聊天窗/无拟人化/无平台公告(禁令走查)。
+// 2.7 画像过期提示(>7 天)保留在问候行,不随重构丢失。首屏 5 个区块 ≤7 组件;无聊天窗/无拟人化/无平台公告(禁令走查)。
 import Link from "next/link";
 import { FileText, Route, Search, UserRound } from "lucide-react";
 import { trpc } from "@/trpc/client";
@@ -15,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { StatCard, type StatDelta } from "./stat-card";
 import { AgentCard } from "./agent-card";
 import { ModuleCard } from "./module-card";
+import { NextStepCard } from "./next-step-card";
 
 // 决策 5(2.7 沿用):画像信息超过 7 天视为过时(「信息有变化」的可操作判据,常量可调)
 const STALE_DAYS = 7;
@@ -26,31 +30,40 @@ function formatDate(iso: string): string {
   return date.toLocaleDateString("zh-CN", { year: "numeric", month: "short", day: "numeric" });
 }
 
-// 「推荐下一步」规则链(基于 dashboard.stats 真实状态,取首个命中;不引入 AI 推荐系统)。
+// 「下一步建议」规则链(基于 dashboard.stats 真实状态,取首个命中;不引入 AI 推荐系统)。
 // 顺序即产品优先级:画像 → 目标岗位 → 路线图 → 简历优化 → 任务打卡;全部完成 → null(渲染中性文案,无 CTA)。
-function computeNextStep(data: DashboardStats): { text: string; href: string; cta: string } | null {
+// title = 行动卡主行动;text = 一句话说明;cta = 按钮文案;深链定位:规则 5 → /navigator?focus=current(当前进行中阶段)。
+function computeNextStep(
+  data: DashboardStats
+): { title: string; text: string; href: string; cta: string } | null {
   const { profile, roadmap, resume } = data;
   if (!profile.analyzed) {
-    return { text: "完成职业画像,获得你的专属方向与建议", href: "/profile", cta: "去完成画像" };
+    return { title: "完成职业画像", text: "获得你的专属方向与建议", href: "/profile", cta: "去完成画像" };
   }
   if (profile.directionCount === 0) {
-    return { text: "补充目标岗位信息,生成你的推荐方向", href: "/profile", cta: "完善目标岗位" };
+    return { title: "完善目标岗位", text: "补充目标岗位信息,生成你的推荐方向", href: "/profile", cta: "完善目标岗位" };
   }
   if (!roadmap.exists || roadmap.total === 0) {
-    return { text: "生成成长路线,把目标变成看得见的阶梯", href: "/navigator", cta: "生成成长路线" };
+    return { title: "生成成长路线", text: "把目标变成看得见的阶梯", href: "/navigator", cta: "生成成长路线" };
   }
   if (resume.versionCount === 0) {
     if (resume.fileCount === 0) {
-      return { text: "上传或粘贴简历,开始针对性优化", href: "/resume?upload=1", cta: "上传简历" };
+      return { title: "上传简历", text: "上传或粘贴简历,开始针对性优化", href: "/resume?upload=1", cta: "上传简历" };
     }
     return {
+      title: "优化目标简历",
       text: "开始优化简历,适配你的目标方向",
       href: resume.lastActivityId ? `/resume?resumeId=${resume.lastActivityId}` : "/resume",
       cta: "优化目标简历",
     };
   }
   if (roadmap.total > roadmap.completed) {
-    return { text: "继续推进成长路线,完成任务打卡", href: "/navigator", cta: "继续成长路线" };
+    return {
+      title: "继续推进成长路线",
+      text: "完成当前阶段任务,逐步提升目标岗位匹配度",
+      href: "/navigator?focus=current",
+      cta: "继续成长路线",
+    };
   }
   return null;
 }
@@ -164,21 +177,10 @@ export function DashboardView() {
 
   return (
     <>
-      {/* ① 问候行:用户名 + 一句话状态 + 推荐下一步(规则链)+ 画像过期提示 */}
+      {/* ① 问候行:用户名 + 一句话状态 + 画像过期提示 */}
       <section>
         <h1 className="text-h1 text-ink">你好,{me.data.name}</h1>
         <p className="mt-1 text-body-sm text-ink-secondary">{statusLine}</p>
-        {hasAnyData &&
-          (nextStep ? (
-            <p className="mt-1 text-body-sm text-ink-secondary">
-              推荐下一步:{nextStep.text}
-              <Link className="ml-2 underline underline-offset-2" href={nextStep.href}>
-                {nextStep.cta}
-              </Link>
-            </p>
-          ) : (
-            <p className="mt-1 text-body-sm text-ink-secondary">路线图任务已全部完成,保持节奏</p>
-          ))}
         {stale && (
           <p className="mt-3 rounded-control bg-warning-bg p-3 text-body-sm text-warning">
             画像信息已超过 7 天,建议更新以获得更准确的建议
@@ -202,7 +204,21 @@ export function DashboardView() {
         </section>
       ) : (
         <>
-          {/* ② KPI 行:匹配度 / 路线图进度 / 简历版本数 / 本周任务(大数字 + 增量徽章) */}
+          {/* ② 「下一步建议」行动卡:规则链首个命中(基于真实状态);全部完成 → 中性文案无 CTA(不造假) */}
+          {nextStep ? (
+            <div className="mt-6">
+              <NextStepCard
+                title={nextStep.title}
+                text={nextStep.text}
+                href={nextStep.href}
+                cta={nextStep.cta}
+              />
+            </div>
+          ) : (
+            <p className="mt-4 text-body-sm text-ink-secondary">路线图任务已全部完成,保持节奏</p>
+          )}
+
+          {/* ③ KPI 行:匹配度 / 路线图进度 / 简历版本数 / 本周任务(大数字 + 增量徽章) */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               label="匹配度"
@@ -221,84 +237,98 @@ export function DashboardView() {
             />
           </div>
 
-          {/* ③ Agent 顾问区:三个 Agent 卡(状态 + 最近产出,点击进入模块) */}
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <AgentCard
-              name="画像顾问"
-              description="分析你的背景,生成职业画像"
-              icon={Search}
-              agent={data.agents.profile}
-              latestOutput={
-                data.profile.analyzed
-                  ? `画像 v${data.profile.version} · ${data.profile.directionCount} 个推荐方向`
-                  : null
-              }
-              href="/profile"
-            />
-            <AgentCard
-              name="规划顾问"
-              description="把目标拆解成可执行的成长路线"
-              icon={Route}
-              agent={data.agents.roadmap}
-              latestOutput={
-                data.roadmap.exists
-                  ? `路线图 ${data.roadmap.stageCount} 个阶段 · 进度 ${data.roadmap.progress}%`
-                  : null
-              }
-              href="/navigator"
-            />
-            <AgentCard
-              name="简历顾问"
-              description="解析并优化你的简历,适配目标方向"
-              icon={FileText}
-              agent={data.agents.resume}
-              latestOutput={
-                data.resume.lastActivityVersionCount > 0
-                  ? `优化 ${data.resume.lastActivityVersionCount} 个版本 · 最近:${data.resume.lastActivityFileName ?? "简历"}`
-                  : data.resume.fileCount > 0
-                    ? `已解析 ${data.resume.fileCount} 份简历,开始优化`
+          {/* ④ AI 洞察区(「AI 最近帮你发现了什么」):三个 Agent 卡(状态 + 最近产出 + 底部行动提示) */}
+          <section className="mt-8">
+            <h2 className="text-h2 text-ink">AI 洞察</h2>
+            <p className="mt-1 text-body-sm text-ink-muted">AI 最近帮你发现了什么</p>
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <AgentCard
+                name="画像顾问"
+                description="分析你的背景,生成职业画像"
+                icon={Search}
+                agent={data.agents.profile}
+                latestOutput={
+                  data.profile.analyzed
+                    ? `画像 v${data.profile.version} · ${data.profile.directionCount} 个推荐方向`
                     : null
-              }
-              href={resumeHref}
-            />
-          </div>
+                }
+                href={data.profile.analyzed ? "/profile#glance" : "/profile"}
+                actionLabel={data.profile.analyzed ? "查看画像分析" : "开始画像分析"}
+              />
+              <AgentCard
+                name="规划顾问"
+                description="把目标拆解成可执行的成长路线"
+                icon={Route}
+                agent={data.agents.roadmap}
+                latestOutput={
+                  data.roadmap.exists
+                    ? `路线图 ${data.roadmap.stageCount} 个阶段 · 进度 ${data.roadmap.progress}%`
+                    : null
+                }
+                href="/navigator"
+                actionLabel={data.roadmap.exists ? "查看成长规划" : "开始成长规划"}
+              />
+              <AgentCard
+                name="简历顾问"
+                description="解析并优化你的简历,适配目标方向"
+                icon={FileText}
+                agent={data.agents.resume}
+                latestOutput={
+                  data.resume.lastActivityVersionCount > 0
+                    ? `优化 ${data.resume.lastActivityVersionCount} 个版本 · 最近:${data.resume.lastActivityFileName ?? "简历"}`
+                    : data.resume.fileCount > 0
+                      ? `已解析 ${data.resume.fileCount} 份简历,开始优化`
+                      : null
+                }
+                href={resumeHref}
+                actionLabel={data.resume.fileCount > 0 ? "查看优化建议" : "上传简历"}
+              />
+            </div>
+          </section>
 
-          {/* ④ 模块入口区:三个模块快捷卡(最新进展 + 分模块 CTA) */}
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <ModuleCard
-              title="职业画像"
-              icon={UserRound}
-              progress={
-                data.profile.analyzed
-                  ? `画像 v${data.profile.version} · ${data.profile.directionCount} 个推荐方向 · 更新于 ${formatDate(data.profile.updatedAt ?? "")}`
-                  : "完成画像分析,获得推荐方向与专属建议"
-              }
-              href="/profile"
-              actionLabel={data.profile.analyzed ? "继续查看" : "开始分析"}
-            />
-            <ModuleCard
-              title="成长路线"
-              icon={Route}
-              progress={
-                data.roadmap.exists
-                  ? `${data.roadmap.stageCount} 个阶段 · ${data.roadmap.completed}/${data.roadmap.total} 任务完成`
-                  : "生成你的专属成长路线,把目标变成看得见的阶梯"
-              }
-              href="/navigator"
-              actionLabel={data.roadmap.exists ? "继续学习" : "开始规划"}
-            />
-            <ModuleCard
-              title="简历优化"
-              icon={FileText}
-              progress={
-                data.resume.fileCount > 0
-                  ? `最近:${data.resume.lastActivityFileName ?? "简历"} · ${data.resume.lastActivityVersionCount} 个优化版本`
-                  : "上传或粘贴简历,开始针对性优化"
-              }
-              href={resumeHref}
-              actionLabel={data.resume.fileCount > 0 ? "继续优化" : "上传简历"}
-            />
-          </div>
+          {/* ⑤ 我的工作区(「你上次做到哪里」):卡片主体 = 查看模块总览;CTA = 继续当前工作(深链定位) */}
+          <section className="mt-8">
+            <h2 className="text-h2 text-ink">我的工作</h2>
+            <p className="mt-1 text-body-sm text-ink-muted">你上次做到哪里</p>
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <ModuleCard
+                title="职业画像"
+                icon={UserRound}
+                progress={
+                  data.profile.analyzed
+                    ? `画像 v${data.profile.version} · ${data.profile.directionCount} 个推荐方向 · 更新于 ${formatDate(data.profile.updatedAt ?? "")}`
+                    : "完成画像分析,获得推荐方向与专属建议"
+                }
+                href="/profile"
+                actionHref={data.profile.analyzed ? "/profile#glance" : "/profile"}
+                actionLabel={data.profile.analyzed ? "继续查看" : "开始分析"}
+              />
+              <ModuleCard
+                title="成长路线"
+                icon={Route}
+                progress={
+                  data.roadmap.exists
+                    ? `${data.roadmap.stageCount} 个阶段 · ${data.roadmap.completed}/${data.roadmap.total} 任务完成`
+                    : "生成你的专属成长路线,把目标变成看得见的阶梯"
+                }
+                href="/navigator"
+                actionHref={data.roadmap.exists ? "/navigator?focus=current" : "/navigator"}
+                actionLabel={data.roadmap.exists ? "继续学习" : "开始规划"}
+              />
+              <ModuleCard
+                title="简历优化"
+                icon={FileText}
+                progress={
+                  data.resume.fileCount > 0
+                    ? `最近:${data.resume.lastActivityFileName ?? "简历"} · ${data.resume.lastActivityVersionCount} 个优化版本`
+                    : "上传或粘贴简历,开始针对性优化"
+                }
+                href="/resumes"
+                actionHref={resumeHref}
+                actionLabel={data.resume.fileCount > 0 ? "继续优化" : "上传简历"}
+              />
+            </div>
+          </section>
         </>
       )}
     </>

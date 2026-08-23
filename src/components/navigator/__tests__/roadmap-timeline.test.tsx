@@ -1,8 +1,9 @@
 // 成长路线时间线测试(3.4):sticky 概要条(路径文案 + 总进度 + 重新生成)、阶段卡默认折叠与展开内容
-// (目标/学习内容/实践项目含产出物/检查点/任务列表)、节点与阶段状态联动、任务交互接线(3.5 回调)
-import { render, screen } from "@testing-library/react";
+// (目标/学习内容/实践项目含产出物/检查点/任务列表)、节点与阶段状态联动、任务交互接线(3.5 回调)、
+// 工作台深链定位 ?focus=current(展开并滚动到当前进行中阶段)
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoadmapTimeline, type TimelineRoadmap } from "../roadmap-timeline";
 
 // 4 阶段:阶段1 全部完成(done),阶段2 进行中(current,默认展开),阶段3/4 未开始
@@ -244,5 +245,81 @@ describe("RoadmapTimeline 任务交互接线(3.5 回调)", () => {
     expect(enabled).toBeDefined();
     await userEvent.setup().click(enabled!);
     expect(onFeedbackTask).toHaveBeenCalledWith("t1", "太难了");
+  });
+});
+
+describe("RoadmapTimeline 深链定位(?focus=current,工作台导航优化 P0)", () => {
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    scrollIntoView = vi.fn();
+    // jsdom 无 scrollIntoView,挂 mock 验证滚动定位
+    Element.prototype.scrollIntoView =
+      scrollIntoView as unknown as typeof Element.prototype.scrollIntoView;
+    window.history.replaceState({}, "", "/navigator?focus=current");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("聚焦含 in_progress 任务的阶段(非默认展开阶段):展开并滚动定位", () => {
+    // s2 全部待开始(默认展开),s3 含进行中任务 → 定位目标应为 s3
+    const focused: TimelineRoadmap = {
+      ...roadmap,
+      stages: roadmap.stages.map((s) =>
+        s.id === "s2"
+          ? { ...s, tasks: s.tasks.map((t) => ({ ...t, status: "pending" })) }
+          : s.id === "s3"
+            ? { ...s, tasks: [{ ...s.tasks[0]!, status: "in_progress" }] }
+            : s
+      ),
+    };
+    render(<RoadmapTimeline roadmap={focused} />);
+    // 默认展开 s2(首个未完成);深链追加展开 s3
+    expect(screen.getByText("掌握 Web 框架与工程化")).toBeInTheDocument();
+    expect(screen.getByText("掌握测试与部署")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("默认 fixture(s2 含进行中任务):滚动定位到该阶段", () => {
+    render(<RoadmapTimeline roadmap={roadmap} />);
+    expect(screen.getByText("掌握 Web 框架与工程化")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("无 focus 参数:不滚动、不额外展开", () => {
+    window.history.replaceState({}, "", "/navigator");
+    render(<RoadmapTimeline roadmap={roadmap} />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    // 仅默认展开 s2,其余阶段保持折叠
+    expect(screen.getByText("掌握 Web 框架与工程化")).toBeInTheDocument();
+    expect(screen.queryByText("掌握测试与部署")).toBeNull();
+  });
+
+  it("全部完成:focus=current 无目标阶段,不滚动", () => {
+    const allDone: TimelineRoadmap = {
+      ...roadmap,
+      stages: roadmap.stages.map((s) => ({
+        ...s,
+        tasks: s.tasks.map((t) => ({ ...t, status: "completed" })),
+      })),
+    };
+    render(<RoadmapTimeline roadmap={allDone} />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

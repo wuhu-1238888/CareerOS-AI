@@ -1,5 +1,6 @@
 // 工作台测试(5.1):四态(加载骨架/空态引导/错误重试/内容)、KPI 增量徽章、Agent 卡状态与进度条、
-// 模块入口「继续上次」、画像过期提示、无基线时不渲染徽章
+// 两排语义(AI 洞察/我的工作)与顾问卡行动提示、「下一步建议」行动卡与规则链、
+// 模块卡双链接(卡片主体 = 查看模块总览 ≠ CTA 深链定位)、画像过期提示、无基线时不渲染徽章
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -157,7 +158,7 @@ describe("DashboardView", () => {
     expect(screen.getByRole("link", { name: "开始职业探索" })).toHaveAttribute("href", "/profile");
     expect(screen.queryByText("匹配度")).toBeNull();
     expect(screen.queryByText("简历版本数")).toBeNull();
-    expect(screen.queryByText(/推荐下一步/)).toBeNull(); // 空态走引导卡,不重复给下一步
+    expect(screen.queryByText("下一步建议")).toBeNull(); // 空态走引导卡,不重复给下一步
   });
 
   it("内容态:问候一句话 + KPI 大数字与增量徽章(较上次/较上周)", () => {
@@ -176,6 +177,18 @@ describe("DashboardView", () => {
     // 增量徽章
     expect(screen.getByText("较上次 +16%")).toBeInTheDocument();
     expect(screen.getByText("较上周 +1")).toBeInTheDocument();
+    // 两排语义区块标题
+    expect(screen.getByText("AI 洞察")).toBeInTheDocument();
+    expect(screen.getByText("AI 最近帮你发现了什么")).toBeInTheDocument();
+    expect(screen.getByText("我的工作")).toBeInTheDocument();
+    expect(screen.getByText("你上次做到哪里")).toBeInTheDocument();
+    // 「下一步建议」行动卡(规则 5:路线图 6/14 未完成)
+    expect(screen.getByText("下一步建议")).toBeInTheDocument();
+    expect(screen.getByText("继续推进成长路线")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "继续成长路线" })).toHaveAttribute(
+      "href",
+      "/navigator?focus=current"
+    );
   });
 
   it("无基线:匹配度/本周任务均无徽章(较上次/较上周不渲染)", () => {
@@ -204,13 +217,18 @@ describe("DashboardView", () => {
     // 最近产出与上次分析时间
     expect(screen.getByText("画像 v2 · 2 个推荐方向")).toBeInTheDocument();
     expect(screen.getAllByText(/上次分析:/)).toHaveLength(2); // 画像(已完成)与简历(分析中)各一条
-    // 三张卡均可点击进入模块
+    // 三张卡均可点击进入模块;画像顾问深链最近分析核心结论(工作台导航优化 P0)
     expect(screen.getAllByRole("link", { name: /画像顾问/ }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: /画像顾问/ })).toHaveAttribute("href", "/profile#glance");
     expect(screen.getByRole("link", { name: /规划顾问/ })).toHaveAttribute("href", "/navigator");
     expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute(
       "href",
       "/resume?resumeId=resume-r1"
     );
+    // 底部行动提示行(AI 洞察语义)
+    expect(screen.getByText(/查看画像分析/)).toBeInTheDocument();
+    expect(screen.getByText(/查看成长规划/)).toBeInTheDocument();
+    expect(screen.getByText(/查看优化建议/)).toBeInTheDocument();
   });
 
   it("Agent 失败态:失败 badge + 进入模块重试引导", () => {
@@ -226,19 +244,23 @@ describe("DashboardView", () => {
     expect(screen.getByText("最近一次分析未完成,进入模块重试")).toBeInTheDocument();
   });
 
-  it("模块入口区:分模块动词 CTA;无路线图 →「开始规划」+ 问候行引导文案", () => {
+  it("模块入口区:卡片主体(查看模块)≠ CTA(继续工作);无路线图 →「开始规划」", () => {
     mocks.statsData = {
       ...contentStats(),
       roadmap: { exists: false, completed: 0, total: 0, progress: null, stageCount: 0, targetDirection: null },
     };
     render(<DashboardView />);
-    // 画像 继续查看 → /profile;简历 继续优化 → 最近工作简历深链(「继续上次」语义)
-    expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile");
-    expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute("href", "/resume?resumeId=resume-r1");
+    // 卡片主体 = 查看模块总览;CTA = 继续当前工作(深链定位),两条链接目标不同
+    expect(screen.getByRole("link", { name: "查看职业画像" })).toHaveAttribute("href", "/profile");
+    expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile#glance");
+    expect(screen.getByRole("link", { name: "查看成长路线" })).toHaveAttribute("href", "/navigator");
     expect(screen.getByRole("link", { name: "开始规划" })).toHaveAttribute("href", "/navigator");
+    expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resumes");
+    expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute("href", "/resume?resumeId=resume-r1");
     expect(screen.getByText("本周完成 3 个任务,生成路线图后开始打卡")).toBeInTheDocument();
-    // 推荐下一步规则 3(无路线图)→ 生成成长路线
-    expect(screen.getByText(/推荐下一步:生成成长路线/)).toBeInTheDocument();
+    // 推荐下一步规则 3(无路线图)→ 生成成长路线(行动卡)
+    expect(screen.getByText("下一步建议")).toBeInTheDocument();
+    expect(screen.getByText("生成成长路线", { selector: "p" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "生成成长路线" })).toHaveAttribute("href", "/navigator");
   });
 
@@ -249,16 +271,16 @@ describe("DashboardView", () => {
     expect(screen.getByText("最近:简历.docx · 3 个优化版本")).toBeInTheDocument();
   });
 
-  it("无最近工作简历(无简历/无有效 run):简历入口回退模块首页 /resume", () => {
+  it("无最近工作简历(无有效 run):简历 CTA 回退 /resume;画像/路线图深链不受影响", () => {
     mocks.statsData = {
       ...contentStats(),
       resume: { ...contentStats().resume, lastActivityId: null, lastActivityFileName: null },
     };
     render(<DashboardView />);
     expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute("href", "/resume");
-    // 画像 / 路线图不受影响,简历入口回退 /resume(服务端未传参时取最新行)
-    expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile");
-    expect(screen.getByRole("link", { name: "继续学习" })).toHaveAttribute("href", "/navigator");
+    // 画像/路线图 CTA 深链最近结果;简历无最近工作记录 → 回退 /resume(服务端未传参时取最新行)
+    expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile#glance");
+    expect(screen.getByRole("link", { name: "继续学习" })).toHaveAttribute("href", "/navigator?focus=current");
     expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute("href", "/resume");
   });
 
@@ -269,6 +291,8 @@ describe("DashboardView", () => {
     };
     render(<DashboardView />);
     expect(screen.getByText("匹配度")).toBeInTheDocument();
+    // 卡片主体与 CTA(空态同页:模块页即创建流程)
+    expect(screen.getByRole("link", { name: "查看职业画像" })).toHaveAttribute("href", "/profile");
     expect(screen.getByRole("link", { name: "开始分析" })).toHaveAttribute("href", "/profile");
   });
 
@@ -283,14 +307,16 @@ describe("DashboardView", () => {
   });
 });
 
-describe("推荐下一步(规则链,基于真实状态)", () => {
-  it("规则 1:画像未分析 → 去完成画像 → /profile", () => {
+describe("下一步建议(规则链,基于真实状态)", () => {
+  it("规则 1:画像未分析 → 完成职业画像 → /profile", () => {
     mocks.statsData = {
       ...contentStats(),
       profile: { ...contentStats().profile, analyzed: false, matchScore: null, matchScoreDelta: null, directionCount: 0 },
     };
     render(<DashboardView />);
-    expect(screen.getByText(/推荐下一步:完成职业画像/)).toBeInTheDocument();
+    expect(screen.getByText("下一步建议")).toBeInTheDocument();
+    expect(screen.getByText("完成职业画像", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("获得你的专属方向与建议")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "去完成画像" })).toHaveAttribute("href", "/profile");
   });
 
@@ -306,7 +332,8 @@ describe("推荐下一步(规则链,基于真实状态)", () => {
       },
     };
     render(<DashboardView />);
-    expect(screen.getByText(/推荐下一步:补充目标岗位信息/)).toBeInTheDocument();
+    expect(screen.getByText("完善目标岗位", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("补充目标岗位信息,生成你的推荐方向")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "完善目标岗位" })).toHaveAttribute("href", "/profile");
   });
 
@@ -316,7 +343,8 @@ describe("推荐下一步(规则链,基于真实状态)", () => {
       roadmap: { ...contentStats().roadmap, total: 0, completed: 0, progress: 0 },
     };
     render(<DashboardView />);
-    expect(screen.getByText(/推荐下一步:生成成长路线/)).toBeInTheDocument();
+    expect(screen.getByText("生成成长路线", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("把目标变成看得见的阶梯")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "生成成长路线" })).toHaveAttribute("href", "/navigator");
   });
 
@@ -335,8 +363,10 @@ describe("推荐下一步(规则链,基于真实状态)", () => {
       },
     };
     render(<DashboardView />);
-    expect(screen.getByText(/推荐下一步:上传或粘贴简历/)).toBeInTheDocument();
-    const uploadLinks = screen.getAllByRole("link", { name: "上传简历" }); // 下一步 CTA + 模块卡
+    expect(screen.getByText("上传简历", { selector: "p" })).toBeInTheDocument();
+    // 说明文案与模块卡空态进度同文(行动卡 + 模块卡各一处)
+    expect(screen.getAllByText("上传或粘贴简历,开始针对性优化")).toHaveLength(2);
+    const uploadLinks = screen.getAllByRole("link", { name: "上传简历" }); // 行动卡 CTA + 模块卡 CTA
     expect(uploadLinks).toHaveLength(2);
     uploadLinks.forEach((l) => expect(l).toHaveAttribute("href", "/resume?upload=1"));
   });
@@ -347,18 +377,23 @@ describe("推荐下一步(规则链,基于真实状态)", () => {
       resume: { ...contentStats().resume, versionCount: 0, lastActivityVersionCount: 0 },
     };
     render(<DashboardView />);
-    expect(screen.getByText(/推荐下一步:开始优化简历/)).toBeInTheDocument();
+    expect(screen.getByText("优化目标简历", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("开始优化简历,适配你的目标方向")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "优化目标简历" })).toHaveAttribute(
       "href",
       "/resume?resumeId=resume-r1"
     );
   });
 
-  it("规则 5:路线图任务未完成 → 继续成长路线 → /navigator", () => {
+  it("规则 5:路线图任务未完成 → 继续成长路线 → /navigator?focus=current", () => {
     mocks.statsData = contentStats(); // 6/14 未完成,简历已优化(3 版本)
     render(<DashboardView />);
-    expect(screen.getByText(/推荐下一步:继续推进成长路线/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "继续成长路线" })).toHaveAttribute("href", "/navigator");
+    expect(screen.getByText("继续推进成长路线", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("完成当前阶段任务,逐步提升目标岗位匹配度")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "继续成长路线" })).toHaveAttribute(
+      "href",
+      "/navigator?focus=current"
+    );
   });
 
   it("规则 6:全部完成 → 中性文案,无 CTA(不造假)", () => {
@@ -368,7 +403,7 @@ describe("推荐下一步(规则链,基于真实状态)", () => {
     };
     render(<DashboardView />);
     expect(screen.getByText("路线图任务已全部完成,保持节奏")).toBeInTheDocument();
-    expect(screen.queryByText(/推荐下一步/)).toBeNull();
+    expect(screen.queryByText("下一步建议")).toBeNull();
     expect(screen.queryByRole("link", { name: "继续成长路线" })).toBeNull();
   });
 });

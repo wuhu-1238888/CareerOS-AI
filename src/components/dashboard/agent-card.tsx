@@ -1,5 +1,6 @@
 // Agent 顾问卡(5.1,DesignSystem 核心组件 1):48px 圆形图标(green-600 底白描线)→ 名称 + AI 标识 + 状态 badge
-// → 13px 说明 → 状态内容(分析中:进度条 + 末条文案轮播;已完成:最近产出)→「上次分析」相对时间。
+// → 13px 说明 → 状态内容(分析中:进度条 + 末条文案轮播;已完成:最近产出)→「上次分析」相对时间
+// → 底部行动提示行(actionLabel,如「查看画像分析」,整卡同一链接,不嵌套 a)。
 // 状态一律颜色+文字双通道;点击进入对应模块;hover 上浮 2px(transform 不改变布局)。
 import Link from "next/link";
 import { Loader2, type LucideIcon } from "lucide-react";
@@ -21,6 +22,7 @@ export function AgentCard({
   agent,
   latestOutput,
   href,
+  actionLabel,
 }: {
   name: string;
   description: string;
@@ -29,6 +31,8 @@ export function AgentCard({
   /** succeeded 时的「最近产出」一句话(数据驱动;无产出 → null) */
   latestOutput: string | null;
   href: string;
+  /** 卡内底部行动提示(工作台导航优化 P0,整卡同一链接):如「查看画像分析」;未提供则不渲染 */
+  actionLabel?: string;
 }) {
   const badge = STATUS_BADGES[agent.status];
   const percent = Math.round((agent.progressCount / 5) * 100);
@@ -97,6 +101,12 @@ export function AgentCard({
       {agent.lastRunAt && (
         <p className="mt-3 text-caption text-ink-faint">上次分析:{formatRelativeTime(agent.lastRunAt)}</p>
       )}
+
+      {actionLabel ? (
+        <p className="mt-3 text-body-sm font-medium text-ink-secondary group-hover:text-green-600">
+          {actionLabel} →
+        </p>
+      ) : null}
     </Link>
   );
 }
