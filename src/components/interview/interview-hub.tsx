@@ -1,14 +1,14 @@
 "use client";
-// 模拟面试状态枢纽(7.2):无简历引导 / 场次设定 / 出题过程 / 对话作答 / 失败恢复。
+// 模拟面试状态枢纽(7.2/7.3):无简历引导 / 场次设定 / 出题过程 / 对话作答 / 综合报告 / 失败恢复。
 // 镜像 matching-hub 状态机:出题态统一轮询 interview.latestRun({intent:"generate-interview-questions"})
 // (700ms,进度事件已随执行落库):出题中刷新页面按最近 run 恢复;
 // 失败态提供「重试」(会话内用最近一次设定;刷新后服务端从 AgentRun.input 重放)与「修改设定」。
-// 对话态(进行中场次)刷新后由 interview.get 直接恢复;结束面试 → 综合报告视图在 7.3 接入
-// (Commit 2 先以 toast 占位)。开始新场次覆盖旧场次(单行模型):有进行中场次时经确认 Dialog。
+// 对话态(进行中场次)刷新后由 interview.get 直接恢复;结束面试 → finish(7.3)→ 综合报告视图,
+// 报告生成在途/失败经 interview.latestRun({intent:"generate-interview-report"}) 恢复与重放。
+// 开始新场次覆盖旧场次(单行模型):有进行中场次时经确认 Dialog。
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bot } from "lucide-react";
-import { toast } from "sonner";
+import { Bot, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,10 +22,11 @@ import {
 import { trpc } from "@/trpc/client";
 import { InterviewSetup, type InterviewSetupValues } from "./interview-setup";
 import { InterviewChat } from "./interview-chat";
+import { InterviewReport } from "./interview-report";
 import { AnalysisView } from "@/components/profile/analysis-view";
 
 function friendlyError(err: unknown): string {
-  return err instanceof Error ? err.message : "出题失败,请稍后重试";
+  return err instanceof Error ? err.message : "操作失败,请稍后重试";
 }
 
 export function InterviewHub() {
@@ -37,15 +38,20 @@ export function InterviewHub() {
   const roadmap = trpc.navigator.roadmap.get.useQuery();
   const start = trpc.interview.start.useMutation();
   const retry = trpc.interview.retry.useMutation();
+  const finish = trpc.interview.finish.useMutation();
 
   // 本次会话提交状态:submitted=true 表示出题 mutation 在途;startError 为失败文案(驱动失败视图)
   const [submitted, setSubmitted] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const [view, setView] = useState<null | "setup" | "running" | "chat">(null);
+  const [view, setView] = useState<null | "setup" | "running" | "chat" | "report">(null);
+  // 报告生成状态(7.3):finishing=true 表示 finish/报告重试在途;reportError 为失败文案
+  const [finishing, setFinishing] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   // 有进行中场次时提交新设定:先确认覆盖再执行
   const [pendingStart, setPendingStart] = useState<InterviewSetupValues | null>(null);
   const lastInput = useRef<InterviewSetupValues | null>(null);
   const finishedRef = useRef(false);
+  const reportFinishedRef = useRef(false);
 
   // 有效场次 = questions/answers 均通过防御解析(损坏按无场次处理,可重新开始)
   const hasSession = !!session.data?.questions && !!session.data?.answers;
@@ -61,7 +67,18 @@ export function InterviewHub() {
     }
   );
 
-  // 恢复路径:刷新后 run 已 succeeded(管线已完成)→ 刷新场次记录进入对话视图
+  // 跟踪最近一次报告 run(7.3):进行中场次 + 报告生成在途时轮询 700ms;
+  // 刷新恢复:报告 run 已 succeeded 但场次仍 in_progress → 刷新场次记录进入报告视图
+  const reportRun = trpc.interview.latestRun.useQuery(
+    { intent: "generate-interview-report" },
+    {
+      enabled: !session.isLoading && hasSession && session.data?.status !== "completed",
+      refetchInterval: (query) =>
+        finishing || query.state.data?.status === "running" ? 700 : false,
+    }
+  );
+
+  // 恢复路径:刷新后出题 run 已 succeeded(管线已完成)→ 刷新场次记录进入对话视图
   useEffect(() => {
     if (!hasSession && latestRun.data?.status === "succeeded" && !finishedRef.current) {
       finishedRef.current = true;
@@ -69,6 +86,18 @@ export function InterviewHub() {
     }
   }, [hasSession, latestRun.data?.status, utils]);
 
+  // 恢复路径:刷新后报告 run 已 succeeded(场次仍 in_progress)→ 刷新场次记录进入报告视图
+  useEffect(() => {
+    if (
+      hasSession &&
+      session.data?.status === "in_progress" &&
+      reportRun.data?.status === "succeeded" &&
+      !reportFinishedRef.current
+    ) {
+      reportFinishedRef.current = true;
+      void utils.interview.get.invalidate();
+    }
+  }, [hasSession, session.data?.status, reportRun.data?.status, utils]);
 
   if (session.isLoading || resume.isLoading || matching.isLoading || roadmap.isLoading) {
     return (
@@ -110,6 +139,7 @@ export function InterviewHub() {
   async function doStart(values: InterviewSetupValues) {
     lastInput.current = values;
     finishedRef.current = false;
+    reportFinishedRef.current = false;
     setStartError(null);
     setSubmitted(true);
     setView("running");
@@ -163,12 +193,48 @@ export function InterviewHub() {
 
   function enterSetup() {
     setStartError(null);
+    setReportError(null);
     setView("setup");
   }
 
-  // 结束面试(7.3 接入 finish 与综合报告视图;Commit 2 以 toast 占位)
-  function handleEnd() {
-    toast("面试已结束,综合报告功能即将开放");
+  // 结束面试 → 生成综合报告(7.3):finish 为等待式(管线含报告 Agent);
+  // 失败时场次保持 in_progress,展示报告失败视图(重试 / 返回对话)
+  async function doFinish() {
+    setReportError(null);
+    setFinishing(true);
+    try {
+      await finish.mutateAsync();
+      await utils.interview.get.invalidate();
+      setView("report");
+    } catch (err) {
+      setReportError(friendlyError(err));
+      // 场次可能已变化(如报告其实已生成)→ 重读同步
+      await utils.interview.get.refetch();
+    } finally {
+      setFinishing(false);
+    }
+  }
+
+  // 报告失败重试:有失败报告 run(刷新后恢复)→ 服务端重放(run.input 仅作合法性门,
+  // 按当前场次重组摘要);会话内失败 → 直接重新 finish
+  async function handleReportRetry() {
+    const failedReportRun = reportRun.data?.status === "failed" ? reportRun.data : null;
+    setReportError(null);
+    setFinishing(true);
+    try {
+      if (failedReportRun) {
+        await retry.mutateAsync({ runId: failedReportRun.id });
+      } else {
+        await finish.mutateAsync();
+      }
+      await utils.interview.get.invalidate();
+      setView("report");
+    } catch (err) {
+      setReportError(friendlyError(err));
+      await utils.interview.get.refetch();
+    } finally {
+      setFinishing(false);
+    }
   }
 
   const prefill: Partial<InterviewSetupValues> = lastInput.current ?? {
@@ -176,7 +242,25 @@ export function InterviewHub() {
   };
 
   let viewNode: React.ReactNode;
-  if (view === "running" || submitted || recovering || startError) {
+  if (finishing || reportError) {
+    // 报告生成在途/失败:优先级最高(与出题流程共用 AnalysisView 视觉)
+    viewNode = (
+      <AnalysisView
+        run={reportRun.data?.status === "running" ? reportRun.data : null}
+        error={reportError}
+        onRetry={handleReportRetry}
+        onEdit={() => {
+          setReportError(null);
+          setView("chat");
+        }}
+        agentName="面试报告"
+        icon={FileText}
+        runningDescription="正在汇总你的全部作答,生成综合报告"
+        failedDescription="报告生成没有完成,你可以重试或返回对话继续作答"
+        editLabel="返回对话"
+      />
+    );
+  } else if (view === "running" || submitted || recovering || startError) {
     // 出题在途或本次会话失败:优先级最高
     viewNode = (
       <AnalysisView
@@ -193,9 +277,33 @@ export function InterviewHub() {
     );
   } else if (view === "setup") {
     viewNode = <InterviewSetup initialValues={prefill} onSubmit={handleStart} />;
+  } else if (view === "chat" && hasSession && session.data) {
+    // 报告视图「返回对话」:进行中/已完成场次均只读回顾
+    viewNode = (
+      <InterviewChat
+        session={session.data}
+        onEnd={() => void doFinish()}
+        onViewReport={() => setView("report")}
+      />
+    );
+  } else if ((view === "report" || session.data?.status === "completed") && hasSession && session.data) {
+    // 综合报告视图(含刷新恢复:completed 场次直接派生,无闪烁)
+    viewNode = (
+      <InterviewReport
+        session={session.data}
+        onBackToChat={() => setView("chat")}
+        onNewInterview={enterSetup}
+      />
+    );
   } else if (hasActiveSession && session.data) {
     // 进行中场次(含刷新恢复:view 为 null 时渲染期直接派生,无 setup 闪烁)
-    viewNode = <InterviewChat session={session.data} onEnd={handleEnd} />;
+    viewNode = (
+      <InterviewChat
+        session={session.data}
+        onEnd={() => void doFinish()}
+        onViewReport={() => setView("report")}
+      />
+    );
   } else if (failedRun) {
     // 无场次时遇历史失败 run:失败恢复视图(刷新后仍可重试)
     viewNode = (

@@ -12,6 +12,7 @@ import type {
   InterviewQuestions,
   InterviewQuestionType,
   InterviewEvaluation,
+  InterviewReport,
 } from "@/lib/interview/analysis-schemas";
 
 /** 匹配演示数据:与 agents/__tests__/matching-samples.ts 的 backend-with-profile 样例同源(schema 已验证) */
@@ -288,6 +289,26 @@ function parseEvaluationInput(messages: ChatMessage[]): { questionId: string } {
   const questionId =
     typeof raw.question?.id === "string" && raw.question.id.length > 0 ? raw.question.id : "q-0";
   return { questionId };
+}
+
+/** 面试综合报告演示数据:与固定 8/7 分口径一致的定性结论,四要素齐全
+ * (总体评价/突出优势/主要短板/1-2 个重点改进方向,schema 恒定通过) */
+export function mockInterviewReportFixture(): InterviewReport {
+  return {
+    overallEvaluation:
+      "整体表现:回答能扣住题目要点,结构基本清晰,能结合真实实习与项目经历作答;但成果量化不足,「做了什么」讲得多、「做成了什么」讲得少,故事的说服力还有提升空间。(Mock 演示数据)",
+    strengths: [
+      "经历真实具体:回答围绕真实实习与项目展开,不空谈",
+      "结构基本清晰:多数回答有背景、做法、结果的叙述框架",
+    ],
+    weaknesses: [
+      "成果缺乏量化:少有耗时、请求量、提升幅度等数据支撑",
+      "深度追问后展开不足:对「怎么做的」细节交代偏浅",
+    ],
+    keyImprovements: [
+      "用 STAR + 量化结果重写两段核心经历,每段补一个可衡量的结果数据",
+    ],
+  };
 }
 
 /** 答题评估演示数据:固定 8/7 分(同一答案两次评估分差 0,满足 ≤2 的验证口径);

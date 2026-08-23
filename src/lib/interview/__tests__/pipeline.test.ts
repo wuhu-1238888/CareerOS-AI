@@ -1,12 +1,12 @@
 // @vitest-environment node
 // 模拟面试管线测试(7.1/7.2,真实写库):开场覆盖式 upsert + 题数 echo 交叉校验 + 失败不落行;
-// 7.2 评估管线(答案先落库/有追问停题/失败保留答案可重试)+ 追问管线(不触发 LLM/跳过)。
-// (7.3 报告管线测试在 Commit 3 扩展)
+// 7.2 评估管线(答案先落库/有追问停题/失败保留答案可重试)+ 追问管线(不触发 LLM/跳过);
+// 7.3 报告管线(仅已评估题计入摘要 + 提前结束 + 失败保持 in_progress + 已结束拒绝重复生成)。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
-import { runInterviewQuestions, runEvaluateAnswer, evaluateStoredAnswer, runFollowUpAnswer } from "../pipeline";
+import { runInterviewQuestions, runEvaluateAnswer, evaluateStoredAnswer, runFollowUpAnswer, runInterviewReport } from "../pipeline";
 import { interviewQuestionsSchema } from "@/lib/interview/analysis-schemas";
 import type { InterviewAnswerItem } from "@/lib/interview/analysis-schemas";
 import { interviewSamples } from "@/lib/agents/__tests__/interview-samples";
@@ -396,5 +396,202 @@ describe("runEvaluateAnswer / runFollowUpAnswer 管线(真实写库,顺序执行
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("unreachable");
     expect(outcome.error).toContain("所有题目已答完");
+  });
+});
+
+describe("runInterviewReport 管线(真实写库,顺序执行)", () => {
+  const reportJson = () =>
+    JSON.stringify({
+      overallEvaluation: "整体表现:能结合真实经历作答,结构基本清晰,但成果量化不足。(测试用报告)",
+      strengths: ["经历真实具体", "结构基本清晰"],
+      weaknesses: ["成果缺乏量化"],
+      keyImprovements: ["用 STAR + 量化结果重写两段核心经历"],
+    });
+
+  const evalJson = (followUpQuestion: string | null) =>
+    JSON.stringify({
+      contentScore: 8,
+      expressionScore: 7,
+      improvementSuggestion: "建议补充一个可量化的结果数据。",
+      followUpQuestion,
+    });
+
+  const answerText = "我在后端实习中负责订单服务接口开发,独立完成了接口设计、MySQL 数据表设计与前后端联调。";
+
+  // 每个用例重开场 5 题行为面(index 0,answers []),保证用例间状态可预测
+  async function freshSession(userId: string) {
+    const outcome = await runInterviewQuestions({
+      userId,
+      input: backend5.input,
+      adapter: mockAdapterFor(backend5),
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+  }
+
+  it("成功(提前结束,只答 2 题):报告落库 + status completed + AgentRun succeeded", async () => {
+    await freshSession(userIdA);
+    // 答两题:q-1 无追问直接推进;q-2 有追问 → 跳过追问推进
+    await runEvaluateAnswer({
+      userId: userIdA,
+      answer: answerText,
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    await runEvaluateAnswer({
+      userId: userIdA,
+      answer: "我在校园二手交易平台后端独立完成商品发布与订单模块。",
+      adapter: new MockAdapter(0, () => evalJson("追问?")),
+    });
+    await runFollowUpAnswer({ userId: userIdA, followUpAnswer: null });
+
+    const outcome = await runInterviewReport({
+      userId: userIdA,
+      adapter: new MockAdapter(0, () => reportJson()),
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+
+    const row = await prisma.interviewSession.findUnique({ where: { userId: userIdA } });
+    expect(row?.status).toBe("completed");
+    expect(row?.report).toMatchObject({ overallEvaluation: expect.stringContaining("整体表现") });
+
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("succeeded");
+    expect(run?.intent).toBe("generate-interview-report");
+    const progress = run?.progress as { stage: string }[];
+    expect(progress).toHaveLength(5);
+    expect(progress.map((p) => p.stage)).toEqual(["start", "prompt", "llm", "parse", "done"]);
+    // 摘要仅含已评估题(未答题目不计入);输入含岗位与面试类型
+    const input = run?.input as {
+      targetPosition: string;
+      interviewType: string;
+      summary: { questionId?: string; question: string; answer: string; contentScore: number }[];
+    };
+    expect(input.targetPosition).toBe("后端开发工程师");
+    expect(input.interviewType).toBe("行为面");
+    expect(input.summary).toHaveLength(2);
+    expect(input.summary.map((s) => s.contentScore)).toEqual([8, 8]);
+  });
+
+  it("answer 截断 800 字传入摘要(输入预算保护)", async () => {
+    await freshSession(userIdA);
+    const longAnswer = "答".repeat(1200);
+    await runEvaluateAnswer({
+      userId: userIdA,
+      answer: longAnswer,
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    // 报告 Agent 收到的 summary.answer 必须 ≤800 字
+    let capturedAnswerLength = -1;
+    const adapter = new MockAdapter(0, (messages) => {
+      const raw = JSON.parse(messages.find((m) => m.role === "user")?.content ?? "{}") as {
+        summary?: { answer?: string }[];
+      };
+      capturedAnswerLength = raw.summary?.[0]?.answer?.length ?? -1;
+      return reportJson();
+    });
+    const outcome = await runInterviewReport({ userId: userIdA, adapter });
+    expect(outcome.ok).toBe(true);
+    expect(capturedAnswerLength).toBe(800);
+  });
+
+  it("评估失败的题(evaluation=null)不计入摘要", async () => {
+    await freshSession(userIdA);
+    // q-1 评估失败(答案保留,evaluation null);q-2 评估成功推进
+    await runEvaluateAnswer({
+      userId: userIdA,
+      answer: answerText,
+      adapter: new MockAdapter(0, () => "坏 JSON"),
+    });
+    // 跳过未完成的 q-1:手工推进 index 到 1 并作答 q-2(失败题永远不计入报告)
+    await prisma.interviewSession.update({
+      where: { userId: userIdA },
+      data: { currentQuestionIndex: 1 },
+    });
+    await runEvaluateAnswer({
+      userId: userIdA,
+      answer: "我在校园二手交易平台后端独立完成商品发布与订单模块。",
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+
+    let capturedSummary = [] as { answer: string }[];
+    const adapter = new MockAdapter(0, (messages) => {
+      const raw = JSON.parse(messages.find((m) => m.role === "user")?.content ?? "{}") as {
+        summary?: { answer: string }[];
+      };
+      capturedSummary = raw.summary ?? [];
+      return reportJson();
+    });
+    const outcome = await runInterviewReport({ userId: userIdA, adapter });
+    expect(outcome.ok).toBe(true);
+    expect(capturedSummary).toHaveLength(1);
+    expect(capturedSummary[0]?.answer).toContain("校园二手交易平台");
+  });
+
+  it("无已评估题 → ok:false「至少完成一道题」(不产生报告 run)", async () => {
+    await freshSession(userIdA);
+    const runsBefore = await prisma.agentRun.count({ where: { userId: userIdA } });
+    const outcome = await runInterviewReport({
+      userId: userIdA,
+      adapter: new MockAdapter(0, () => reportJson()),
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.error).toContain("至少完成一道题");
+    const runsAfter = await prisma.agentRun.count({ where: { userId: userIdA } });
+    expect(runsAfter).toBe(runsBefore);
+  });
+
+  it("报告失败(坏 JSON):场次保持 in_progress、report 为 null、AgentRun failed(可重试)", async () => {
+    await freshSession(userIdA);
+    await runEvaluateAnswer({
+      userId: userIdA,
+      answer: answerText,
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    const outcome = await runInterviewReport({
+      userId: userIdA,
+      adapter: new MockAdapter(0, () => "坏 JSON"),
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.error).toBe("AI 返回了无法识别的结果,请稍后重试");
+
+    const row = await prisma.interviewSession.findUnique({ where: { userId: userIdA } });
+    expect(row?.status).toBe("in_progress");
+    expect(row?.report).toBeNull();
+    const run = await prisma.agentRun.findUnique({ where: { id: outcome.runId } });
+    expect(run?.status).toBe("failed");
+  });
+
+  it("已 completed 场次再次生成 → ok:false「面试已结束」", async () => {
+    // 先把场次走到 completed(上一用例结束时为失败态 in_progress)
+    const first = await runInterviewReport({
+      userId: userIdA,
+      adapter: new MockAdapter(0, () => reportJson()),
+    });
+    expect(first.ok).toBe(true);
+    const second = await runInterviewReport({
+      userId: userIdA,
+      adapter: new MockAdapter(0, () => reportJson()),
+    });
+    expect(second.ok).toBe(false);
+    if (second.ok) throw new Error("unreachable");
+    expect(second.error).toContain("面试已结束");
+  });
+
+  it("无场次用户 → ok:false「面试场次不存在」", async () => {
+    const noSessionUser = await prisma.user.create({
+      data: {
+        email: `interviewpipeline-d-${suffix}@test.local`,
+        name: "无场次报告",
+        passwordHash: await bcrypt.hash("password-123", 10),
+        authMethod: "password",
+      },
+    });
+    const outcome = await runInterviewReport({ userId: noSessionUser.id });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.error).toContain("面试场次不存在");
   });
 });

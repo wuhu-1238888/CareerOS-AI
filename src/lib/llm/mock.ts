@@ -7,6 +7,7 @@ import {
   mockCoachPlanFixture,
   mockInterviewEvaluationFixture,
   mockInterviewQuestionsFixture,
+  mockInterviewReportFixture,
   mockMatchAnalysisFixture,
   mockResumeParseFixture,
 } from "./mock-fixtures";
@@ -30,6 +31,10 @@ export const defaultMockReply: MockReplyFn = (messages, options) => {
   if (options?.agentName === "interview-answer-evaluator") {
     logDispatch("interview-answer-evaluator");
     return JSON.stringify(mockInterviewEvaluationFixture(messages));
+  }
+  if (options?.agentName === "interview-report-agent") {
+    logDispatch("interview-report-agent");
+    return JSON.stringify(mockInterviewReportFixture());
   }
   if (options?.agentName === "resume-parse-agent") {
     logDispatch("resume-parse-agent");

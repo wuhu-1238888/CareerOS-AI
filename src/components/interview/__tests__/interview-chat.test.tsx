@@ -1,6 +1,7 @@
 // 模拟面试对话组件测试(7.2,特许对话形态):当前题打字机渲染/历史消息整段恢复/评估卡双徽章/
 // 评估失败重试槽/追问(回答/跳过/历史跳过注记)/思考气泡(role=status)+ 在途禁用/键盘操作
 // (Enter 发送、Shift+Enter 换行、isComposing 防误发)/STAR 提示仅行为面/全部答完完成卡 + 结束 Dialog。
+// 7.3 完成态:completed 只读回顾(输入区隐藏/顶栏查看综合报告/提前结束注记卡/CTA 直连 onViewReport)。
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +29,14 @@ const QUESTIONS: InterviewQuestion[] = [
 ];
 
 const EVALUATION = { contentScore: 8, expressionScore: 7, improvementSuggestion: "建议补充一个可量化的结果数据。" };
+
+// 7.3:对话视图不消费报告内容,仅用于构造 completed 场次
+const COMPLETED_REPORT = {
+  overallEvaluation: "整体表现扎实。",
+  strengths: ["项目经验丰富"],
+  weaknesses: ["量化结果偏少"],
+  keyImprovements: ["用 STAR + 量化结果重写核心经历。"],
+};
 
 function makeSession(overrides: Partial<SessionMock> = {}): SessionMock {
   return {
@@ -294,5 +303,61 @@ describe("InterviewChat(7.2)", () => {
     expect(within(dialog).getByText("还有 5 题未作答,结束后未答题目不计入报告。")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "结束面试" }));
     expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("InterviewChat 完成态(7.3)", () => {
+  it("completed 且全部答完:只读回顾(无输入区/无结束按钮),完成卡 CTA 直连 onViewReport", async () => {
+    const onViewReport = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <InterviewChat
+        session={makeSession({ status: "completed", currentQuestionIndex: 5, report: COMPLETED_REPORT })}
+        onEnd={() => undefined}
+        onViewReport={onViewReport}
+      />
+    );
+    expect(screen.getByText("全部 5 题已完成")).toBeInTheDocument();
+    expect(screen.getByText("本场面试已结束。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("你的回答")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "结束面试" })).not.toBeInTheDocument();
+
+    // 顶栏 + 完成卡:两处「查看综合报告」均直连 onViewReport(不再弹结束 Dialog)
+    const buttons = screen.getAllByRole("button", { name: "查看综合报告" });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[0]!);
+    expect(onViewReport).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("completed 且未答完(提前结束):输入区隐藏 + 结束注记卡(未作答题数)+ 查看综合报告", async () => {
+    const onViewReport = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <InterviewChat
+        session={makeSession({
+          status: "completed",
+          currentQuestionIndex: 2,
+          answers: [
+            { questionId: "q-1", answer: "我是后端实习生。", evaluation: EVALUATION, followUpQuestion: null, followUpAnswer: null },
+            { questionId: "q-2", answer: "最有成就感的是支付网关项目。", evaluation: EVALUATION, followUpQuestion: null, followUpAnswer: null },
+          ],
+          report: COMPLETED_REPORT,
+        })}
+        onEnd={() => undefined}
+        onViewReport={onViewReport}
+      />
+    );
+    expect(screen.getByText("面试已结束")).toBeInTheDocument();
+    expect(screen.getByText("未作答的 3 道题不计入本次报告。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("你的回答")).not.toBeInTheDocument();
+    // STAR 提示与结束 Dialog 在完成态均不可用
+    expect(screen.queryByText("面试官提示:STAR 结构")).not.toBeInTheDocument();
+
+    // 顶栏 + 注记卡:两处「查看综合报告」
+    const buttons = screen.getAllByRole("button", { name: "查看综合报告" });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[0]!);
+    expect(onViewReport).toHaveBeenCalledTimes(1);
   });
 });

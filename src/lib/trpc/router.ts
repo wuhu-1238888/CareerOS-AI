@@ -26,6 +26,7 @@ import {
   runEvaluateAnswer,
   evaluateStoredAnswer,
   runFollowUpAnswer,
+  runInterviewReport,
   parseStoredQuestions,
   parseStoredAnswers,
 } from "@/lib/interview/pipeline";
@@ -36,6 +37,7 @@ import {
 } from "@/lib/interview/analysis-schemas";
 import { interviewQuestionAgentInputSchema } from "@/lib/agents/interview-question.agent";
 import { interviewEvaluatorAgentInputSchema } from "@/lib/agents/interview-evaluator.agent";
+import { interviewReportAgentInputSchema } from "@/lib/agents/interview-report.agent";
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
 import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
@@ -203,6 +205,7 @@ function serializeJobMatch(
 
 // InterviewSession 行序列化(7.1):questions/answers/report 均经输出 Schema 防御解析
 // (损坏回退 null → 前端按无有效场次处理,镜像 serializeJobMatch 先例);
+// report 返回解析后的值(InterviewReport | null,前端免二次断言);
 // interviewType/questionCount/status 为服务端写入时已校验的标量,原样透传。
 function serializeInterviewSession(
   row: {
@@ -218,6 +221,7 @@ function serializeInterviewSession(
   } | null
 ) {
   if (!row) return null;
+  const parsedReport = interviewReportSchema.safeParse(row.report);
   return {
     interviewType: row.interviewType,
     questionCount: row.questionCount,
@@ -226,7 +230,7 @@ function serializeInterviewSession(
     questions: parseStoredQuestions(row.questions),
     currentQuestionIndex: row.currentQuestionIndex,
     answers: parseStoredAnswers(row.answers),
-    report: interviewReportSchema.safeParse(row.report).success ? row.report : null,
+    report: parsedReport.success ? parsedReport.data : null,
     updatedAt: row.updatedAt,
   };
 }
@@ -1579,6 +1583,25 @@ export const appRouter = t.router({
       return serializeInterviewSession(row);
     }),
 
+    // 结束面试并生成综合报告(7.3):至少 1 题已评估(未答/未评估题不计入,允许提前结束);
+    // 报告 Agent 产出定性四要素,均分由前端确定性计算。返回更新后的场次(含 report)
+    finish: protectedProcedure.mutation(async ({ ctx }) => {
+      // 双保险前置校验:无已评估题 → BAD_REQUEST(管线内部同样校验)
+      const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+      const evaluatedCount = row
+        ? (parseStoredAnswers(row.answers) ?? []).filter((a) => a.evaluation).length
+        : 0;
+      if (evaluatedCount === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "至少完成一道题才能生成综合报告" });
+      }
+      const outcome = await runInterviewReport({ userId: ctx.userId });
+      if (!outcome.ok) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+      }
+      const fresh = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+      return serializeInterviewSession(fresh);
+    }),
+
     // 失败重试(7.1):从 run.input 重放(输入含场次简历快照,简历后续变更不影响重放);
     // 7.2 接入评估 intent(重放时重读 session 该题当前答案重评);7.3 接入报告 intent
     retry: protectedProcedure
@@ -1615,6 +1638,19 @@ export const appRouter = t.router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新开始面试" });
           }
           const outcome = await evaluateStoredAnswer({ userId: ctx.userId, questionIndex });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { runId: outcome.runId };
+        }
+        if (run.intent === "generate-interview-report") {
+          const parsed = interviewReportAgentInputSchema.safeParse(run.input);
+          if (!parsed.success) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新开始面试" });
+          }
+          // 重放 = 按当前场次的已评估题重新组装摘要重跑报告(run.input.summary 仅作输入合法性门,
+          // 与评估重放同原则:场次状态优先于 run.input 快照)
+          const outcome = await runInterviewReport({ userId: ctx.userId });
           if (!outcome.ok) {
             throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
           }

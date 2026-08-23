@@ -72,6 +72,7 @@ function EvaluationCard({ evaluation }: { evaluation: NonNullable<InterviewAnswe
 export function InterviewChat({
   session,
   onEnd,
+  onViewReport,
 }: {
   session: {
     interviewType: string;
@@ -81,12 +82,14 @@ export function InterviewChat({
     questions: InterviewQuestion[] | null;
     currentQuestionIndex: number;
     answers: InterviewAnswerItem[] | null;
-    /** 7.3 综合报告视图使用;Commit 2 对话视图不消费(序列化返回 unknown,防御解析由报告视图承担) */
+    /** 7.3 综合报告视图使用;对话视图不消费(序列化返回 unknown,防御解析由报告视图承担) */
     report?: unknown;
     updatedAt: string | Date;
   };
-  /** 结束面试(7.2 Hub 以 toast 占位;7.3 接入 finish 与综合报告视图) */
+  /** 结束面试 → 生成综合报告(7.3 Hub 接 finish) */
   onEnd: () => void;
+  /** 已完成场次(报告视图「返回对话」进入的只读回顾):查看综合报告 */
+  onViewReport?: () => void;
 }) {
   const utils = trpc.useUtils();
   const submitAnswer = trpc.interview.submitAnswer.useMutation();
@@ -100,6 +103,8 @@ export function InterviewChat({
   const allDone = index >= questions.length;
   const current = allDone ? null : questions[index];
   const currentEntry = current ? answers.find((a) => a.questionId === current.id) : undefined;
+  // 已完成场次(报告视图「返回对话」进入):只读回顾,不再作答/结束
+  const completed = session.status === "completed";
 
   // 本轮已打字完成的题目/追问 id:初始化即包含恢复的历史消息(已作答的题、已出现的追问),
   // 仅本轮新出现的气泡打字机;onDone 时登记(触发重渲染切整段渲染)
@@ -234,15 +239,27 @@ export function InterviewChat({
           <span aria-hidden>·</span>
           <span className="truncate">{session.targetPosition}</span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0"
-          onClick={() => setEndOpen(true)}
-          disabled={submitting || retryingEval || followUpSubmitting}
-        >
-          结束面试
-        </Button>
+        {completed ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={onViewReport}
+            disabled={!onViewReport}
+          >
+            查看综合报告
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setEndOpen(true)}
+            disabled={submitting || retryingEval || followUpSubmitting}
+          >
+            结束面试
+          </Button>
+        )}
       </div>
 
       {/* 对话区(特许形态):面试官左、用户右;历史消息整段,新气泡打字机。
@@ -269,8 +286,8 @@ export function InterviewChat({
                 </div>
               </div>
 
-              {/* 行为面 STAR 提示:仅当前未作答的题(可折叠,不打断对话) */}
-              {session.interviewType === "行为面" && isCurrent && !item && !allDone && (
+              {/* 行为面 STAR 提示:仅当前未作答的题(可折叠,不打断对话;已完成场次只读不显示) */}
+              {session.interviewType === "行为面" && isCurrent && !item && !allDone && !completed && (
                 <details className="ml-10 max-w-[85%] rounded-control bg-sunken p-3 text-body-sm text-ink-secondary">
                   <summary className="cursor-pointer font-medium text-ink">
                     面试官提示:STAR 结构
@@ -361,22 +378,40 @@ export function InterviewChat({
         <div ref={bottomRef} />
       </section>
 
-      {/* 全部答完:完成卡(结束面试 → 综合报告) */}
+      {/* 全部答完:完成卡(进行中 → 结束面试生成报告;已完成 → 直接查看报告) */}
       {allDone && (
         <div className="mt-4 rounded-card border border-hairline bg-surface p-6 text-center shadow-card">
           <Check className="mx-auto size-8 text-green-600" aria-hidden />
           <h3 className="mt-2 text-h3 text-ink">全部 {questions.length} 题已完成</h3>
           <p className="mt-1 text-body-sm text-ink-secondary">
-            你的作答已保存,结束面试后 AI 将生成综合报告。
+            {completed ? "本场面试已结束。" : "你的作答已保存,结束面试后 AI 将生成综合报告。"}
           </p>
-          <Button className="mt-4" onClick={() => setEndOpen(true)}>
-            结束面试,查看综合报告
+          <Button
+            className="mt-4"
+            onClick={() => (completed ? onViewReport?.() : setEndOpen(true))}
+            disabled={completed && !onViewReport}
+          >
+            {completed ? "查看综合报告" : "结束面试,查看综合报告"}
           </Button>
         </div>
       )}
 
-      {/* 输入区:追问待答时显示追问输入行,否则显示主作答输入 */}
+      {/* 已完成但未答完(提前结束):只读回顾 + 结束注记 + 查看报告 */}
+      {completed && !allDone && (
+        <div className="mt-4 rounded-card border border-hairline bg-surface p-6 text-center shadow-card">
+          <h3 className="text-h3 text-ink">面试已结束</h3>
+          <p className="mt-1 text-body-sm text-ink-secondary">
+            未作答的 {questions.length - index} 道题不计入本次报告。
+          </p>
+          <Button className="mt-4" onClick={onViewReport} disabled={!onViewReport}>
+            查看综合报告
+          </Button>
+        </div>
+      )}
+
+      {/* 输入区:追问待答时显示追问输入行,否则显示主作答输入(已完成场次只读,不渲染) */}
       {!allDone &&
+        !completed &&
         (followUpPending ? (
           <div className="mt-4 space-y-2">
             <Textarea

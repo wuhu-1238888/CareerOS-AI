@@ -16,6 +16,7 @@ import type {
   InterviewQuestions,
   InterviewAnswerItem,
   InterviewEvaluation,
+  InterviewReport,
   InterviewType,
 } from "@/lib/interview/analysis-schemas";
 import type { InterviewQuestionAgentInput } from "@/lib/agents/interview-question.agent";
@@ -276,6 +277,82 @@ export async function runFollowUpAnswer(params: {
     },
   });
   return { ok: true };
+}
+
+// ── 综合报告管线(7.3)──────────────────────────────────────────
+
+export type RunInterviewReportOutcome =
+  | { ok: true; runId: string }
+  | { ok: false; error: string; runId: string };
+
+// 报告管线(7.3):从已评估题组装摘要(answer 截 800 字;未答/未评估题不计入,允许提前结束)
+// → 报告 Agent(温度 0,定性四要素)→ 写 report + status completed。
+// 至少 1 题已评估(finish 端点双保险前置校验);均分由前端对已评估题确定性计算。
+export async function runInterviewReport(params: {
+  userId: string;
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<RunInterviewReportOutcome> {
+  const { userId, adapter } = params;
+  const runner: Orchestrator = adapter ? new Orchestrator(prisma, adapter) : orchestrator;
+  const loaded = await loadInterviewSession(userId);
+  if (!loaded) return { ok: false, error: "面试场次不存在,请重新开始面试", runId: "" };
+  const { row, questions, answers } = loaded;
+  if (row.status !== "in_progress") {
+    return { ok: false, error: "面试已结束,无法重复生成报告", runId: "" };
+  }
+
+  const summary = answers
+    .filter(
+      (a): a is InterviewAnswerItem & { evaluation: NonNullable<InterviewAnswerItem["evaluation"]> } =>
+        a.evaluation !== null
+    )
+    .map((a) => {
+      const question = questions.find((q) => q.id === a.questionId);
+      if (!question) return null;
+      return {
+        type: question.type,
+        question: question.question,
+        answer: a.answer.slice(0, 800),
+        contentScore: a.evaluation.contentScore,
+        expressionScore: a.evaluation.expressionScore,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  if (summary.length === 0) {
+    return { ok: false, error: "至少完成一道题才能生成综合报告", runId: "" };
+  }
+
+  const progressChain = { current: Promise.resolve() };
+  const outcome = await runner.run<InterviewReport>({
+    intent: "generate-interview-report",
+    input: {
+      targetPosition: row.targetPosition,
+      interviewType: row.interviewType as InterviewType,
+      summary,
+    },
+    context: {},
+    userId,
+    onRunProgress: (runId, progress: AgentProgress) => {
+      progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
+    },
+  });
+  // 返回前等待进度全部落库(调用方随后查询能看到完整 5 条事件)
+  await progressChain.current;
+
+  // 报告失败:场次保持 in_progress,前端可重试(报告 run 从 input 重放或重新 finish)
+  if (!outcome.ok) {
+    return outcome;
+  }
+
+  await prisma.interviewSession.update({
+    where: { userId },
+    data: {
+      report: outcome.result.data as unknown as Prisma.InputJsonValue,
+      status: "completed",
+    },
+  });
+  return { ok: true, runId: outcome.runId };
 }
 
 // 进度追加落库:同一 run 的事件顺序到达,读-改-写安全(唯一写入方为当前管线调用)

@@ -2,7 +2,8 @@
 // 模拟面试数据层接口测试(7.1/7.2,真实写库):get 序列化防御、start 无简历/输入校验、
 // start 成功路径(mock 出题,题数 echo 通过)、retry 越权隔离、latestRun;
 // 7.2 答题四端点(submitAnswer/evaluate/submitFollowUp/skipFollowUp,全局 mock 评估固定 8/7 分,
-// 偶数题号给追问)+ retry 评估重放。(7.3 finish 在 Commit 3 扩展)
+// 偶数题号给追问)+ retry 评估重放;7.3 finish(无已评估题 BAD_REQUEST/成功/重复结束拒绝)
+// + retry 报告重放(按当前场次重组摘要)。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -378,5 +379,137 @@ describe("interview 答题四端点(真实写库,顺序执行;全局 mock 评估
     await expect(caller(null).interview.skipFollowUp()).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
+  });
+});
+
+describe("interview finish 与报告 retry(真实写库,顺序执行;全局 mock 报告四要素)", () => {
+  it("finish:无已评估题(userB 无场次)→ BAD_REQUEST「至少完成一道题才能生成综合报告」", async () => {
+    await expect(caller(userIdB).interview.finish()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "至少完成一道题才能生成综合报告",
+    });
+  });
+
+  it("finish:userA 成功(已有 4 题已评估,提前结束)→ 场次 completed + 报告四要素落库", async () => {
+    const result = await caller(userIdA).interview.finish();
+    expect(result?.status).toBe("completed");
+    expect(result?.report).toMatchObject({
+      overallEvaluation: expect.stringContaining("Mock 演示数据"),
+      strengths: expect.any(Array),
+      weaknesses: expect.any(Array),
+      keyImprovements: expect.any(Array),
+    });
+    // 与 DB 一致
+    const row = await prisma.interviewSession.findUnique({ where: { userId: userIdA } });
+    expect(row?.status).toBe("completed");
+    expect(row?.report).toMatchObject({ overallEvaluation: expect.stringContaining("Mock 演示数据") });
+    const run = await prisma.agentRun.findFirst({
+      where: { userId: userIdA, intent: "generate-interview-report" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(run?.status).toBe("succeeded");
+  });
+
+  it("finish:已结束场次再次结束 → BAD_GATEWAY「面试已结束」", async () => {
+    await expect(caller(userIdA).interview.finish()).rejects.toMatchObject({
+      code: "BAD_GATEWAY",
+      message: "面试已结束,无法重复生成报告",
+    });
+  });
+
+  it("finish:未登录 → UNAUTHORIZED", async () => {
+    await expect(caller(null).interview.finish()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("retry:报告 intent 重放成功(userB 合法场次)→ 按当前场次重组摘要重跑 + 新 runId", async () => {
+    // 为 userB 建 in_progress 场次(1 题已评估)
+    await prisma.interviewSession.create({
+      data: {
+        userId: userIdB,
+        interviewType: "行为面",
+        questionCount: 5,
+        targetPosition: "后端开发工程师",
+        resumeText: backend5.input.resumeText,
+        status: "in_progress",
+        questions: backend5.mockOutput.questions,
+        currentQuestionIndex: 1,
+        answers: [
+          {
+            questionId: "q-1",
+            answer: "我在后端实习中负责订单服务接口开发,独立完成接口设计与数据表设计。",
+            evaluation: { contentScore: 8, expressionScore: 7, improvementSuggestion: "建议补充量化数据。" },
+            followUpQuestion: null,
+            followUpAnswer: null,
+          },
+        ],
+      },
+    });
+    const brokenRun = await prisma.agentRun.create({
+      data: {
+        userId: userIdB,
+        agentName: "interview-report-agent",
+        intent: "generate-interview-report",
+        status: "failed",
+        input: {
+          targetPosition: "后端开发工程师",
+          interviewType: "行为面",
+          summary: [
+            {
+              type: "自我介绍",
+              question: "请做一个自我介绍。",
+              answer: "旧摘要(重放时不应被使用)",
+              contentScore: 8,
+              expressionScore: 7,
+            },
+          ],
+        },
+      },
+    });
+    const result = await caller(userIdB).interview.retry({ runId: brokenRun.id });
+    expect(result.runId).toBeTruthy();
+    expect(result.runId).not.toBe(brokenRun.id);
+
+    const after = await caller(userIdB).interview.get();
+    expect(after?.status).toBe("completed");
+    expect(after?.report).toMatchObject({ overallEvaluation: expect.stringContaining("Mock 演示数据") });
+  });
+
+  it("retry:报告 intent 输入损坏 → BAD_REQUEST「无法重试该任务」", async () => {
+    // userB 场次已 completed,重放会先被输入校验拦截(BAD_REQUEST 优先于管线错误)
+    const brokenInput = await prisma.agentRun.create({
+      data: {
+        userId: userIdB,
+        agentName: "interview-report-agent",
+        intent: "generate-interview-report",
+        status: "failed",
+        input: { broken: true },
+      },
+    });
+    await expect(caller(userIdB).interview.retry({ runId: brokenInput.id })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "无法重试该任务,请重新开始面试",
+    });
+  });
+
+  it("retry:他人报告 run → NOT_FOUND(越权隔离)", async () => {
+    const runB = await prisma.agentRun.findFirst({
+      where: { userId: userIdB, intent: "generate-interview-report" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(runB).toBeTruthy();
+    await expect(caller(userIdA).interview.retry({ runId: runB!.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("latestRun:报告 intent 返回最近一次报告 run(与 DB 直接查询一致)", async () => {
+    const run = await caller(userIdB).interview.latestRun({ intent: "generate-interview-report" });
+    const dbRun = await prisma.agentRun.findFirst({
+      where: { userId: userIdB, intent: "generate-interview-report" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(run?.id).toBe(dbRun?.id);
+    // 最近一次 = 上个用例造的输入损坏 failed run
+    expect(run?.status).toBe(dbRun?.status);
   });
 });
