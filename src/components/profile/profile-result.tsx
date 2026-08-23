@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { AiBadge } from "@/components/shared/ai-badge";
 import { ProfileGlance, CONFIDENCE_STYLE } from "./profile-glance";
+import { HistoryCompare } from "./history-compare";
 import { trpc } from "@/trpc/client";
 import { profileAnalysisSchema } from "@/lib/profile/analysis-schemas";
 import { colors } from "@/lib/design/tokens";
@@ -310,6 +311,12 @@ export function ProfileResult({
           </ul>
         </div>
       </section>
+
+      {/* 历史对比(6.5):仅查看最新版且有历史版本时显示(六维雷达与推荐方向之间);
+          切旧版本查看时隐藏;previous 解析失败由 HistoryCompare 自行隐藏 */}
+      {viewingId === null && (versions.data?.length ?? 0) > 1 ? (
+        <HistoryCompare current={analysis} previousId={versions.data![1]!.id} />
+      ) : null}
 
       {/* 推荐方向:Desktop 两列,提升横向扫描效率 */}
       <section className="space-y-4">

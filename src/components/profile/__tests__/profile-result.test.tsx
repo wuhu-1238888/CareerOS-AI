@@ -191,6 +191,23 @@ describe("ProfileResult", () => {
     expect(mocks.getVersionEnabled).toBe(true);
   });
 
+  it("历史对比(6.5):多版本且查看最新版时渲染,切旧版本查看时隐藏", async () => {
+    mocks.versionsData = [
+      { id: "p2", version: 2, createdAt: "2026-08-15T10:00:00Z" },
+      { id: "p1", version: 1, createdAt: "2026-08-01T10:00:00Z" },
+    ];
+    mocks.getVersionData = { ...row, id: "p1", version: 1, aiAnalysis: analysis };
+    render(<ProfileResult initial={{ ...row, id: "p2", version: 2 }} />);
+    // 最新版视图:与次新版(versions[1])对比
+    expect(screen.getByText("历史对比")).toBeInTheDocument();
+    expect(screen.getByText("当前画像 vs 第 1 版画像")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText("查看历史版本"));
+    await user.click(await screen.findByRole("option", { name: /v1 ·/ }));
+    // 切旧版本查看:对比区块隐藏
+    expect(screen.queryByText("历史对比")).toBeNull();
+  });
+
   it("aiAnalysis 非法:渲染前校验失败给出异常提示", () => {
     render(<ProfileResult initial={{ ...row, aiAnalysis: { summary: "不完整" } }} />);
     expect(screen.getByText("分析数据异常,请重新分析画像")).toBeInTheDocument();
