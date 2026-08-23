@@ -46,6 +46,9 @@ const mocks = vi.hoisted(() => {
     resume: {
       get: { invalidate: invalidateResume },
       latestRun: { invalidate: invalidateLatestRun },
+      // 6.6:结果视图版本选择器所需失效入口(hub 测试不点击,仅保证对象完整)
+      listVersions: { invalidate: vi.fn() },
+      getVersion: { invalidate: vi.fn() },
     },
   };
   return {
@@ -125,6 +128,11 @@ vi.mock("@/trpc/client", () => ({
       acceptAll: { useMutation: () => ({ mutateAsync: mocks.acceptAllMutateAsync }) },
       scoreAts: { useMutation: () => ({ mutateAsync: mocks.scoreAtsMutateAsync }) },
       logExport: { useMutation: () => ({ mutate: mocks.logExportMutate }) },
+      // 6.6:结果视图版本选择器(hub 测试关注状态机,版本列表为空 = 单版本形态,交互由 resume-result.test.tsx 覆盖)
+      listVersions: { useQuery: () => ({ data: [], isLoading: false }) },
+      getVersion: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      duplicateVersion: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      deleteVersion: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       createFromText: {
         useMutation: () => ({ mutateAsync: mocks.createMutateAsync, isPending: false }),
       },

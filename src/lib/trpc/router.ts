@@ -1180,6 +1180,80 @@ export const appRouter = t.router({
         };
       }),
 
+    // 简历优化版本列表(6.6):仅版本元信息(时间降序,最新在前);「第 N 版」编号由客户端按列表倒序派生(无 version 列)
+    listVersions: protectedProcedure
+      .input(z.object({ resumeId: z.string().min(1) }))
+      .query(async ({ ctx, input }) => {
+        await requireOwnedResume(ctx, input.resumeId);
+        return ctx.prisma.resumeVersion.findMany({
+          where: { resumeId: input.resumeId },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, targetDirection: true, atsScore: true, createdAt: true },
+        });
+      }),
+
+    // 查看指定优化版本(6.6):复用 serializeVersion(含 canonical finalText,复制/导出同源);越权 → NOT_FOUND
+    getVersion: protectedProcedure
+      .input(z.object({ versionId: z.string().min(1) }))
+      .query(async ({ ctx, input }) => {
+        const version = await requireOwnedVersion(ctx, input.versionId);
+        const [optimizations, resume] = await Promise.all([
+          ctx.prisma.optimization.findMany({
+            where: { resumeVersionId: version.id },
+            orderBy: { order: "asc" },
+          }),
+          ctx.prisma.resume.findUnique({
+            where: { id: version.resumeId },
+            select: { originalText: true },
+          }),
+        ]);
+        return serializeVersion({ ...version, optimizations }, resume?.originalText ?? null);
+      }),
+
+    // 复制为新版本(6.6):深拷贝目标方向 + 变更摘要 + 全部建议(状态原样);ATS 三列不复制(新版本需重新评分)
+    duplicateVersion: protectedProcedure
+      .input(z.object({ versionId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const version = await requireOwnedVersion(ctx, input.versionId);
+        const optimizations = await ctx.prisma.optimization.findMany({
+          where: { resumeVersionId: version.id },
+          orderBy: { order: "asc" },
+        });
+        const duplicate = await ctx.prisma.resumeVersion.create({
+          data: {
+            resumeId: version.resumeId,
+            targetDirection: version.targetDirection,
+            changes: version.changes as Prisma.InputJsonValue,
+            optimizations: {
+              create: optimizations.map((o) => ({
+                category: o.category,
+                originalText: o.originalText,
+                optimizedText: o.optimizedText,
+                reason: o.reason,
+                order: o.order,
+                status: o.status, // 状态原样复制(计划 6.6 决策:采纳状态随版本延续)
+              })),
+            },
+          },
+        });
+        return { versionId: duplicate.id };
+      }),
+
+    // 删除优化版本(6.6):至少保留一个版本;级联删建议(Optimization),简历行与原文不动
+    deleteVersion: protectedProcedure
+      .input(z.object({ versionId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const version = await requireOwnedVersion(ctx, input.versionId);
+        const remaining = await ctx.prisma.resumeVersion.count({
+          where: { resumeId: version.resumeId },
+        });
+        if (remaining <= 1) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "至少保留一个优化版本" });
+        }
+        await ctx.prisma.resumeVersion.delete({ where: { id: version.id } });
+        return { ok: true };
+      }),
+
     // 最近一次简历任务 run(4.3):页面轮询(700ms)与刷新恢复的统一入口;按 intent 参数化,与画像/路线图 latestRun 同构
     latestRun: protectedProcedure
       .input(z.object({ intent: z.enum(["parse-resume", "rewrite-resume", "score-ats"]) }))

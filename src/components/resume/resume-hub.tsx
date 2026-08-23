@@ -490,10 +490,12 @@ export function ResumeHub() {
       />
     );
   } else if (resume.data.version && !backToReview) {
-    // 优化结果:对比卡列表 + 工具条(4.5);4.13 传入当前简历名(Hero 左区显示)
+    // 优化结果:对比卡列表 + 工具条(4.5);4.13 传入当前简历名(Hero 左区显示);
+    // 6.6 传入 resumeId(版本列表/复制/删除按行隔离,多简历不串版本)
     view = (
       <ResumeResult
         version={resume.data.version}
+        resumeId={resume.data.id}
         resumeName={resume.data.fileName ?? "粘贴的简历文本"}
         onReanalyze={handleReanalyze}
         onEdit={handleBackToReview}

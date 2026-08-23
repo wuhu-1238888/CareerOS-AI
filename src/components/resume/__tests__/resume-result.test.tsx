@@ -3,6 +3,7 @@
 // 4.7:导出工具条接线(ResumeExport 子组件以 stub 隔离,其内部行为由 resume-export.test.tsx 覆盖);
 // 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分);
 // 4.13:「上传新简历」按钮触发 onReupload 回调 + 「查看全部简历」链接指向 /resumes + 当前简历名显示。
+// 6.6:版本选择器(单版本隐藏/多版本切换渲染旧版本,动作作用于当前行)、复制为新版本、删除版本(确认 Dialog/末版禁用)。
 // 注意:userEvent.setup() 会安装自己的剪贴板桩,因此 clipboard/execCommand 必须在 setup 之后 stub。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -10,12 +11,26 @@ import { Toaster, toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResumeResult, type ResultVersion } from "../resume-result";
 
+type VersionRow = {
+  id: string;
+  targetDirection: string | null;
+  atsScore: number | null;
+  createdAt: string;
+};
+
 const mocks = vi.hoisted(() => ({
   updateMutateAsync: vi.fn(),
   acceptAllMutateAsync: vi.fn(),
   scoreAtsMutateAsync: vi.fn(),
   logExportMutate: vi.fn(),
   invalidateResume: vi.fn(),
+  invalidateVersions: vi.fn(),
+  invalidateGetVersion: vi.fn(),
+  duplicateMutateAsync: vi.fn(),
+  deleteMutateAsync: vi.fn(),
+  versionsData: [] as VersionRow[],
+  getVersionData: undefined as ResultVersion | undefined,
+  getVersionEnabled: false,
   writeText: vi.fn(),
   execCommand: vi.fn(),
   exportProps: null as { finalText: string | null; canExport: boolean } | null,
@@ -31,12 +46,27 @@ vi.mock("../resume-export", () => ({
 
 vi.mock("@/trpc/client", () => ({
   trpc: {
-    useUtils: () => ({ resume: { get: { invalidate: mocks.invalidateResume } } }),
+    useUtils: () => ({
+      resume: {
+        get: { invalidate: mocks.invalidateResume },
+        listVersions: { invalidate: mocks.invalidateVersions },
+        getVersion: { invalidate: mocks.invalidateGetVersion },
+      },
+    }),
     resume: {
       updateOptimization: { useMutation: () => ({ mutateAsync: mocks.updateMutateAsync }) },
       acceptAll: { useMutation: () => ({ mutateAsync: mocks.acceptAllMutateAsync }) },
       scoreAts: { useMutation: () => ({ mutateAsync: mocks.scoreAtsMutateAsync }) },
       logExport: { useMutation: () => ({ mutate: mocks.logExportMutate }) },
+      listVersions: { useQuery: () => ({ data: mocks.versionsData, isLoading: false }) },
+      getVersion: {
+        useQuery: (_input: { versionId: string }, opts?: { enabled?: boolean }) => {
+          mocks.getVersionEnabled = opts?.enabled ?? false;
+          return { data: mocks.getVersionData, isLoading: false };
+        },
+      },
+      duplicateVersion: { useMutation: () => ({ mutateAsync: mocks.duplicateMutateAsync }) },
+      deleteVersion: { useMutation: () => ({ mutateAsync: mocks.deleteMutateAsync }) },
     },
   },
 }));
@@ -72,6 +102,31 @@ const version: ResultVersion = {
   ],
 };
 
+// 旧版本夹具(6.6):切换后断言渲染旧版本内容,动作作用于旧版本 id
+const olderVersion: ResultVersion = {
+  ...version,
+  id: "v0",
+  targetDirection: "测试工程师",
+  optimizations: [
+    {
+      id: "o9",
+      category: "关键词",
+      originalText: "旧版本原文片段",
+      optimizedText: "旧版本优化片段",
+      reason: "旧版理由",
+      status: "pending",
+      updatedAt: "2026-08-10T10:00:00Z",
+    },
+  ],
+  createdAt: "2026-08-10T10:00:00Z",
+};
+
+// 双版本列表(6.6):最新 = 第 2 版,旧 = 第 1 版
+const twoVersions: VersionRow[] = [
+  { id: "v1", targetDirection: "后端开发工程师", atsScore: null, createdAt: "2026-08-20T10:00:00Z" },
+  { id: "v0", targetDirection: "测试工程师", atsScore: 60, createdAt: "2026-08-10T10:00:00Z" },
+];
+
 function renderResult(
   onReanalyze = vi.fn(),
   onEdit = vi.fn(),
@@ -84,6 +139,7 @@ function renderResult(
       <Toaster />
       <ResumeResult
         version={version}
+        resumeId="r1"
         resumeName={resumeName}
         onReanalyze={onReanalyze}
         onEdit={onEdit}
@@ -114,6 +170,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.exportProps = null;
   mocks.invalidateResume.mockResolvedValue(undefined);
+  mocks.invalidateVersions.mockResolvedValue(undefined);
+  mocks.invalidateGetVersion.mockResolvedValue(undefined);
+  mocks.duplicateMutateAsync.mockResolvedValue({ versionId: "v2" });
+  mocks.deleteMutateAsync.mockResolvedValue({ ok: true });
+  mocks.versionsData = [];
+  mocks.getVersionData = undefined;
+  mocks.getVersionEnabled = false;
   mocks.updateMutateAsync.mockResolvedValue({ id: "o1", status: "accepted" });
   mocks.acceptAllMutateAsync.mockResolvedValue({ ok: true });
   mocks.writeText.mockResolvedValue(undefined);
@@ -157,7 +220,7 @@ describe("ResumeResult 结果视图", () => {
       optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
     };
     render(
-      <ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />
+      <ResumeResult version={noneAccepted} resumeId="r1" onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />
     );
     expect(screen.getByTestId("resume-export")).toBeInTheDocument();
     expect(mocks.exportProps).toEqual({ finalText: version.finalText, canExport: false });
@@ -185,7 +248,7 @@ describe("ResumeResult 结果视图", () => {
       optimizations: version.optimizations.map((o) => ({ ...o, status: "accepted" })),
     };
     render(
-      <ResumeResult version={allAccepted} onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />
+      <ResumeResult version={allAccepted} resumeId="r1" onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />
     );
     expect(screen.getByText("已采纳 2/2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部接受" })).toBeDisabled();
@@ -250,7 +313,7 @@ describe("ResumeResult 结果视图", () => {
       ...version,
       optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
     };
-    render(<ResumeResult version={noneAccepted} onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />);
+    render(<ResumeResult version={noneAccepted} resumeId="r1" onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />);
     expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
     expect(screen.getAllByText("尚未采纳任何修改").length).toBeGreaterThan(0);
   });
@@ -259,6 +322,7 @@ describe("ResumeResult 结果视图", () => {
     render(
       <ResumeResult
         version={{ ...version, finalText: null }}
+        resumeId="r1"
         onReanalyze={() => {}}
         onEdit={() => {}}
         onReupload={() => {}}
@@ -307,5 +371,80 @@ describe("ResumeResult 结果视图", () => {
     await user.click(screen.getByRole("button", { name: "接受" }));
     expect(await screen.findByText("修改建议不存在")).toBeInTheDocument();
     expect(mocks.invalidateResume).not.toHaveBeenCalled();
+  });
+
+  it("单版本(6.6):不显示版本选择器,「删除版本」禁用,「复制为新版本」可用", () => {
+    mocks.versionsData = [twoVersions[0]!];
+    renderResult();
+    expect(screen.queryByLabelText("查看历史版本")).toBeNull();
+    expect(screen.getByRole("button", { name: "删除版本" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "复制为新版本" })).toBeEnabled();
+  });
+
+  it("多版本(6.6):选择器按「第 N 版 · 日期 · 方向」标注;切换后按旧版本渲染,动作作用于旧版本", async () => {
+    mocks.versionsData = [...twoVersions];
+    mocks.getVersionData = olderVersion;
+    const { user } = renderResult();
+    expect(screen.getByLabelText("查看历史版本")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除版本" })).toBeEnabled();
+    await user.click(screen.getByLabelText("查看历史版本"));
+    await user.click(await screen.findByRole("option", { name: /第 1 版 · .*测试工程师/ }));
+    expect(mocks.getVersionEnabled).toBe(true);
+    // 旧版本内容渲染(目标方向与优化片段)
+    expect(await screen.findByText("旧版本优化片段")).toBeInTheDocument();
+    expect(screen.getByText(/目标方向:测试工程师/)).toBeInTheDocument();
+    // 全部接受作用于当前查看的旧版本 id,并失效 getVersion
+    await user.click(screen.getByRole("button", { name: "全部接受" }));
+    await waitFor(() => expect(mocks.acceptAllMutateAsync).toHaveBeenCalledWith({ versionId: "v0" }));
+    expect(mocks.invalidateGetVersion).toHaveBeenCalled();
+  });
+
+  it("复制为新版本(6.6):duplicateVersion(当前版本 id)+ 成功 toast + 三路失效", async () => {
+    mocks.versionsData = [...twoVersions];
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "复制为新版本" }));
+    await waitFor(() => expect(mocks.duplicateMutateAsync).toHaveBeenCalledWith({ versionId: "v1" }));
+    expect(await screen.findByText("已复制为新版本")).toBeInTheDocument();
+    expect(mocks.invalidateResume).toHaveBeenCalled();
+    expect(mocks.invalidateVersions).toHaveBeenCalled();
+    expect(mocks.invalidateGetVersion).toHaveBeenCalled();
+  });
+
+  it("复制失败(6.6):错误 toast,不失效", async () => {
+    mocks.duplicateMutateAsync.mockRejectedValueOnce(new Error("优化版本不存在"));
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "复制为新版本" }));
+    expect(await screen.findByText("优化版本不存在")).toBeInTheDocument();
+    expect(mocks.invalidateResume).not.toHaveBeenCalled();
+  });
+
+  it("删除版本(6.6):确认 Dialog → deleteVersion(当前版本 id)+ 成功 toast + 三路失效", async () => {
+    mocks.versionsData = [...twoVersions];
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "删除版本" }));
+    expect(screen.getByText("删除该版本?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    await waitFor(() => expect(mocks.deleteMutateAsync).toHaveBeenCalledWith({ versionId: "v1" }));
+    expect(await screen.findByText("版本已删除")).toBeInTheDocument();
+    expect(mocks.invalidateResume).toHaveBeenCalled();
+    expect(mocks.invalidateVersions).toHaveBeenCalled();
+    expect(mocks.invalidateGetVersion).toHaveBeenCalled();
+  });
+
+  it("删除取消(6.6):不调用 deleteVersion", async () => {
+    mocks.versionsData = [...twoVersions];
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "删除版本" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(mocks.deleteMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("删除失败(6.6):错误 toast", async () => {
+    mocks.versionsData = [...twoVersions];
+    mocks.deleteMutateAsync.mockRejectedValueOnce(new Error("至少保留一个优化版本"));
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "删除版本" }));
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(await screen.findByText("至少保留一个优化版本")).toBeInTheDocument();
   });
 });

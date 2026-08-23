@@ -233,3 +233,205 @@ describe("resume 数据层(真实写库,顺序执行)", () => {
     expect(await prisma.funnelEvent.count({ where: { userId: userIdB } })).toBe(0);
   });
 });
+
+describe("resume 版本管理(6.6,真实写库,顺序执行)", () => {
+  let resumeId: string;
+  let versionNewId: string;
+  let versionOldId: string;
+  let soloVersionId: string;
+
+  beforeAll(async () => {
+    // 甲:有原文的简历行 + 两个版本(旧版带 ATS 与 2 条建议 / 新版无 ATS 无建议)
+    const resume = await prisma.resume.create({
+      data: {
+        userId: userIdA,
+        originalText: "张伟\n求职意向:后端开发工程师\n工作经历:负责订单系统开发",
+      },
+    });
+    resumeId = resume.id;
+    versionOldId = (
+      await prisma.resumeVersion.create({
+        data: {
+          resumeId,
+          targetDirection: "后端开发工程师",
+          changes: { modificationCount: 2 },
+          atsScore: 60,
+          atsReport: { total: 60, level: "良好" },
+          atsScoredAt: new Date("2026-08-10T00:00:00Z"),
+          optimizations: {
+            create: [
+              {
+                category: "量化表达",
+                originalText: "负责订单系统开发",
+                optimizedText: "主导订单系统研发",
+                reason: "量化成果",
+                order: 0,
+                status: "accepted",
+              },
+              {
+                category: "动词开头",
+                originalText: "参与了",
+                optimizedText: "主导",
+                reason: null,
+                order: 1,
+                status: "pending",
+              },
+            ],
+          },
+        },
+      })
+    ).id;
+    versionNewId = (
+      await prisma.resumeVersion.create({
+        data: { resumeId, targetDirection: "后端开发工程师", changes: {} },
+      })
+    ).id;
+    // 甲:另一份简历仅一个版本(末版禁删)
+    const solo = await prisma.resume.create({
+      data: { userId: userIdA, originalText: "单独版本简历原文内容,足够长" },
+    });
+    soloVersionId = (
+      await prisma.resumeVersion.create({ data: { resumeId: solo.id, targetDirection: "产品经理" } })
+    ).id;
+  });
+
+  it("listVersions:时间降序(最新在前),仅版本元信息字段", async () => {
+    const list = await caller(userIdA).resume.listVersions({ resumeId });
+    expect(list.map((v) => v.id)).toEqual([versionNewId, versionOldId]);
+    expect(list[0]).toEqual({
+      id: versionNewId,
+      targetDirection: "后端开发工程师",
+      atsScore: null,
+      createdAt: expect.any(Date),
+    });
+  });
+
+  it("listVersions 越权:他人简历 / 不存在 → NOT_FOUND(不泄露存在性)", async () => {
+    const other = await prisma.resume.create({
+      data: { userId: userIdB, originalText: "他人简历原文内容,足够长" },
+    });
+    await expect(caller(userIdA).resume.listVersions({ resumeId: other.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "简历不存在",
+    });
+    await expect(caller(userIdA).resume.listVersions({ resumeId: "does-not-exist" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("getVersion:复用 serializeVersion(建议按 order 升序,changes/ATS 保留,finalText 由 accepted 片段合成)", async () => {
+    const got = await caller(userIdA).resume.getVersion({ versionId: versionOldId });
+    expect(got?.id).toBe(versionOldId);
+    expect(got?.targetDirection).toBe("后端开发工程师");
+    expect(got?.atsScore).toBe(60);
+    expect(got?.changes).toStrictEqual({ modificationCount: 2 });
+    expect(got?.optimizations.map((o) => o.order)).toEqual([0, 1]);
+    expect(got?.optimizations[0]?.status).toBe("accepted");
+    // canonical finalText:accepted 片段替换原文(pending 片段未采纳不生效)
+    expect(got?.finalText).toContain("主导订单系统研发");
+    expect(got?.finalText).not.toContain("负责订单系统开发");
+  });
+
+  it("getVersion 越权:他人版本 → NOT_FOUND", async () => {
+    await expect(caller(userIdB).resume.getVersion({ versionId: versionOldId })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "优化版本不存在",
+    });
+  });
+
+  it("duplicateVersion:深拷贝方向/变更/建议(状态原样),ATS 三列置空,原版本不动", async () => {
+    const origin = await prisma.resumeVersion.findUnique({
+      where: { id: versionOldId },
+      include: { optimizations: { orderBy: { order: "asc" } } },
+    });
+    const dup = await caller(userIdA).resume.duplicateVersion({ versionId: versionOldId });
+    expect(dup.versionId).not.toBe(versionOldId);
+    const row = await prisma.resumeVersion.findUnique({
+      where: { id: dup.versionId },
+      include: { optimizations: { orderBy: { order: "asc" } } },
+    });
+    expect(row?.resumeId).toBe(resumeId);
+    expect(row?.targetDirection).toBe("后端开发工程师");
+    expect(row?.changes).toStrictEqual({ modificationCount: 2 });
+    // ATS 三列不复制(新版本需重新评分)
+    expect(row?.atsScore).toBeNull();
+    expect(row?.atsReport).toBeNull();
+    expect(row?.atsScoredAt).toBeNull();
+    // 建议深拷贝:内容/顺序/状态与原件一致,但 id 全新
+    expect(
+      row?.optimizations.map((o) => ({ text: o.optimizedText, order: o.order, status: o.status }))
+    ).toEqual([
+      { text: "主导订单系统研发", order: 0, status: "accepted" },
+      { text: "主导", order: 1, status: "pending" },
+    ]);
+    expect(row?.optimizations[0]?.id).not.toBe(origin?.optimizations[0]?.id);
+    // 原版本未被修改
+    expect(origin?.optimizations).toHaveLength(2);
+    expect(origin?.atsScore).toBe(60);
+  });
+
+  it("duplicateVersion 越权:他人版本 → NOT_FOUND", async () => {
+    await expect(caller(userIdB).resume.duplicateVersion({ versionId: versionOldId })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("deleteVersion:多版本可删且级联删建议,简历行与原文不动;仅剩一个 → BAD_REQUEST", async () => {
+    // 删除上一个用例产生的副本 → 成功
+    const dupRow = await prisma.resumeVersion.findFirst({
+      where: { resumeId, id: { not: { in: [versionNewId, versionOldId] } } },
+    });
+    expect((await caller(userIdA).resume.deleteVersion({ versionId: dupRow!.id })).ok).toBe(true);
+    expect(await prisma.resumeVersion.findUnique({ where: { id: dupRow!.id } })).toBeNull();
+    // 再删无建议的新版本 → 成功;简历行与原文仍在
+    expect((await caller(userIdA).resume.deleteVersion({ versionId: versionNewId })).ok).toBe(true);
+    const resumeRow = await prisma.resume.findUnique({ where: { id: resumeId } });
+    expect(resumeRow).not.toBeNull();
+    expect(resumeRow?.originalText).toContain("张伟");
+    // 仅剩一个版本 → 禁删
+    await expect(caller(userIdA).resume.deleteVersion({ versionId: versionOldId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "至少保留一个优化版本",
+    });
+    // 补一个版本后可删;级联删建议
+    const extra = await prisma.resumeVersion.create({ data: { resumeId } });
+    expect((await caller(userIdA).resume.deleteVersion({ versionId: versionOldId })).ok).toBe(true);
+    expect(await prisma.resumeVersion.findUnique({ where: { id: versionOldId } })).toBeNull();
+    expect(await prisma.optimization.count({ where: { resumeVersionId: versionOldId } })).toBe(0);
+    expect(await prisma.resumeVersion.findUnique({ where: { id: extra.id } })).not.toBeNull();
+    // 始终仅一个版本的简历 → 禁删
+    await expect(caller(userIdA).resume.deleteVersion({ versionId: soloVersionId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "至少保留一个优化版本",
+    });
+  });
+
+  it("deleteVersion 越权:他人版本 → NOT_FOUND(原行不动)", async () => {
+    const otherResume = await prisma.resume.create({
+      data: { userId: userIdB, originalText: "他人简历原文内容,足够长" },
+    });
+    const otherVersion = await prisma.resumeVersion.create({
+      data: { resumeId: otherResume.id, targetDirection: "产品经理" },
+    });
+    await expect(caller(userIdA).resume.deleteVersion({ versionId: otherVersion.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "优化版本不存在",
+    });
+    expect(await prisma.resumeVersion.findUnique({ where: { id: otherVersion.id } })).not.toBeNull();
+  });
+
+  it("未登录:四个新端点 → UNAUTHORIZED", async () => {
+    await expect(caller(null).resume.listVersions({ resumeId: "x" })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(caller(null).resume.getVersion({ versionId: "x" })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(caller(null).resume.duplicateVersion({ versionId: "x" })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(caller(null).resume.deleteVersion({ versionId: "x" })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+  });
+});
