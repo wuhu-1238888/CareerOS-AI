@@ -7,7 +7,12 @@
 import type { ChatMessage } from "./adapter";
 import type { MatchAnalysis } from "@/lib/matching/analysis-schemas";
 import type { CoachPlan } from "@/lib/coach/analysis-schemas";
-import type { InterviewQuestions, InterviewQuestionType } from "@/lib/interview/analysis-schemas";
+import type { ParsedResume } from "@/lib/resume/analysis-schemas";
+import type {
+  InterviewQuestions,
+  InterviewQuestionType,
+  InterviewEvaluation,
+} from "@/lib/interview/analysis-schemas";
 
 /** 匹配演示数据:与 agents/__tests__/matching-samples.ts 的 backend-with-profile 样例同源(schema 已验证) */
 export function mockMatchAnalysisFixture(): MatchAnalysis {
@@ -228,4 +233,75 @@ export function mockInterviewQuestionsFixture(messages: ChatMessage[]): Intervie
     evidence: seed.type === "经历深挖" || seed.type === "技术案例" ? [snippet] : [],
   }));
   return { questions };
+}
+
+/** 简历解析演示数据(4.3,resume-parse-agent):与 agents/__tests__/resume-parse-samples.ts 的
+ * backend-engineer 样例同源(schema 已验证)。retryParse 等全局 llm 路径在测试/演示环境
+ * (LLM_PROVIDER=mock)依赖此分支产出 schema 合规 JSON,避免回显纯文本导致解析失败 */
+export function mockResumeParseFixture(): ParsedResume {
+  return {
+    basicInfo: {
+      name: "张伟",
+      targetPosition: "后端开发工程师",
+      phone: "138-0000-0000",
+      email: "zhangwei@example.com",
+    },
+    education: [
+      {
+        school: "中国科学技术大学",
+        degree: "本科",
+        major: "计算机科学与技术",
+        timeRange: { start: "2016-09", end: "2020-06" },
+      },
+    ],
+    skills: ["Java", "Spring Boot", "MySQL", "Redis", "Docker", "Git"],
+    experiences: [
+      {
+        type: "工作",
+        company: "杭州某科技有限公司",
+        role: "后端开发工程师",
+        timeRange: { start: "2020-07", end: "2023-06" },
+        description:
+          "负责电商订单系统的开发与维护,日均处理订单 50 万笔\n优化数据库查询,接口响应时间从 800ms 降低到 200ms\n主导商品服务重构,线上故障率下降 60%(Mock 演示数据)",
+      },
+    ],
+    projects: [
+      {
+        name: "分布式秒杀系统",
+        role: "",
+        timeRange: { start: "2023-01", end: "2023-05" },
+        description: "设计并实现基于 Redis 的库存预扣方案,压测 QPS 达到 5000(Mock 演示数据)",
+      },
+    ],
+  };
+}
+
+/** 从消息中容错解析评估输入(最后一条用户消息为 JSON),取题目 id 决定是否给追问 */
+function parseEvaluationInput(messages: ChatMessage[]): { questionId: string } {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  let raw: { question?: { id?: unknown } } = {};
+  try {
+    raw = JSON.parse(lastUser?.content ?? "{}");
+  } catch {
+    // 非 JSON 输入:走下方回退
+  }
+  const questionId =
+    typeof raw.question?.id === "string" && raw.question.id.length > 0 ? raw.question.id : "q-0";
+  return { questionId };
+}
+
+/** 答题评估演示数据:固定 8/7 分(同一答案两次评估分差 0,满足 ≤2 的验证口径);
+ * 偶数题号给追问、奇数题号不给 —— 一次 5 题走查即可同时演示「直接下一题」与「追问回答/跳过」两条路径 */
+export function mockInterviewEvaluationFixture(messages: ChatMessage[]): InterviewEvaluation {
+  const { questionId } = parseEvaluationInput(messages);
+  const hasFollowUp = /q-\d*[02468]$/.test(questionId);
+  return {
+    contentScore: 8,
+    expressionScore: 7,
+    improvementSuggestion:
+      "回答能扣住题目要点,结构也基本清晰;建议补充一个可量化的结果数据(如耗时、请求量、提升幅度),让面试官更直观地感知你的贡献。(Mock 演示数据)",
+    followUpQuestion: hasFollowUp
+      ? "你提到的那段经历里,当时最大的困难具体是什么?你做了哪些取舍?(Mock 演示数据)"
+      : null,
+  };
 }

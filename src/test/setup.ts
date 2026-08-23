@@ -2,6 +2,12 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
+// 测试环境强制 LLM Provider 走 mock(零费用、确定性):dev 的 .env 可能配置 deepseek 等真实
+// Provider,而 Prisma Client 会自行加载 .env 注入 process.env(不覆盖已有变量)。本文件先于任何
+// 测试模块执行,在此固定后,全局 llm/Orchestrator 单例即解析为 MockAdapter(defaultMockReply
+// 按 agentName 分发演示数据);需要真实 Provider 行为的测试直接构造对应 Adapter 实例。
+process.env.LLM_PROVIDER = "mock";
+
 // vitest 未开 globals,RTL 不会自动注册清理;显式注册防止用例间 DOM 累积
 afterEach(() => {
   cleanup();

@@ -21,13 +21,21 @@ import { matchingAgentInputSchema } from "@/lib/agents/matching.agent";
 import { runCoachPlan, coachRequirementsFromReport } from "@/lib/coach/pipeline";
 import { coachPlanSchema } from "@/lib/coach/analysis-schemas";
 import { coachAgentInputSchema } from "@/lib/agents/coach.agent";
-import { runInterviewQuestions, parseStoredQuestions, parseStoredAnswers } from "@/lib/interview/pipeline";
+import {
+  runInterviewQuestions,
+  runEvaluateAnswer,
+  evaluateStoredAnswer,
+  runFollowUpAnswer,
+  parseStoredQuestions,
+  parseStoredAnswers,
+} from "@/lib/interview/pipeline";
 import {
   interviewTypeSchema,
   interviewQuestionCountSchema,
   interviewReportSchema,
 } from "@/lib/interview/analysis-schemas";
 import { interviewQuestionAgentInputSchema } from "@/lib/agents/interview-question.agent";
+import { interviewEvaluatorAgentInputSchema } from "@/lib/agents/interview-evaluator.agent";
 import { parseParsedData, parseResume, rewriteResume, scoreAts } from "@/lib/resume/pipeline";
 import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
@@ -1515,8 +1523,64 @@ export const appRouter = t.router({
         return { runId: outcome.runId };
       }),
 
+    // 提交答案并评估(7.2):答案先落库、评估失败时答案保留(evaluation=null,前端 evaluate 重试);
+    // 返回更新后的场次(前端以返回值渲染,失败时 catch 后重读 get 同步)
+    submitAnswer: protectedProcedure
+      .input(
+        z.object({ answer: z.string().trim().min(1, "回答不能为空").max(2000, "回答最多 2000 字") })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const outcome = await runEvaluateAnswer({ userId: ctx.userId, answer: input.answer });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+        return serializeInterviewSession(row);
+      }),
+
+    // 评估重试(7.2):评估失败(evaluation=null)时对当前题已存答案重跑评估,不重复提交答案
+    evaluate: protectedProcedure
+      .input(z.object({ questionIndex: z.number().int().min(0, "题目序号非法").max(14, "题目序号非法") }))
+      .mutation(async ({ ctx, input }) => {
+        const outcome = await evaluateStoredAnswer({ userId: ctx.userId, questionIndex: input.questionIndex });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+        return serializeInterviewSession(row);
+      }),
+
+    // 提交追问回答(7.2):不触发 LLM;回答后进入下一题
+    submitFollowUp: protectedProcedure
+      .input(
+        z.object({
+          followUpAnswer: z.string().trim().min(1, "回答不能为空").max(2000, "回答最多 2000 字"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const outcome = await runFollowUpAnswer({
+          userId: ctx.userId,
+          followUpAnswer: input.followUpAnswer,
+        });
+        if (!outcome.ok) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        }
+        const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+        return serializeInterviewSession(row);
+      }),
+
+    // 跳过追问(7.2):追问回答置 null + 进入下一题
+    skipFollowUp: protectedProcedure.mutation(async ({ ctx }) => {
+      const outcome = await runFollowUpAnswer({ userId: ctx.userId, followUpAnswer: null });
+      if (!outcome.ok) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+      }
+      const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+      return serializeInterviewSession(row);
+    }),
+
     // 失败重试(7.1):从 run.input 重放(输入含场次简历快照,简历后续变更不影响重放);
-    // 7.2/7.3 接入评估/报告 intent 后扩展
+    // 7.2 接入评估 intent(重放时重读 session 该题当前答案重评);7.3 接入报告 intent
     retry: protectedProcedure
       .input(z.object({ runId: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
@@ -1535,13 +1599,42 @@ export const appRouter = t.router({
           }
           return { runId: outcome.runId };
         }
+        if (run.intent === "evaluate-interview-answer") {
+          const parsed = interviewEvaluatorAgentInputSchema.safeParse(run.input);
+          if (!parsed.success) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新开始面试" });
+          }
+          // 重放时重读 session 该题当前答案重评(用户可能已重新提交答案,run.input.answer 已过期)
+          const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
+          const questions = row ? parseStoredQuestions(row.questions) : null;
+          if (!questions) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新开始面试" });
+          }
+          const questionIndex = questions.findIndex((q) => q.id === parsed.data.question.id);
+          if (questionIndex === -1) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新开始面试" });
+          }
+          const outcome = await evaluateStoredAnswer({ userId: ctx.userId, questionIndex });
+          if (!outcome.ok) {
+            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          }
+          return { runId: outcome.runId };
+        }
         throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
       }),
 
-    // 最近一次出题 run(7.1):页面轮询(700ms)与刷新恢复的统一入口(镜像 matching.latestRun;
-    // 7.2/7.3 扩展评估/报告 intent)
+    // 最近一次 run(7.1):页面轮询(700ms)与刷新恢复的统一入口(镜像 matching.latestRun;
+    // 7.2 扩展评估 intent;7.3 扩展报告 intent)
     latestRun: protectedProcedure
-      .input(z.object({ intent: z.enum(["generate-interview-questions"]) }))
+      .input(
+        z.object({
+          intent: z.enum([
+            "generate-interview-questions",
+            "evaluate-interview-answer",
+            "generate-interview-report",
+          ]),
+        })
+      )
       .query(async ({ ctx, input }) => {
         const run = await ctx.prisma.agentRun.findFirst({
           where: { userId: ctx.userId, intent: input.intent },
