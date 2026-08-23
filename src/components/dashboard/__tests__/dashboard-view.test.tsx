@@ -55,7 +55,14 @@ function emptyStats(): DashboardStats {
       updatedAt: null,
     },
     roadmap: { exists: false, completed: 0, total: 0, progress: null, stageCount: 0, targetDirection: null },
-    resume: { fileCount: 0, versionCount: 0, latestFileName: null, latestAt: null },
+    resume: {
+      fileCount: 0,
+      versionCount: 0,
+      latestFileName: null,
+      latestAt: null,
+      lastActivityId: null,
+      lastActivityFileName: null,
+    },
     weekTasks: { completed: 0, delta: null },
     agents: {
       profile: { status: "idle", lastRunAt: null, lastMessage: null, progressCount: 0 },
@@ -90,6 +97,8 @@ function contentStats(): DashboardStats {
       versionCount: 3,
       latestFileName: "简历.docx",
       latestAt: new Date(now).toISOString(),
+      lastActivityId: "resume-r1",
+      lastActivityFileName: "简历.docx",
     },
     weekTasks: { completed: 3, delta: 1 },
     agents: {
@@ -195,7 +204,10 @@ describe("DashboardView", () => {
     // 三张卡均可点击进入模块
     expect(screen.getAllByRole("link", { name: /画像顾问/ }).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /规划顾问/ })).toHaveAttribute("href", "/navigator");
-    expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute("href", "/resume");
+    expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute(
+      "href",
+      "/resume?resumeId=resume-r1"
+    );
   });
 
   it("Agent 失败态:失败 badge + 进入模块重试引导", () => {
@@ -217,9 +229,26 @@ describe("DashboardView", () => {
       roadmap: { exists: false, completed: 0, total: 0, progress: null, stageCount: 0, targetDirection: null },
     };
     render(<DashboardView />);
-    expect(screen.getAllByRole("link", { name: "继续上次" })).toHaveLength(2); // 画像 + 简历
+    // 画像 → /profile;简历 → 最近工作简历深链(「继续上次」语义)
+    expect(screen.getAllByRole("link", { name: "继续上次" }).map((l) => l.getAttribute("href"))).toEqual([
+      "/profile",
+      "/resume?resumeId=resume-r1",
+    ]);
     expect(screen.getByRole("link", { name: "去生成" })).toHaveAttribute("href", "/navigator");
     expect(screen.getByText("本周完成 3 个任务,生成路线图后开始打卡")).toBeInTheDocument();
+  });
+
+  it("无最近工作简历(无简历/无有效 run):简历入口回退模块首页 /resume", () => {
+    mocks.statsData = {
+      ...contentStats(),
+      resume: { ...contentStats().resume, lastActivityId: null, lastActivityFileName: null },
+    };
+    render(<DashboardView />);
+    expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute("href", "/resume");
+    // 画像 / 路线图不受影响,简历入口回退 /resume(服务端未传参时取最新行)
+    expect(
+      screen.getAllByRole("link", { name: "继续上次" }).map((l) => l.getAttribute("href"))
+    ).toEqual(["/profile", "/navigator", "/resume"]);
   });
 
   it("表单已填未分析:完整工作台 + 画像模块「去完成」", () => {

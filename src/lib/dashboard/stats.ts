@@ -3,6 +3,7 @@
 // 「本周」边界按上海时区周一 00:00 划分 —— 产品面向中文用户,服务器时区(UTC/Vercel)与用户感知不同。
 import type { PrismaClient } from "@prisma/client";
 import { LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
+import { extractRunInputString } from "@/lib/agents/run-input";
 
 const RUN_STALE_MS = LLM_TIMEOUT_MS + 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,6 +44,10 @@ export type DashboardStats = {
     versionCount: number;
     latestFileName: string | null;
     latestAt: string | null;
+    /** 最近工作简历 id(工作台「继续上次」深链目标):由简历类 run 的 input.resumeId 派生,回退最新创建行;无简历 → null */
+    lastActivityId: string | null;
+    /** 最近工作简历文件名(粘贴路径为空) */
+    lastActivityFileName: string | null;
   };
   weekTasks: {
     /** 本周完成的任务数(上海时区周一起) */
@@ -100,7 +105,7 @@ export async function computeDashboardStats(
 ): Promise<DashboardStats> {
   // 周边界只取一次(跨周一零点瞬间多次 new Date() 可能落进不同周)
   const { thisWeek, lastWeek } = shanghaiWeekStarts(new Date());
-  const [profiles, roadmap, resumesCount, versionCount, latestResume, weekTasks, lastWeekTasks, profileRun, roadmapRun, resumeRun] =
+  const [profiles, roadmap, resumesCount, versionCount, resumes, resumeRuns, weekTasks, lastWeekTasks, profileRun, roadmapRun, resumeRun] =
     await Promise.all([
       // 最新 + 上一版本画像(匹配度增量基线;含推荐方向按匹配度降序)
       prisma.careerProfile.findMany({
@@ -118,10 +123,17 @@ export async function computeDashboardStats(
       }),
       prisma.resume.count({ where: { userId } }),
       prisma.resumeVersion.count({ where: { resume: { userId } } }),
-      prisma.resume.findFirst({
+      // 全部简历行(id 集 + 最新行信息):latestFileName/latestAt 取 [0];id 集用于「最近工作简历」派生与悬空 id 护栏
+      prisma.resume.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
-        select: { fileName: true, createdAt: true },
+        select: { id: true, fileName: true, createdAt: true },
+      }),
+      // 简历类 run 扫描(仅两列):派生「最近工作简历」(工作台深链),不做 take —— 悬空 id 需跳过继续向后找
+      prisma.agentRun.findMany({
+        where: { userId, intent: { in: ["parse-resume", "rewrite-resume", "score-ats"] } },
+        orderBy: { createdAt: "desc" },
+        select: { input: true, createdAt: true },
       }),
       prisma.task.count({
         where: { stage: { roadmap: { userId } }, status: "completed", completedAt: { gte: thisWeek } },
@@ -149,6 +161,23 @@ export async function computeDashboardStats(
 
   const latest = profiles[0] ?? null;
   const prev = profiles[1] ?? null;
+
+  // 最近工作简历(工作台「继续上次」深链目标):按时间倒序扫描简历类 run,取第一个 input.resumeId
+  // 仍存在于当前简历集合的(成员检查 = 悬空 id 护栏 + 天然用户隔离);无有效 run → 回退最新创建行;无简历 → null。
+  const latestResume = resumes[0] ?? null;
+  const resumeById = new Map(resumes.map((r) => [r.id, r]));
+  let lastActivity: { id: string; fileName: string | null } | null = null;
+  for (const run of resumeRuns) {
+    const resumeId = extractRunInputString(run.input, "resumeId");
+    if (resumeId) {
+      const row = resumeById.get(resumeId);
+      if (row) {
+        lastActivity = row;
+        break;
+      }
+    }
+  }
+  lastActivity ??= latestResume;
   const topScoreOf = (p: (typeof latest)) => {
     const top = p?.careerPaths[0];
     return top && typeof top.matchScore === "number" ? top.matchScore : null;
@@ -199,6 +228,8 @@ export async function computeDashboardStats(
       versionCount,
       latestFileName: latestResume?.fileName ?? null,
       latestAt: latestResume ? latestResume.createdAt.toISOString() : null,
+      lastActivityId: lastActivity?.id ?? null,
+      lastActivityFileName: lastActivity?.fileName ?? null,
     },
     weekTasks: { completed: weekCompleted, delta },
     agents: {

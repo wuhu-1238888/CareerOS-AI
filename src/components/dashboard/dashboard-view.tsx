@@ -120,6 +120,11 @@ export function DashboardView() {
         }
       : null;
 
+  // 简历深链:进入最近工作简历(工作台「继续上次」语义);无简历 → 模块首页(未传参时服务端回退最新行)
+  const resumeHref = data.resume.lastActivityId
+    ? `/resume?resumeId=${data.resume.lastActivityId}`
+    : "/resume";
+
   return (
     <>
       {/* ① 问候行:用户名 + 一句话状态 + 画像过期提示 */}
@@ -206,7 +211,7 @@ export function DashboardView() {
                     ? `已解析 ${data.resume.fileCount} 份简历,开始优化`
                     : null
               }
-              href="/resume"
+              href={resumeHref}
             />
           </div>
 
@@ -242,7 +247,7 @@ export function DashboardView() {
                   ? `最近:${data.resume.latestFileName ?? "简历"} · ${data.resume.versionCount} 个优化版本`
                   : "上传或粘贴简历,开始针对性优化"
               }
-              href="/resume"
+              href={resumeHref}
               actionLabel={data.resume.fileCount > 0 ? "继续上次" : "去上传"}
             />
           </div>

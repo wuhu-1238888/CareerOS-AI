@@ -20,6 +20,7 @@ import { buildFinalTextForVersion } from "@/lib/resume/final-text";
 import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { buildSectionPlan, detectSections, parseStoredSections } from "@/lib/resume/section-order";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
+import { extractRunInputString } from "@/lib/agents/run-input";
 import { LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
 import { computeDashboardStats } from "@/lib/dashboard/stats";
 
@@ -289,12 +290,7 @@ function serializeRun(run: {
   };
 }
 
-// 从 AgentRun.input(Json 列)防御提取字符串字段:损坏/缺失 → null(前端按「旧 run 视为当前行」/无回填兜底)
-function extractRunInputString(input: unknown, key: string): string | null {
-  if (!input || typeof input !== "object") return null;
-  const value = (input as Record<string, unknown>)[key];
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
+// extractRunInputString 已移至共享模块 src/lib/agents/run-input.ts(工作台 stats 与 serializeRun 共用)
 
 function parseRunProgress(value: unknown): { stage: string; message: string }[] {
   if (!Array.isArray(value)) return [];

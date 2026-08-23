@@ -50,7 +50,14 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
     expect(stats.profile.matchScoreDelta).toBeNull();
     expect(stats.roadmap.exists).toBe(false);
     expect(stats.roadmap.progress).toBeNull();
-    expect(stats.resume).toEqual({ fileCount: 0, versionCount: 0, latestFileName: null, latestAt: null });
+    expect(stats.resume).toEqual({
+      fileCount: 0,
+      versionCount: 0,
+      latestFileName: null,
+      latestAt: null,
+      lastActivityId: null,
+      lastActivityFileName: null,
+    });
     expect(stats.weekTasks).toEqual({ completed: 0, delta: null });
     expect(stats.agents.profile.status).toBe("idle");
     expect(stats.agents.roadmap.status).toBe("idle");
@@ -156,6 +163,9 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
     expect(stats.resume.versionCount).toBe(2);
     expect(stats.resume.latestFileName).toBeNull(); // 粘贴路径无文件名
     expect(stats.resume.latestAt).toBeTruthy();
+    // 无简历类 run → 最近工作简历回退最新创建行
+    expect(stats.resume.lastActivityId).toBe(resumeId);
+    expect(stats.resume.lastActivityFileName).toBeNull(); // 粘贴路径无文件名
   });
 
   it("Agent 状态:running(带进度)/ succeeded(带末条文案)/ 失败;简历 Agent 取三 intent 最近一次", async () => {
@@ -237,6 +247,115 @@ describe("dashboard.stats(真实写库,顺序执行)", () => {
     const statsB = await caller(userIdB).dashboard.stats();
     expect(statsB.weekTasks.completed).toBe(1);
     expect(statsB.resume.fileCount).toBe(1);
+  });
+
+  it("最近工作简历派生:简历类 run 的 input.resumeId 决定 lastActivity(优于创建时间);score-ats 无 resumeId 不参与", async () => {
+    // R1 先建(createdAt 旧)、R2 后建(createdAt 新)
+    const { id: r1 } = await caller(userIdA).resume.createFromText({
+      text: "简历一 前端工程师 两年经验\n技能:React",
+    });
+    const { id: r2 } = await caller(userIdA).resume.createFromText({
+      text: "简历二 产品经理 三年经验\n技能:需求分析",
+    });
+    // 无简历类 run → 回退最新创建(R2)
+    let stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(r2);
+
+    // 最新的 parse run 指向 R1 → 击败 createdAt 顺序,指向 R1
+    await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "resume-parse-agent",
+        intent: "parse-resume",
+        status: "succeeded",
+        progress: [],
+        input: { resumeId: r1 },
+      },
+    });
+    stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(r1);
+
+    // 更新的 rewrite run 指向 R2 → 指向 R2
+    await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "resume-rewrite-agent",
+        intent: "rewrite-resume",
+        status: "succeeded",
+        progress: [],
+        input: { resumeId: r2 },
+      },
+    });
+    stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(r2);
+
+    // score-ats 的 input 不含 resumeId → 扫描跳过,派生结果不变(已知限制,见 technical-design)
+    await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "resume-ats-agent",
+        intent: "score-ats",
+        status: "succeeded",
+        progress: [],
+        input: { finalText: "文本", targetDirection: "产品经理" },
+      },
+    });
+    stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(r2);
+  });
+
+  it("悬空回退:run 引用的简历已删除 → 跳过并回退;全部删除 → null", async () => {
+    // 承接上一用例:R2(简历二)为当前 lastActivity,run 同时引用 R1(简历一)/R2
+    const r1 = await prisma.resume.findFirst({
+      where: { userId: userIdA, originalText: { contains: "简历一" } },
+    });
+    const r2 = await prisma.resume.findFirst({
+      where: { userId: userIdA, originalText: { contains: "简历二" } },
+    });
+    expect(r1).toBeTruthy();
+    expect(r2).toBeTruthy();
+    const before = await caller(userIdA).dashboard.stats();
+    expect(before.resume.lastActivityId).toBe(r2!.id);
+
+    // 删除 R2(当前 lastActivity)→ run 中 R2 引用悬空,回退到仍有有效 run 引用的 R1
+    await caller(userIdA).resume.delete({ id: r2!.id });
+    let stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBe(r1!.id);
+
+    // 删除 R1 → 全部 run 引用悬空,回退最新创建行(最早那张粘贴简历)
+    await caller(userIdA).resume.delete({ id: r1!.id });
+    stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).not.toBeNull();
+    expect(stats.resume.lastActivityId).not.toBe(r1!.id);
+    expect(stats.resume.lastActivityId).not.toBe(r2!.id);
+
+    // 全部删除 → 无简历 → lastActivityId 为 null
+    await caller(userIdA).resume.delete({ id: stats.resume.lastActivityId! });
+    stats = await caller(userIdA).dashboard.stats();
+    expect(stats.resume.lastActivityId).toBeNull();
+    expect(stats.resume.lastActivityFileName).toBeNull();
+  });
+
+  it("用户隔离:乙的简历 run 不影响甲的 lastActivity", async () => {
+    const { id: bResume } = await caller(userIdB).resume.createFromText({
+      text: "乙的新简历 测试工程师 一年经验",
+    });
+    await prisma.agentRun.create({
+      data: {
+        userId: userIdB,
+        agentName: "resume-parse-agent",
+        intent: "parse-resume",
+        status: "succeeded",
+        progress: [],
+        input: { resumeId: bResume },
+      },
+    });
+    // 甲当前无简历(上一用例已全删)→ 不受乙影响
+    const statsA = await caller(userIdA).dashboard.stats();
+    expect(statsA.resume.lastActivityId).toBeNull();
+    // 乙 → 自己的简历
+    const statsB = await caller(userIdB).dashboard.stats();
+    expect(statsB.resume.lastActivityId).toBe(bResume);
   });
 });
 
