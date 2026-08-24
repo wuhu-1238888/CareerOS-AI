@@ -46,6 +46,7 @@ import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 import { extractRunInputString } from "@/lib/agents/run-input";
 import { RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { computeDashboardStats } from "@/lib/dashboard/stats";
+import { evaluateLinkageRules } from "@/lib/linkage/rules";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -1687,6 +1688,84 @@ export const appRouter = t.router({
   // 工作台聚合(5.1):KPI 行 / Agent 顾问区 / 模块入口卡的单一数据源,纯读(见 src/lib/dashboard/stats.ts)
   dashboard: t.router({
     stats: protectedProcedure.query(async ({ ctx }) => computeDashboardStats(ctx.prisma, ctx.userId)),
+  }),
+  // 联动提示(8.1b/8.1c):三条联动规则的活跃提示、关闭去重、匹配/画像方向冲突裁决记录。
+  // 规则评估是状态派生(linkage/rules.ts);dismiss 只记关闭动作(同 (kind, refVersion) 不再骚扰);
+  // resolveDirection 按 (profileVersion, matchDirection) 幂等更新(同一冲突只问一次,agent-design 4.4)。
+  linkage: t.router({
+    rules: protectedProcedure.query(async ({ ctx }) => evaluateLinkageRules(ctx.prisma, ctx.userId)),
+    resolution: protectedProcedure
+      .input(
+        z.object({
+          profileVersion: z.number().int().min(1, "画像版本必须为正整数"),
+          matchDirection: z.string().min(1, "匹配方向不能为空").max(50),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const row = await ctx.prisma.directionResolution.findFirst({
+          where: {
+            userId: ctx.userId,
+            profileVersion: input.profileVersion,
+            matchDirection: input.matchDirection,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        return row
+          ? {
+              profileVersion: row.profileVersion,
+              profileDirection: row.profileDirection,
+              matchDirection: row.matchDirection,
+              choice: row.choice,
+              createdAt: row.createdAt.toISOString(),
+            }
+          : null;
+      }),
+    dismiss: protectedProcedure
+      .input(
+        z.object({
+          kind: z.enum(["resume_project", "resume_outdated", "roadmap_outdated"]),
+          refVersion: z.string().min(1, "提示版本不能为空").max(100),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await ctx.prisma.linkageHint.upsert({
+          where: {
+            userId_kind_refVersion: { userId: ctx.userId, kind: input.kind, refVersion: input.refVersion },
+          },
+          create: { userId: ctx.userId, kind: input.kind, refVersion: input.refVersion, dismissedAt: new Date() },
+          update: { dismissedAt: new Date() },
+        });
+        return { ok: true };
+      }),
+    resolveDirection: protectedProcedure
+      .input(
+        z.object({
+          profileVersion: z.number().int().min(1, "画像版本必须为正整数"),
+          profileDirection: z.string().min(1, "画像方向不能为空").max(50),
+          matchDirection: z.string().min(1, "匹配方向不能为空").max(50),
+          choice: z.enum(["prefer_profile", "prefer_match", "keep_both"]),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const existing = await ctx.prisma.directionResolution.findFirst({
+          where: { userId: ctx.userId, profileVersion: input.profileVersion, matchDirection: input.matchDirection },
+        });
+        const resolution = existing
+          ? await ctx.prisma.directionResolution.update({
+              where: { id: existing.id },
+              data: { profileDirection: input.profileDirection, choice: input.choice },
+            })
+          : await ctx.prisma.directionResolution.create({
+              data: {
+                userId: ctx.userId,
+                profileVersion: input.profileVersion,
+                profileDirection: input.profileDirection,
+                matchDirection: input.matchDirection,
+                choice: input.choice,
+              },
+            });
+        return { ok: true, choice: resolution.choice };
+      }),
   }),
 });
 
