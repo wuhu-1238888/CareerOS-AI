@@ -4,7 +4,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
-import { LlmTimeoutError } from "@/lib/llm/adapter";
+import { LlmTimeoutError, LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
 import { llm } from "@/lib/llm";
 import { registry as defaultRegistry } from "@/lib/agents/registry";
 import type { AgentRegistry } from "@/lib/agents/registry";
@@ -25,6 +25,10 @@ export interface RunAgentParams {
 export type RunAgentOutcome<TOutput> =
   | { ok: true; result: AgentResult<TOutput>; runId: string }
   | { ok: false; error: string; runId: string };
+
+// AgentRun 运行阈值(2026-08):= LLM 超时 + 1 分钟余量。router.serializeRun 与面试管线
+// in-flight 互斥共用同一口径:健康 run 的 updatedAt 停更不会超过 LLM_TIMEOUT_MS,超过即进程死亡。
+export const RUN_STALE_MS = LLM_TIMEOUT_MS + 60 * 1000;
 
 // 面向最终用户的友好文案(不暴露模型原文与内部细节)
 const FRIENDLY_ERRORS = {

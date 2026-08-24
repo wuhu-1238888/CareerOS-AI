@@ -44,7 +44,7 @@ import { parsedResumeSchema } from "@/lib/resume/analysis-schemas";
 import { buildSectionPlan, detectSections, parseStoredSections } from "@/lib/resume/section-order";
 import { resumeParseAgentInputSchema } from "@/lib/agents/resume.agent";
 import { extractRunInputString } from "@/lib/agents/run-input";
-import { LLM_TIMEOUT_MS } from "@/lib/llm/adapter";
+import { RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { computeDashboardStats } from "@/lib/dashboard/stats";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
@@ -383,7 +383,7 @@ function serializeRoadmap(row: RoadmapRowShape) {
 // 误报为「分析中断」(真实任务仍在跑、随后成功)——显示态与真实状态脱节。健康 run 的 updatedAt 停更间隙
 // 不会超过 LLM_TIMEOUT_MS(超时即落 failed),因此「超过本阈值仍 running」只可能是进程死亡。
 // 本次修订:从 run.input 防御解析 resumeId/targetDirection 透出(简历页按简历行归属判断/失败后回填目标方向;其他模块不受影响)
-const RUN_STALE_MS = LLM_TIMEOUT_MS + 60 * 1000;
+// RUN_STALE_MS 已单源化至 src/lib/orchestration/orchestrator.ts(面试管线 in-flight 互斥共用同一口径)
 
 function serializeRun(run: {
   id: string;
@@ -1536,7 +1536,8 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const outcome = await runEvaluateAnswer({ userId: ctx.userId, answer: input.answer });
         if (!outcome.ok) {
-          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          // CONFLICT(评估在途)→ HTTP 409,前端 friendlyError 直接显示中文文案
+          throw new TRPCError({ code: outcome.code ?? "BAD_GATEWAY", message: outcome.error });
         }
         const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
         return serializeInterviewSession(row);
@@ -1548,7 +1549,8 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const outcome = await evaluateStoredAnswer({ userId: ctx.userId, questionIndex: input.questionIndex });
         if (!outcome.ok) {
-          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+          // CONFLICT(评估在途)→ HTTP 409,前端 friendlyError 直接显示中文文案
+          throw new TRPCError({ code: outcome.code ?? "BAD_GATEWAY", message: outcome.error });
         }
         const row = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
         return serializeInterviewSession(row);
@@ -1599,7 +1601,8 @@ export const appRouter = t.router({
         throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
       }
       const fresh = await ctx.prisma.interviewSession.findUnique({ where: { userId: ctx.userId } });
-      return serializeInterviewSession(fresh);
+      // 2026-08:附带 runId——复用既有 running 报告 run 时场次仍 in_progress,前端据 runId 收敛与失败透出
+      return { session: serializeInterviewSession(fresh), runId: outcome.runId };
     }),
 
     // 失败重试(7.1):从 run.input 重放(输入含场次简历快照,简历后续变更不影响重放);
@@ -1639,7 +1642,8 @@ export const appRouter = t.router({
           }
           const outcome = await evaluateStoredAnswer({ userId: ctx.userId, questionIndex });
           if (!outcome.ok) {
-            throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+            // CONFLICT(评估在途)→ HTTP 409,前端 friendlyError 直接显示中文文案
+            throw new TRPCError({ code: outcome.code ?? "BAD_GATEWAY", message: outcome.error });
           }
           return { runId: outcome.runId };
         }

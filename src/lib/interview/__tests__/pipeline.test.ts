@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
 import { runInterviewQuestions, runEvaluateAnswer, evaluateStoredAnswer, runFollowUpAnswer, runInterviewReport } from "../pipeline";
+import { RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { interviewQuestionsSchema } from "@/lib/interview/analysis-schemas";
 import type { InterviewAnswerItem } from "@/lib/interview/analysis-schemas";
 import { interviewSamples } from "@/lib/agents/__tests__/interview-samples";
@@ -593,5 +594,195 @@ describe("runInterviewReport 管线(真实写库,顺序执行)", () => {
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("unreachable");
     expect(outcome.error).toContain("面试场次不存在");
+  });
+});
+
+// ── in-flight 互斥与每用户串行化(2026-08)──────────────────────────
+// 双标签页/重复提交防护:出题/报告幂等复用既有 running run,评估拒绝 CONFLICT;
+// stale(running 超 RUN_STALE_MS)放行;在途并发用慢适配器 + DB 轮询做确定性复现。
+describe("in-flight 互斥与每用户串行化(真实写库,顺序执行)", () => {
+  const evalJson = (followUpQuestion: string | null) =>
+    JSON.stringify({
+      contentScore: 8,
+      expressionScore: 7,
+      improvementSuggestion: "建议补充一个可量化的结果数据。",
+      followUpQuestion,
+    });
+
+  const answerText = "我在后端实习中负责订单服务接口开发,独立完成了接口设计、MySQL 数据表设计与前后端联调。";
+
+  let userIdC: string;
+
+  beforeAll(async () => {
+    const c = await prisma.user.create({
+      data: {
+        email: `interviewpipeline-e-${suffix}@test.local`,
+        name: "互斥测试",
+        passwordHash: await bcrypt.hash("password-123", 10),
+        authMethod: "password",
+      },
+    });
+    userIdC = c.id;
+  });
+
+  // 每个用例重开场 5 题行为面(index 0,answers []),保证用例间状态可预测
+  async function freshSession(userId: string) {
+    const outcome = await runInterviewQuestions({
+      userId,
+      input: backend5.input,
+      adapter: mockAdapterFor(backend5),
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+  }
+
+  it("出题复用:同 intent 有 running 在途 → ok:true + 同 runId + questions null + 不新建 run/不调 LLM", async () => {
+    const running = await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "interview-question-agent",
+        intent: "generate-interview-questions",
+        status: "running",
+        input: { resumeText: "x", targetPosition: "后端", interviewType: "行为面", questionCount: 5 },
+      },
+    });
+    let llmCalls = 0;
+    const counting = new MockAdapter(0, () => {
+      llmCalls += 1;
+      return JSON.stringify(backend5.mockOutput);
+    });
+    const runsBefore = await prisma.agentRun.count({
+      where: { userId: userIdA, intent: "generate-interview-questions" },
+    });
+    const outcome = await runInterviewQuestions({ userId: userIdA, input: backend5.input, adapter: counting });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+    expect(outcome.runId).toBe(running.id);
+    expect(outcome.questions).toBeNull();
+    expect(llmCalls).toBe(0);
+    const runsAfter = await prisma.agentRun.count({
+      where: { userId: userIdA, intent: "generate-interview-questions" },
+    });
+    expect(runsAfter).toBe(runsBefore);
+    await prisma.agentRun.delete({ where: { id: running.id } });
+  });
+
+  it("stale 放行:running 行 updatedAt 超 RUN_STALE_MS → 不视为在途,正常新建 run 出题", async () => {
+    const stale = await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "interview-question-agent",
+        intent: "generate-interview-questions",
+        status: "running",
+        input: { resumeText: "x", targetPosition: "后端", interviewType: "行为面", questionCount: 5 },
+      },
+    });
+    // 显式回拨 updatedAt 超阈值(不用 $executeRaw,跨数据库方言安全)
+    await prisma.agentRun.update({
+      where: { id: stale.id },
+      data: { updatedAt: new Date(Date.now() - RUN_STALE_MS - 1000) },
+    });
+    const outcome = await runInterviewQuestions({
+      userId: userIdA,
+      input: backend5.input,
+      adapter: mockAdapterFor(backend5),
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+    expect(outcome.runId).not.toBe(stale.id);
+    expect(outcome.questions).not.toBeNull();
+    await prisma.agentRun.delete({ where: { id: stale.id } });
+  });
+
+  it("评估 CONFLICT:评估在途时再次提交 → ok:false + code CONFLICT + answers 不变", async () => {
+    await freshSession(userIdC);
+    // 预置一条评估失败的作答(evaluation null),随后伪造评估在途
+    await runEvaluateAnswer({
+      userId: userIdC,
+      answer: answerText,
+      adapter: new MockAdapter(0, () => "坏 JSON"),
+    });
+    const running = await prisma.agentRun.create({
+      data: {
+        userId: userIdC,
+        agentName: "interview-answer-evaluator",
+        intent: "evaluate-interview-answer",
+        status: "running",
+        input: { resumeText: "x" },
+      },
+    });
+    const before = await prisma.interviewSession.findUnique({ where: { userId: userIdC } });
+    const outcome = await runEvaluateAnswer({
+      userId: userIdC,
+      answer: "第二次回答(应被拒)",
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.code).toBe("CONFLICT");
+    expect(outcome.error).toContain("正在评估中");
+    const after = await prisma.interviewSession.findUnique({ where: { userId: userIdC } });
+    expect(after?.answers).toStrictEqual(before?.answers);
+    await prisma.agentRun.delete({ where: { id: running.id } });
+  });
+
+  it("evaluateStoredAnswer CONFLICT:评估在途时重试评估 → ok:false + code CONFLICT", async () => {
+    const running = await prisma.agentRun.create({
+      data: {
+        userId: userIdC,
+        agentName: "interview-answer-evaluator",
+        intent: "evaluate-interview-answer",
+        status: "running",
+        input: { resumeText: "x" },
+      },
+    });
+    const outcome = await evaluateStoredAnswer({
+      userId: userIdC,
+      questionIndex: 0,
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.code).toBe("CONFLICT");
+    expect(outcome.error).toContain("正在评估中");
+    await prisma.agentRun.delete({ where: { id: running.id } });
+  });
+
+  it("在途并发:慢评估进行中第二个提交确定性 CONFLICT,answers 仅第一条", async () => {
+    await freshSession(userIdC);
+    // 慢适配器:评估进行中,AgentRun running 行可被观测
+    const slow = new MockAdapter(300, () => evalJson(null));
+    const first = runEvaluateAnswer({ userId: userIdC, answer: answerText, adapter: slow });
+    // 轮询 DB 直到 running 行出现(管线已过锁、run 已创建)→ 再发第二个提交
+    let live: { id: string } | null = null;
+    for (let i = 0; i < 100 && !live; i++) {
+      live = await prisma.agentRun.findFirst({
+        where: { userId: userIdC, intent: "evaluate-interview-answer", status: "running" },
+      });
+      if (!live) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(live).toBeTruthy();
+
+    const second = await runEvaluateAnswer({
+      userId: userIdC,
+      answer: "并发第二次回答(应被拒)",
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    expect(second.ok).toBe(false);
+    if (second.ok) throw new Error("unreachable");
+    expect(second.code).toBe("CONFLICT");
+
+    const firstOutcome = await first;
+    expect(firstOutcome.ok).toBe(true);
+
+    const row = await prisma.interviewSession.findUnique({ where: { userId: userIdC } });
+    const answers = row?.answers as InterviewAnswerItem[];
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.answer).toBe(answerText);
+    // 恰好一个成功的评估 run(一个回答只触发一次 LLM;上例的失败 run 不计)
+    const evalRuns = await prisma.agentRun.count({
+      where: { userId: userIdC, intent: "evaluate-interview-answer", status: "succeeded" },
+    });
+    expect(evalRuns).toBe(1);
   });
 });

@@ -391,9 +391,11 @@ describe("interview finish 与报告 retry(真实写库,顺序执行;全局 mock
   });
 
   it("finish:userA 成功(已有 4 题已评估,提前结束)→ 场次 completed + 报告四要素落库", async () => {
+    // 2026-08:finish 返回 { session, runId }(复用既有 running 报告 run 时前端据 runId 收敛)
     const result = await caller(userIdA).interview.finish();
-    expect(result?.status).toBe("completed");
-    expect(result?.report).toMatchObject({
+    expect(result?.runId).toBeTruthy();
+    expect(result?.session?.status).toBe("completed");
+    expect(result?.session?.report).toMatchObject({
       overallEvaluation: expect.stringContaining("Mock 演示数据"),
       strengths: expect.any(Array),
       weaknesses: expect.any(Array),
@@ -511,5 +513,68 @@ describe("interview finish 与报告 retry(真实写库,顺序执行;全局 mock
     expect(run?.id).toBe(dbRun?.id);
     // 最近一次 = 上个用例造的输入损坏 failed run
     expect(run?.status).toBe(dbRun?.status);
+  });
+});
+
+// ── in-flight 互斥(2026-08):管线对 running 在途 run 的复用/CONFLICT 语义经路由透出 ──
+describe("interview in-flight 互斥(真实写库,顺序执行)", () => {
+  it("start 遇出题在途 → 复用同 runId,不新建 AgentRun", async () => {
+    const running = await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "interview-question-agent",
+        intent: "generate-interview-questions",
+        status: "running",
+        input: { resumeText: "x", targetPosition: "后端", interviewType: "行为面", questionCount: 5 },
+      },
+    });
+    const runsBefore = await prisma.agentRun.count({
+      where: { userId: userIdA, intent: "generate-interview-questions" },
+    });
+    const result = await caller(userIdA).interview.start({
+      interviewType: "行为面",
+      questionCount: 5,
+      targetPosition: "后端开发工程师",
+    });
+    expect(result.runId).toBe(running.id);
+    const runsAfter = await prisma.agentRun.count({
+      where: { userId: userIdA, intent: "generate-interview-questions" },
+    });
+    expect(runsAfter).toBe(runsBefore);
+    await prisma.agentRun.delete({ where: { id: running.id } });
+  });
+
+  it("submitAnswer 遇评估在途 → CONFLICT(HTTP 409 语义)", async () => {
+    const running = await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "interview-answer-evaluator",
+        intent: "evaluate-interview-answer",
+        status: "running",
+        input: { resumeText: "x" },
+      },
+    });
+    await expect(caller(userIdA).interview.submitAnswer({ answer: "并发第二次回答" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "该题正在评估中,请稍候",
+    });
+    await prisma.agentRun.delete({ where: { id: running.id } });
+  });
+
+  it("evaluate 遇评估在途 → CONFLICT(HTTP 409 语义)", async () => {
+    const running = await prisma.agentRun.create({
+      data: {
+        userId: userIdA,
+        agentName: "interview-answer-evaluator",
+        intent: "evaluate-interview-answer",
+        status: "running",
+        input: { resumeText: "x" },
+      },
+    });
+    await expect(caller(userIdA).interview.evaluate({ questionIndex: 0 })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "该题正在评估中,请稍候",
+    });
+    await prisma.agentRun.delete({ where: { id: running.id } });
   });
 });

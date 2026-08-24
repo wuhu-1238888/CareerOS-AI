@@ -4,7 +4,7 @@
 // 落库前双重校验(镜像 coach 管线):出题管线 echo 交叉校验(输出题数 ≠ 档位 → ok:false 不落库);
 // 评估失败时答案先落库、evaluation 置 null(前端「重试评估」)。
 import { Prisma } from "@prisma/client";
-import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
+import { Orchestrator, orchestrator, RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -22,13 +22,50 @@ import type {
 import type { InterviewQuestionAgentInput } from "@/lib/agents/interview-question.agent";
 import "@/lib/agents"; // 副作用:登记模拟面试出题 Agent(intent: generate-interview-questions)
 
+// ── in-flight 互斥与每用户串行化(2026-08)──────────────────────────
+// 双标签页/重复提交防护:创建 AgentRun 前查同 intent 的「running 且未超 RUN_STALE_MS」的最近 run。
+// 出题/报告 → 幂等复用既有 run(前端 latestRun 轮询看到 running,自然收敛);
+// 评估 → CONFLICT(一个回答只触发一次 LLM,且防第二个请求覆写 answers 快照)。
+// 检查分两层:公开入口的快速路径在锁前(对用户真实生效),Inner 的权威复查在锁后(封 TOCTOU 窗口)。
+async function findLiveRun(userId: string, intent: string) {
+  return prisma.agentRun.findFirst({
+    where: {
+      userId,
+      intent,
+      status: "running",
+      updatedAt: { gt: new Date(Date.now() - RUN_STALE_MS) },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+// 每用户串行化:同一用户的面试管线调用排队执行,封死 findLiveRun 与写入之间的 TOCTOU 窗口。
+// 仅单进程;跨进程由 findLiveRun 兜底。⚠ 只允许公开入口加锁,内部函数(runEvaluationForIndex)不得再加锁,
+// 否则同一 userId 的嵌套调用会死锁(代码评审必查点)。
+const userPipelineLocks = new Map<string, Promise<void>>();
+
+function withUserLock<T>(userId: string, task: () => Promise<T>): Promise<T> {
+  const prev = userPipelineLocks.get(userId) ?? Promise.resolve();
+  const run = prev.then(task);
+  const tail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  userPipelineLocks.set(userId, tail);
+  void tail.then(() => {
+    if (userPipelineLocks.get(userId) === tail) userPipelineLocks.delete(userId);
+  });
+  return run;
+}
+
 export type RunInterviewQuestionsOutcome =
-  | { ok: true; runId: string; questions: InterviewQuestions }
+  // questions: null = 命中同 intent 的 running run 时幂等复用(未重新出题;router.start 只消费 runId)
+  | { ok: true; runId: string; questions: InterviewQuestions | null }
   | { ok: false; error: string; runId: string };
 
 // 出题管线(7.1):简历 + 岗位 + 面试类型 + 档位 → Orchestrator(出题 Agent)→
 // 题数 echo 校验通过后按列 upsert(开场 = 覆盖式新建:重置作答/进度/报告,镜像 JobMatch 按列写)
-export async function runInterviewQuestions(params: {
+async function runInterviewQuestionsInner(params: {
   userId: string;
   input: InterviewQuestionAgentInput;
   /** 测试注入用;缺省走全局 llm(生产经 LLM_PROVIDER 切换) */
@@ -36,6 +73,10 @@ export async function runInterviewQuestions(params: {
 }): Promise<RunInterviewQuestionsOutcome> {
   const { userId, input, adapter } = params;
   const runner: Orchestrator = adapter ? new Orchestrator(prisma, adapter) : orchestrator;
+
+  // in-flight 复用(锁后权威复查):返回既有 runId,不新建 AgentRun、不重复调用 LLM
+  const live = await findLiveRun(userId, "generate-interview-questions");
+  if (live) return { ok: true, runId: live.id, questions: null };
 
   // 进度写库串行化:生命周期事件同步连发,读-改-写不排队会互相覆盖(丢事件)
   const progressChain = { current: Promise.resolve() };
@@ -97,6 +138,20 @@ export async function runInterviewQuestions(params: {
   return { ok: true, runId: outcome.runId, questions: raw };
 }
 
+export function runInterviewQuestions(params: {
+  userId: string;
+  input: InterviewQuestionAgentInput;
+  /** 测试注入用;缺省走全局 llm(生产经 LLM_PROVIDER 切换) */
+  adapter?: LLMAdapter;
+}): Promise<RunInterviewQuestionsOutcome> {
+  // 快速路径(锁前):出题在途时直接复用既有 run(双标签页/重复点击的常见时序)
+  return (async () => {
+    const live = await findLiveRun(params.userId, "generate-interview-questions");
+    if (live) return { ok: true, runId: live.id, questions: null };
+    return withUserLock(params.userId, () => runInterviewQuestionsInner(params));
+  })();
+}
+
 // 解析落库的题目数组(读取方防御解析,损坏 → null;镜像 serializeJobMatch 先例)
 export function parseStoredQuestions(value: unknown): InterviewQuestions["questions"] | null {
   const parsed = interviewQuestionsSchema.safeParse({ questions: value });
@@ -113,7 +168,8 @@ export function parseStoredAnswers(value: unknown): InterviewAnswerItem[] | null
 
 export type RunEvaluateAnswerOutcome =
   | { ok: true; runId: string }
-  | { ok: false; error: string; runId: string };
+  // code: "CONFLICT" = 评估在途(同题第二次提交被拒,router 映射 HTTP 409,前端直接显示中文文案)
+  | { ok: false; error: string; runId: string; code?: "CONFLICT" };
 
 // 读取场次并防御解析(questions/answers 任一损坏 → null,镜像 get 端点的容错口径)
 async function loadInterviewSession(userId: string) {
@@ -128,7 +184,7 @@ async function loadInterviewSession(userId: string) {
 // 评估管线(7.2):提交答案 + 评估当前题。答案先落库(评估失败时保留、evaluation=null,
 // 前端显示「重试评估」按钮),再跑评估 Agent;评估成功写回 evaluation + followUpQuestion,
 // 无追问 → currentQuestionIndex+1。追问回答不二次评估(由追问管线处理,至多一次)。
-export async function runEvaluateAnswer(params: {
+async function runEvaluateAnswerInner(params: {
   userId: string;
   answer: string;
   /** 测试注入用;缺省走全局 llm */
@@ -150,6 +206,13 @@ export async function runEvaluateAnswer(params: {
     return { ok: false, error: "该题已评估,请回答追问或进入下一题", runId: "" };
   }
 
+  // in-flight 拒绝(锁后权威复查):评估进行中再次提交 → CONFLICT;
+  // 必须在答案落库之前检查,防第二个请求覆写 answers 快照
+  const live = await findLiveRun(userId, "evaluate-interview-answer");
+  if (live) {
+    return { ok: false, error: "该题正在评估中,请稍候", code: "CONFLICT", runId: "" };
+  }
+
   // 答案先落库(同题重提交 = 覆盖,不产生重复条目;评估失败时答案保留,evaluation 为 null)
   const submittedAnswers: InterviewAnswerItem[] = [
     ...answers.filter((a) => a.questionId !== question.id),
@@ -164,9 +227,25 @@ export async function runEvaluateAnswer(params: {
   return runEvaluationForIndex(userId, index, adapter);
 }
 
+export function runEvaluateAnswer(params: {
+  userId: string;
+  answer: string;
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<RunEvaluateAnswerOutcome> {
+  // 快速路径(锁前):评估在途时直接拒绝,避免排队等待完整 LLM 评估
+  return (async () => {
+    const live = await findLiveRun(params.userId, "evaluate-interview-answer");
+    if (live) {
+      return { ok: false, error: "该题正在评估中,请稍候", code: "CONFLICT", runId: "" };
+    }
+    return withUserLock(params.userId, () => runEvaluateAnswerInner(params));
+  })();
+}
+
 // 评估重试(7.2):对当前题的已存答案重跑评估,不重复提交答案。
 // evaluate 端点与 retry(评估 intent 重放)共用;仅允许当前题(推进后旧题必有评估)。
-export async function evaluateStoredAnswer(params: {
+async function evaluateStoredAnswerInner(params: {
   userId: string;
   questionIndex: number;
   /** 测试注入用;缺省走全局 llm */
@@ -179,6 +258,22 @@ export async function evaluateStoredAnswer(params: {
     return { ok: false, error: "只能重试评估当前题目", runId: "" };
   }
   return runEvaluationForIndex(userId, questionIndex, adapter);
+}
+
+export function evaluateStoredAnswer(params: {
+  userId: string;
+  questionIndex: number;
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<RunEvaluateAnswerOutcome> {
+  // 快速路径(锁前)+ runEvaluationForIndex 锁后复查:评估在途时拒绝(evaluate 重试端点与跨进程兜底)
+  return (async () => {
+    const live = await findLiveRun(params.userId, "evaluate-interview-answer");
+    if (live) {
+      return { ok: false, error: "该题正在评估中,请稍候", code: "CONFLICT", runId: "" };
+    }
+    return withUserLock(params.userId, () => evaluateStoredAnswerInner(params));
+  })();
 }
 
 // 评估核心(7.2):对第 questionIndex 题的已存答案跑评估 Agent(输入 = 场次快照 + 题目 + 答案),
@@ -197,6 +292,12 @@ async function runEvaluationForIndex(
   const entry = answers.find((a) => a.questionId === question.id);
   if (!entry) return { ok: false, error: "该题还没有作答记录", runId: "" };
   if (entry.evaluation) return { ok: false, error: "该题已评估,请回答追问或进入下一题", runId: "" };
+
+  // in-flight 复查(覆盖 evaluate 重试端点与跨进程兜底;公开入口已查,此处双保险)
+  const live = await findLiveRun(userId, "evaluate-interview-answer");
+  if (live) {
+    return { ok: false, error: "该题正在评估中,请稍候", code: "CONFLICT", runId: "" };
+  }
 
   const progressChain = { current: Promise.resolve() };
   const outcome = await runner.run<InterviewEvaluation>({
@@ -251,7 +352,7 @@ export type RunFollowUpAnswerOutcome = { ok: true } | { ok: false; error: string
 
 // 追问管线(7.2):不触发 LLM。写入当前题追问回答(null = 跳过)→ currentQuestionIndex+1。
 // 前置条件:当前题已评估、有追问、追问未回答(至多一次)。
-export async function runFollowUpAnswer(params: {
+async function runFollowUpAnswerInner(params: {
   userId: string;
   followUpAnswer: string | null;
 }): Promise<RunFollowUpAnswerOutcome> {
@@ -279,6 +380,14 @@ export async function runFollowUpAnswer(params: {
   return { ok: true };
 }
 
+export function runFollowUpAnswer(params: {
+  userId: string;
+  followUpAnswer: string | null;
+}): Promise<RunFollowUpAnswerOutcome> {
+  // 无 LLM 也串行化:防追问写入与评估写回(answers 快照)交错覆盖
+  return withUserLock(params.userId, () => runFollowUpAnswerInner(params));
+}
+
 // ── 综合报告管线(7.3)──────────────────────────────────────────
 
 export type RunInterviewReportOutcome =
@@ -288,7 +397,7 @@ export type RunInterviewReportOutcome =
 // 报告管线(7.3):从已评估题组装摘要(answer 截 800 字;未答/未评估题不计入,允许提前结束)
 // → 报告 Agent(温度 0,定性四要素)→ 写 report + status completed。
 // 至少 1 题已评估(finish 端点双保险前置校验);均分由前端对已评估题确定性计算。
-export async function runInterviewReport(params: {
+async function runInterviewReportInner(params: {
   userId: string;
   /** 测试注入用;缺省走全局 llm */
   adapter?: LLMAdapter;
@@ -301,6 +410,11 @@ export async function runInterviewReport(params: {
   if (row.status !== "in_progress") {
     return { ok: false, error: "面试已结束,无法重复生成报告", runId: "" };
   }
+
+  // in-flight 复用(锁后权威复查):报告生成中再次 finish(双标签页)→ 返回既有 runId,不重复调用 LLM;
+  // 场次保持 in_progress,前端 reportRun 轮询收敛(报告视图对 report null 已有兜底卡)
+  const live = await findLiveRun(userId, "generate-interview-report");
+  if (live) return { ok: true, runId: live.id };
 
   const summary = answers
     .filter(
@@ -353,6 +467,19 @@ export async function runInterviewReport(params: {
     },
   });
   return { ok: true, runId: outcome.runId };
+}
+
+export function runInterviewReport(params: {
+  userId: string;
+  /** 测试注入用;缺省走全局 llm */
+  adapter?: LLMAdapter;
+}): Promise<RunInterviewReportOutcome> {
+  // 快速路径(锁前):报告生成在途时直接复用既有 run(双标签页同时 finish 的常见时序)
+  return (async () => {
+    const live = await findLiveRun(params.userId, "generate-interview-report");
+    if (live) return { ok: true, runId: live.id };
+    return withUserLock(params.userId, () => runInterviewReportInner(params));
+  })();
 }
 
 // 进度追加落库:同一 run 的事件顺序到达,读-改-写安全(唯一写入方为当前管线调用)

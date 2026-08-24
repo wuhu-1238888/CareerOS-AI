@@ -114,7 +114,14 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/trpc/client", () => ({
   trpc: {
     useUtils: () => ({
-      interview: { get: { invalidate: mocks.invalidateGet, refetch: mocks.refetchGet } },
+      interview: {
+        get: {
+          invalidate: mocks.invalidateGet,
+          refetch: mocks.refetchGet,
+          // 2026-08:复用收敛依赖 getData 判断场次是否已落库
+          getData: () => mocks.sessionData,
+        },
+      },
     }),
     interview: {
       get: { useQuery: () => ({ data: mocks.sessionData, isLoading: mocks.sessionLoading }) },
@@ -156,7 +163,8 @@ beforeEach(() => {
   mocks.reportRunData = null;
   mocks.startMutateAsync.mockResolvedValue({ runId: "run-new" });
   mocks.retryMutateAsync.mockResolvedValue({ runId: "run-retry" });
-  mocks.finishMutateAsync.mockResolvedValue(undefined);
+  // 2026-08:finish 返回 { session, runId }(复用既有 running 报告 run 时据 session.status 收敛)
+  mocks.finishMutateAsync.mockResolvedValue({ session: completedSession, runId: "run-report-new" });
   mocks.invalidateGet.mockResolvedValue(undefined);
   // 强制打字机 hook 走 setTimeout 回退(jsdom 无动画帧驱动)
   vi.stubGlobal("requestAnimationFrame", undefined);
@@ -301,6 +309,7 @@ describe("InterviewHub 报告(7.3)", () => {
     mocks.sessionData = activeSession;
     mocks.finishMutateAsync.mockImplementation(async () => {
       mocks.sessionData = completedSession;
+      return { session: completedSession, runId: "run-report-new" };
     });
     const user = userEvent.setup();
     render(<InterviewHub />);
@@ -383,9 +392,9 @@ describe("InterviewHub 报告(7.3)", () => {
       status: "running",
       progress: succeededRun.progress.slice(0, 2),
     };
-    let resolveFinish!: () => void;
+    let resolveFinish!: (value: { session: SessionMock; runId: string }) => void;
     mocks.finishMutateAsync.mockImplementationOnce(
-      () => new Promise<void>((resolve) => (resolveFinish = resolve))
+      () => new Promise<{ session: SessionMock; runId: string }>((resolve) => (resolveFinish = resolve))
     );
     const user = userEvent.setup();
     render(<InterviewHub />);
@@ -397,7 +406,84 @@ describe("InterviewHub 报告(7.3)", () => {
     expect(screen.getByText("正在汇总你的全部作答,生成综合报告")).toBeInTheDocument();
     expect(screen.getByText("分析中")).toBeInTheDocument();
 
-    resolveFinish();
+    resolveFinish({ session: completedSession, runId: "run-report-live" });
     await waitFor(() => expect(screen.getByText("模拟面试综合报告")).toBeInTheDocument());
+  });
+});
+
+describe("InterviewHub 复用收敛(2026-08)", () => {
+  it("start 复用:场次未落库保持出题视图;run succeeded + 场次落库后收敛进对话", async () => {
+    mocks.startMutateAsync.mockResolvedValue({ runId: "run-live" });
+    const user = userEvent.setup();
+    const { rerender } = render(<InterviewHub />);
+    await user.click(screen.getByRole("button", { name: "开始面试" }));
+
+    // 复用路径:场次尚未落库(getData 为 null)→ 保持出题视图而非闪进表单/对话
+    expect(await screen.findByText("面试出题")).toBeInTheDocument();
+    expect(screen.getByText("正在阅读你的简历,生成个性化面试题")).toBeInTheDocument();
+
+    // 被复用 run 成功 + 场次落库 → 收敛进对话
+    mocks.latestRunData = { ...succeededRun, id: "run-live" };
+    mocks.sessionData = activeSession;
+    rerender(<InterviewHub />);
+    await waitFor(() => expect(screen.getByText(QUESTIONS[0]!.question)).toBeInTheDocument());
+    expect(mocks.invalidateGet).toHaveBeenCalled();
+  });
+
+  it("finish 复用既有 running 报告 run:保持生成中视图;场次 completed 后进报告", async () => {
+    mocks.sessionData = activeSession;
+    mocks.reportRunData = {
+      ...succeededRun,
+      id: "run-report-live",
+      status: "running",
+      progress: succeededRun.progress.slice(0, 2),
+    };
+    // finish 复用:场次仍 in_progress(report 未落库)
+    mocks.finishMutateAsync.mockResolvedValue({ session: activeSession, runId: "run-report-live" });
+    const user = userEvent.setup();
+    const { rerender } = render(<InterviewHub />);
+    await user.click(screen.getByRole("button", { name: "结束面试" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "结束面试" }));
+
+    // 复用:场次仍 in_progress → 保持「生成中」而非闪兜底卡
+    expect(screen.getByText("面试报告")).toBeInTheDocument();
+    expect(screen.getByText("正在汇总你的全部作答,生成综合报告")).toBeInTheDocument();
+
+    // 被复用 run 成功 + 场次 completed → 收敛进报告视图
+    mocks.reportRunData = { ...succeededRun, id: "run-report-live" };
+    mocks.sessionData = completedSession;
+    rerender(<InterviewHub />);
+    await waitFor(() => expect(screen.getByText(REPORT.overallEvaluation)).toBeInTheDocument());
+  });
+
+  it("finish 复用失败:被复用 run 失败 → 失败视图显示错误(不卡无限生成中)", async () => {
+    mocks.sessionData = activeSession;
+    mocks.reportRunData = {
+      ...succeededRun,
+      id: "run-report-live",
+      status: "running",
+      progress: succeededRun.progress.slice(0, 2),
+    };
+    mocks.finishMutateAsync.mockResolvedValue({ session: activeSession, runId: "run-report-live" });
+    const user = userEvent.setup();
+    const { rerender } = render(<InterviewHub />);
+    await user.click(screen.getByRole("button", { name: "结束面试" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "结束面试" }));
+    expect(screen.getByText("正在汇总你的全部作答,生成综合报告")).toBeInTheDocument();
+
+    // 被复用 run 失败 → 失败透出(按 runId 匹配)
+    mocks.reportRunData = {
+      ...succeededRun,
+      id: "run-report-live",
+      status: "failed",
+      progress: [],
+      error: "AI 返回了无法识别的结果,请稍后重试",
+    };
+    rerender(<InterviewHub />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("AI 返回了无法识别的结果,请稍后重试");
+    expect(screen.getByText("报告生成没有完成,你可以重试或返回对话继续作答")).toBeInTheDocument();
   });
 });

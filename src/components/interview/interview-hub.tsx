@@ -52,6 +52,9 @@ export function InterviewHub() {
   const lastInput = useRef<InterviewSetupValues | null>(null);
   const finishedRef = useRef(false);
   const reportFinishedRef = useRef(false);
+  // 2026-08 复用收敛:本标签页正在等待的 run(出题/报告);与 latestRun 轮询按 id 匹配,防旧 run 误收敛
+  const pendingRunIdRef = useRef<string | null>(null);
+  const finishingRunIdRef = useRef<string | null>(null);
 
   // 有效场次 = questions/answers 均通过防御解析(损坏按无场次处理,可重新开始)
   const hasSession = !!session.data?.questions && !!session.data?.answers;
@@ -99,6 +102,36 @@ export function InterviewHub() {
     }
   }, [hasSession, session.data?.status, reportRun.data?.status, utils]);
 
+  // 复用路径收敛(2026-08):本标签页在等待的出题 run 成功且场次已落库 → 从出题视图切入对话。
+  // 按 runId 精确匹配 pendingRunIdRef,旧 run 的 succeeded 不会误触发(succeeded-only,失败路径不受影响)
+  useEffect(() => {
+    if (view !== "running") return;
+    const runId = pendingRunIdRef.current;
+    if (!runId) return;
+    if (latestRun.data?.id === runId && latestRun.data.status === "succeeded") {
+      void utils.interview.get.invalidate();
+      if (hasSession) setView("chat");
+    }
+  }, [view, latestRun.data, hasSession, utils]);
+
+  // 复用路径收敛(2026-08):报告 run 成功且场次已 completed → 清在途态进入报告视图
+  useEffect(() => {
+    if (session.data?.status === "completed") {
+      setFinishing(false);
+    }
+  }, [session.data?.status]);
+
+  // 复用路径失败透出(2026-08):本标签页等待的报告 run 失败/stale 时把错误接到报告失败视图,
+  // 否则用户会卡在无限「生成中」;按 runId 匹配,防旧失败 run 误触发(AnalysisView 重试按钮接管后续)
+  useEffect(() => {
+    if (!finishing) return;
+    const runId = finishingRunIdRef.current;
+    if (!runId) return;
+    if (reportRun.data?.id === runId && reportRun.data.status === "failed") {
+      setReportError(reportRun.data.error ?? "报告生成失败,请重试");
+    }
+  }, [finishing, reportRun.data]);
+
   if (session.isLoading || resume.isLoading || matching.isLoading || roadmap.isLoading) {
     return (
       <div className="mx-auto w-full max-w-[640px] space-y-4 px-4 py-6" aria-label="加载中">
@@ -144,10 +177,13 @@ export function InterviewHub() {
     setSubmitted(true);
     setView("running");
     try {
-      await start.mutateAsync(values);
+      const result = await start.mutateAsync(values);
+      pendingRunIdRef.current = result.runId;
       await utils.interview.get.invalidate();
-      setView("chat");
+      // 复用既有 running run(双标签页)时场次尚未落库:保持出题视图,由 latestRun 轮询收敛后再进对话
+      setView(utils.interview.get.getData()?.questions ? "chat" : "running");
     } catch (err) {
+      pendingRunIdRef.current = null;
       setStartError(friendlyError(err));
       // 向表单抛出以保留错误提示(表单仅在提交成功时离开)
       throw err;
@@ -181,10 +217,12 @@ export function InterviewHub() {
     setSubmitted(true);
     setView("running");
     try {
-      await retry.mutateAsync({ runId: failedRun.id });
+      const result = await retry.mutateAsync({ runId: failedRun.id });
+      pendingRunIdRef.current = result.runId;
       await utils.interview.get.invalidate();
-      setView("chat");
+      setView(utils.interview.get.getData()?.questions ? "chat" : "running");
     } catch (err) {
+      pendingRunIdRef.current = null;
       setStartError(friendlyError(err));
     } finally {
       setSubmitted(false);
@@ -202,16 +240,22 @@ export function InterviewHub() {
   async function doFinish() {
     setReportError(null);
     setFinishing(true);
+    let reusedRunning = false;
     try {
-      await finish.mutateAsync();
+      const result = await finish.mutateAsync();
+      finishingRunIdRef.current = result.runId;
       await utils.interview.get.invalidate();
       setView("report");
+      // 复用既有 running 报告 run(双标签页)时场次仍未 completed:保持生成中视图,
+      // 由 reportRun 轮询收敛(finishing 由「场次 completed」的 effect 清除)
+      reusedRunning = result.session?.status === "in_progress";
     } catch (err) {
+      finishingRunIdRef.current = null;
       setReportError(friendlyError(err));
       // 场次可能已变化(如报告其实已生成)→ 重读同步
       await utils.interview.get.refetch();
     } finally {
-      setFinishing(false);
+      setFinishing(reusedRunning);
     }
   }
 
@@ -222,14 +266,14 @@ export function InterviewHub() {
     setReportError(null);
     setFinishing(true);
     try {
-      if (failedReportRun) {
-        await retry.mutateAsync({ runId: failedReportRun.id });
-      } else {
-        await finish.mutateAsync();
-      }
+      const result = failedReportRun
+        ? await retry.mutateAsync({ runId: failedReportRun.id })
+        : await finish.mutateAsync();
+      finishingRunIdRef.current = result.runId;
       await utils.interview.get.invalidate();
       setView("report");
     } catch (err) {
+      finishingRunIdRef.current = null;
       setReportError(friendlyError(err));
       await utils.interview.get.refetch();
     } finally {
