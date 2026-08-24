@@ -19,6 +19,7 @@ import { StatCard, type StatDelta } from "./stat-card";
 import { AgentCard } from "./agent-card";
 import { ModuleCard } from "./module-card";
 import { NextStepCard } from "./next-step-card";
+import { GrowthBlock } from "@/components/growth/growth-block";
 
 // 决策 5(2.7 沿用):画像信息超过 7 天视为过时(「信息有变化」的可操作判据,常量可调)
 const STALE_DAYS = 7;
@@ -289,7 +290,10 @@ export function DashboardView() {
             </div>
           </section>
 
-          {/* ⑤ 我的工作区(「你上次做到哪里」):卡片主体 = 查看模块总览;CTA = 继续当前工作(深链定位) */}
+          {/* ⑤ 成长趋势(8.2,D1):画像版本 / 最新匹配度 / 近 8 周 sparkline + 完整报告深链(区块内入口) */}
+          <GrowthBlock />
+
+          {/* ⑥ 我的工作区(「你上次做到哪里」):卡片主体 = 查看模块总览;CTA = 继续当前工作(深链定位) */}
           <section className="mt-8">
             <h2 className="text-h2 text-ink">我的工作</h2>
             <p className="mt-1 text-body-sm text-ink-muted">你上次做到哪里</p>

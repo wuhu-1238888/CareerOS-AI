@@ -41,6 +41,23 @@ vi.mock("@/trpc/client", () => ({
         }),
       },
     },
+    // 8.2:成长区块在工作台内容态渲染;测试聚焦工作台语义,区块数据固定为空(引导分支,无副作用)
+    growth: {
+      block: {
+        useQuery: () => ({
+          data: {
+            profileVersionCount: 0,
+            profileVersion: null,
+            latestMatchScore: null,
+            matchUpdatedAt: null,
+            sparkline: [],
+          },
+          isLoading: false,
+          isError: false,
+          refetch: mocks.refetch,
+        }),
+      },
+    },
   },
 }));
 
@@ -319,7 +336,8 @@ describe("下一步建议(规则链,基于真实状态)", () => {
     expect(screen.getByText("下一步建议")).toBeInTheDocument();
     expect(screen.getByText("完成职业画像", { selector: "p" })).toBeInTheDocument();
     expect(screen.getByText("获得你的专属方向与建议")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "去完成画像" })).toHaveAttribute("href", "/profile");
+    // 8.2:成长区块空态引导也有「去完成画像」链接(均指 /profile);本条断言下一步建议卡 CTA(DOM 中先于成长区块)
+    expect(screen.getAllByRole("link", { name: "去完成画像" })[0]).toHaveAttribute("href", "/profile");
   });
 
   it("规则 2:画像已分析但无推荐方向 → 完善目标岗位 → /profile", () => {
