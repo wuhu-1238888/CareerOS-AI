@@ -4,6 +4,7 @@
 // 客户端轮询读取(分析中刷新页面可恢复)。
 import type { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -35,7 +36,7 @@ export async function analyzeProfile(params: {
   const outcome = await runner.run<ProfileAnalysis>({
     intent: "analyze-profile",
     input: { ...data, feedback },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "career-profile-analyzer"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));

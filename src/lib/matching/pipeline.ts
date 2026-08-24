@@ -5,6 +5,7 @@
 // recommendation=null、resumeSuggestions=[],UI 渲染「仅拆解」形态。
 import type { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -37,7 +38,7 @@ export async function runMatch(params: {
   const outcome = await runner.run<MatchAnalysis>({
     intent: "analyze-match",
     input: { jdText, profileSummary: profileSummary ?? null, optimizedResumeText: optimizedResumeText ?? null, feedback },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "job-matching-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));

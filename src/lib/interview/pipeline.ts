@@ -5,6 +5,7 @@
 // 评估失败时答案先落库、evaluation 置 null(前端「重试评估」)。
 import { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator, RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -83,7 +84,7 @@ async function runInterviewQuestionsInner(params: {
   const outcome = await runner.run<InterviewQuestions>({
     intent: "generate-interview-questions",
     input,
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "interview-question-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
@@ -309,7 +310,7 @@ async function runEvaluationForIndex(
       question,
       answer: entry.answer.slice(0, 2000),
     },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "interview-answer-evaluator"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
@@ -445,7 +446,7 @@ async function runInterviewReportInner(params: {
       interviewType: row.interviewType as InterviewType,
       summary,
     },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "interview-report-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));

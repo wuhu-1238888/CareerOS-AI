@@ -2,7 +2,7 @@
 // 模拟面试管线测试(7.1/7.2,真实写库):开场覆盖式 upsert + 题数 echo 交叉校验 + 失败不落行;
 // 7.2 评估管线(答案先落库/有追问停题/失败保留答案可重试)+ 追问管线(不触发 LLM/跳过);
 // 7.3 报告管线(仅已评估题计入摘要 + 提前结束 + 失败保持 in_progress + 已结束拒绝重复生成)。
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
@@ -11,6 +11,13 @@ import { RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { interviewQuestionsSchema } from "@/lib/interview/analysis-schemas";
 import type { InterviewAnswerItem } from "@/lib/interview/analysis-schemas";
 import { interviewSamples } from "@/lib/agents/__tests__/interview-samples";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
+
+// 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
+vi.mock("@/lib/orchestration/context-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/orchestration/context-builder")>();
+  return { ...actual, buildUserContext: vi.fn(actual.buildUserContext) };
+});
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const emailA = `interviewpipeline-a-${suffix}@test.local`;
@@ -784,5 +791,56 @@ describe("in-flight 互斥与每用户串行化(真实写库,顺序执行)", () 
       where: { userId: userIdC, intent: "evaluate-interview-answer", status: "succeeded" },
     });
     expect(evalRuns).toBe(1);
+  });
+});
+
+describe("全局上下文注入(8.1a)", () => {
+  const evalJson = (followUpQuestion: string | null) =>
+    JSON.stringify({
+      contentScore: 8,
+      expressionScore: 7,
+      improvementSuggestion: "建议补充一个可量化的结果数据。",
+      followUpQuestion,
+    });
+  const reportJson = () =>
+    JSON.stringify({
+      overallEvaluation: "整体表现:能结合真实经历作答,结构基本清晰,但成果量化不足。(测试用报告)",
+      strengths: ["经历真实具体", "结构基本清晰"],
+      weaknesses: ["成果缺乏量化"],
+      keyImprovements: ["用 STAR + 量化结果重写两段核心经历"],
+    });
+
+  it("出题/评估/报告三条管线分别注入对应 Agent 的派生上下文", async () => {
+    const spy = vi.mocked(contextBuilder.buildUserContext);
+    spy.mockClear();
+    const started = await runInterviewQuestions({
+      userId: userIdB,
+      input: backend5.input,
+      adapter: mockAdapterFor(backend5),
+    });
+    expect(started.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 不整体深比较(prisma 实例对象图过大);逐参数断言
+    expect(spy.mock.calls[0]?.[1]).toBe(userIdB);
+    expect(spy.mock.calls[0]?.[2]).toBe("interview-question-agent");
+
+    spy.mockClear();
+    const evaluated = await runEvaluateAnswer({
+      userId: userIdB,
+      answer: "我在后端实习中负责订单服务接口开发,独立完成了接口设计、MySQL 数据表设计与前后端联调。",
+      adapter: new MockAdapter(0, () => evalJson(null)),
+    });
+    expect(evaluated.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[2]).toBe("interview-answer-evaluator");
+
+    spy.mockClear();
+    const reported = await runInterviewReport({
+      userId: userIdB,
+      adapter: new MockAdapter(0, () => reportJson()),
+    });
+    expect(reported.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[2]).toBe("interview-report-agent");
   });
 });

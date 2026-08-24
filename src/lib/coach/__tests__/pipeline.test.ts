@@ -1,7 +1,7 @@
 // @vitest-environment node
 // 技能教练管线测试(6.3,真实写库):按列 upsert(不抹 matchReport 列)+ 资源免费前置排序
 // + echo 交叉校验不一致不落库 + 失败不落行。
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
@@ -9,6 +9,13 @@ import { runCoachPlan } from "../pipeline";
 import { coachPlanSchema } from "../analysis-schemas";
 import { coachSamples } from "@/lib/agents/__tests__/coach-samples";
 import type { CoachPlan } from "../analysis-schemas";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
+
+// 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
+vi.mock("@/lib/orchestration/context-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/orchestration/context-builder")>();
+  return { ...actual, buildUserContext: vi.fn(actual.buildUserContext) };
+});
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const emailA = `coachpipeline-a-${suffix}@test.local`;
@@ -156,5 +163,22 @@ describe("runCoachPlan 管线(真实写库,顺序执行)", () => {
     // Json 列回读为新对象,用结构化比较
     expect(after?.coachPlan).toStrictEqual(before?.coachPlan);
     expect(after?.weeklyHours).toBe(before?.weeklyHours);
+  });
+});
+
+describe("全局上下文注入(8.1a)", () => {
+  it("build-coach-plan 注入 skill-coach-agent 的派生上下文", async () => {
+    const spy = vi.mocked(contextBuilder.buildUserContext);
+    spy.mockClear();
+    const outcome = await runCoachPlan({
+      userId: userIdC,
+      input: backend.input,
+      adapter: new MockAdapter(0, () => JSON.stringify(backend.mockOutput)),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 不整体深比较(prisma 实例对象图过大);逐参数断言
+    expect(spy.mock.calls[0]?.[1]).toBe(userIdC);
+    expect(spy.mock.calls[0]?.[2]).toBe("skill-coach-agent");
   });
 });

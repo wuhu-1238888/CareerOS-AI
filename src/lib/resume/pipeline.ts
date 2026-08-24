@@ -4,6 +4,7 @@
 // 4.4 起追加 rewriteResume,4.6 起追加 scoreAts(规则分 + LLM 分项合成落库)。
 import type { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -49,7 +50,7 @@ export async function parseResume(params: {
     intent: "parse-resume",
     // resumeId 一并落 AgentRun.input 供 retryParse 重放定位;Agent inputSchema 会剔除多余字段
     input: { resumeText: resumeText.slice(0, MAX_RESUME_TEXT_FOR_LLM), resumeId },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "resume-parse-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
@@ -108,7 +109,7 @@ export async function rewriteResume(params: {
       abilityTags,
       targetDirection,
     },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "resume-rewrite-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
@@ -189,7 +190,7 @@ export async function scoreAts(params: {
   const outcome = await runner.run<AtsLlmAnalysis>({
     intent: "score-ats",
     input: { finalText: finalText.slice(0, MAX_RESUME_TEXT_FOR_LLM), targetDirection },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "resume-ats-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));

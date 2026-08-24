@@ -1,7 +1,7 @@
 // @vitest-environment node
 // 简历解析管线测试(4.3,真实写库):成功写 parsedData / 失败不落行 / 文本截断 /
 // 防御解析 + router 层护栏(parse/retryParse/saveParsedData/latestRun 越权与 intent 隔离)
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
@@ -17,6 +17,13 @@ import { resumeParseSamples } from "@/lib/agents/__tests__/resume-parse-samples"
 import { resumeRewriteSamples } from "@/lib/agents/__tests__/resume-rewrite-samples";
 import { resumeAtsSamples } from "@/lib/agents/__tests__/resume-ats-samples";
 import { createCaller } from "@/lib/trpc/router";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
+
+// 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
+vi.mock("@/lib/orchestration/context-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/orchestration/context-builder")>();
+  return { ...actual, buildUserContext: vi.fn(actual.buildUserContext) };
+});
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const emailA = `resumepipe-a-${suffix}@test.local`;
@@ -618,5 +625,52 @@ describe("resume.scoreAts 护栏(router 层,4.6)", () => {
       code: "BAD_REQUEST",
       message: "简历原文缺失,请重新上传或粘贴简历内容",
     });
+  });
+});
+
+describe("全局上下文注入(8.1a)", () => {
+  const rewriteSample = resumeRewriteSamples.find((s) => s.id === "backend-engineer")!;
+  const atsSample = resumeAtsSamples.find((s) => s.id === "backend-engineer")!;
+
+  it("parse/rewrite/scoreAts 三条管线分别注入对应 Agent 的派生上下文", async () => {
+    const spy = vi.mocked(contextBuilder.buildUserContext);
+    spy.mockClear();
+    const parsed = await parseResume({
+      userId: userIdC,
+      resumeId: resumeIdC,
+      resumeText: backend.input.resumeText,
+      adapter: mockAdapterFor(backend),
+    });
+    expect(parsed.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 不整体深比较(prisma 实例对象图过大);逐参数断言
+    expect(spy.mock.calls[0]?.[1]).toBe(userIdC);
+    expect(spy.mock.calls[0]?.[2]).toBe("resume-parse-agent");
+
+    spy.mockClear();
+    const rewritten = await rewriteResume({
+      userId: userIdC,
+      resumeId: resumeIdC,
+      parsedData: rewriteSample.input.parsedData,
+      abilityTags: rewriteSample.input.abilityTags,
+      targetDirection: rewriteSample.input.targetDirection,
+      adapter: new MockAdapter(0, () => JSON.stringify(rewriteSample.mockOutput)),
+    });
+    expect(rewritten.ok).toBe(true);
+    if (!rewritten.ok) throw new Error("unreachable");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[2]).toBe("resume-rewrite-agent");
+
+    spy.mockClear();
+    const scored = await scoreAts({
+      userId: userIdC,
+      versionId: rewritten.versionId,
+      finalText: atsSample.input.finalText,
+      targetDirection: atsSample.input.targetDirection,
+      adapter: new MockAdapter(0, () => JSON.stringify(atsSample.mockOutput)),
+    });
+    expect(scored.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[2]).toBe("resume-ats-agent");
   });
 });

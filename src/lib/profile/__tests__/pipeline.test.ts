@@ -2,11 +2,18 @@
 // 分析管线测试(2.4,真实写库):成功 → 新版本 + 方向重建 + AgentRun succeeded(含 5 条进度事件);
 // 纠偏重算 → version+1、parentVersion 正确、旧版本不可变;非法输出 → 友好错误 + failed + 不落画像行。
 // router 层仅测护栏(越权/输入边界/未登录),成功路径与管线共用同一 analyzeProfile 实现。
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
 import { analyzeProfile } from "../pipeline";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
+
+// 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
+vi.mock("@/lib/orchestration/context-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/orchestration/context-builder")>();
+  return { ...actual, buildUserContext: vi.fn(actual.buildUserContext) };
+});
 import { profileSamples } from "@/lib/agents/__tests__/profile-samples";
 import { createCaller } from "@/lib/trpc/router";
 
@@ -185,5 +192,22 @@ describe("profile.analyze / retry / getRun / latestRun 护栏(router 层)", () =
       code: "BAD_REQUEST",
       message: "无法重试该任务,请重新填写",
     });
+  });
+});
+
+describe("全局上下文注入(8.1a)", () => {
+  it("analyze-profile 注入 career-profile-analyzer 的派生上下文(真实组装不 mock 实现)", async () => {
+    const spy = vi.mocked(contextBuilder.buildUserContext);
+    spy.mockClear();
+    const outcome = await analyzeProfile({
+      userId: userIdB,
+      data: cs.input,
+      adapter: mockAdapterFor(cs),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 不整体深比较(prisma 实例对象图过大);逐参数断言
+    expect(spy.mock.calls[0]?.[1]).toBe(userIdB);
+    expect(spy.mock.calls[0]?.[2]).toBe("career-profile-analyzer");
   });
 });

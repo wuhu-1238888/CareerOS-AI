@@ -2,13 +2,20 @@
 // 成长路线生成管线测试(3.4,真实写库):替换式落库(嵌套阶段 + 任务派生 + summary + 画像关联)
 // + 无画像生成 + 二次生成替换 + 失败不落行 + 防御解析 + router 层护栏(越权/输入/retry/latestRun intent 隔离)。
 // 3.5 追加:单阶段重生成(仅目标阶段原地更新、任务全量替换且状态重置、失败不落行)+ router 护栏。
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
 import { generateRoadmap, parseStageContent, parseRoadmapSummary, regenerateStage } from "../pipeline";
 import { navigatorSamples, navigatorStageSamples } from "@/lib/agents/__tests__/navigator-samples";
 import { createCaller } from "@/lib/trpc/router";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
+
+// 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
+vi.mock("@/lib/orchestration/context-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/orchestration/context-builder")>();
+  return { ...actual, buildUserContext: vi.fn(actual.buildUserContext) };
+});
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const emailA = `navpipeline-a-${suffix}@test.local`;
@@ -347,5 +354,40 @@ describe("regenerateStage 管线与 router 护栏(3.5,真实写库,顺序执行)
       caller(userIdD).navigator.stage.regenerate({ roadmapId: empty.id, stageId: emptyStage.id, feedback: "太难了" })
     ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "路线图信息不完整,请重新生成后再试" });
     expect(await caller(userIdD).navigator.roadmap.latestRun()).toBeNull();
+  });
+});
+
+describe("全局上下文注入(8.1a)", () => {
+  it("generate-roadmap / regenerate-stage 分别注入对应 Agent 的派生上下文", async () => {
+    const spy = vi.mocked(contextBuilder.buildUserContext);
+    spy.mockClear();
+    const outcome = await generateRoadmap({
+      userId: userIdB,
+      input: data.input,
+      adapter: mockAdapterFor(data),
+    });
+    expect(outcome.ok).toBe(true);
+    // 不整体深比较(prisma 实例对象图过大);逐参数断言
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[1]).toBe(userIdB);
+    expect(spy.mock.calls[0]?.[2]).toBe("career-navigator-agent");
+
+    const before = await prisma.roadmap.findFirst({
+      where: { userId: userIdB },
+      include: { stages: true },
+    });
+    const stageSample = navigatorStageSamples.find((s) => s.id === "stage-too-hard")!;
+    spy.mockClear();
+    const stageOutcome = await regenerateStage({
+      userId: userIdB,
+      stageId: before!.stages[0]!.id,
+      input: { direction: "数据分析", weeklyHours: 30, currentStage: "完全新手" },
+      stage: { name: before!.stages[0]!.name, content: parseStageContent(before!.stages[0]!.content) },
+      feedback: "太难了",
+      adapter: mockAdapterForStage(stageSample),
+    });
+    expect(stageOutcome.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[2]).toBe("career-navigator-stage-agent");
   });
 });

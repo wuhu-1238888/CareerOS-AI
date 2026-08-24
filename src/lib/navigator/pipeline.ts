@@ -4,6 +4,7 @@
 // 实践项目→「实践项目」,description 取项目标题,产出物保留在 content Json)。
 import type { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -69,7 +70,7 @@ export async function generateRoadmap(params: {
   const outcome = await runner.run<RoadmapAnalysis>({
     intent: "generate-roadmap",
     input: { ...input, abilityTags },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "career-navigator-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
@@ -153,7 +154,7 @@ export async function regenerateStage(params: {
       stageContent: stage.content ?? {},
       feedback,
     },
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "career-navigator-stage-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));

@@ -5,6 +5,7 @@
 // ② resources 免费前置排序(免费资源靠前的展示约定)。
 import type { Prisma } from "@prisma/client";
 import { Orchestrator, orchestrator } from "@/lib/orchestration/orchestrator";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
 import { prisma } from "@/lib/db/prisma";
 import type { LLMAdapter } from "@/lib/llm/adapter";
 import type { AgentProgress } from "@/lib/agents/types";
@@ -49,7 +50,7 @@ export async function runCoachPlan(params: {
   const outcome = await runner.run<CoachPlan>({
     intent: "build-coach-plan",
     input,
-    context: {},
+    context: await contextBuilder.buildUserContext(prisma, userId, "skill-coach-agent"),
     userId,
     onRunProgress: (runId, progress: AgentProgress) => {
       progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));

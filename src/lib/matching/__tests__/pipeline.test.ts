@@ -1,13 +1,20 @@
 // @vitest-environment node
 // 岗位匹配管线测试(6.1,真实写库):按列 upsert(不抹 coachPlan 列)+ 无画像归一化
 // + 失败不落行 + 二次匹配覆盖 matchReport。
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
 import { runMatch } from "../pipeline";
 import { matchAnalysisSchema } from "../analysis-schemas";
 import { matchingSamples } from "@/lib/agents/__tests__/matching-samples";
+import * as contextBuilder from "@/lib/orchestration/context-builder";
+
+// 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
+vi.mock("@/lib/orchestration/context-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/orchestration/context-builder")>();
+  return { ...actual, buildUserContext: vi.fn(actual.buildUserContext) };
+});
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const emailA = `matchpipeline-a-${suffix}@test.local`;
@@ -154,5 +161,23 @@ describe("runMatch 管线(真实写库,顺序执行)", () => {
     expect(after?.jdText).toBe(before?.jdText);
     // Json 列回读为新对象,用结构化比较
     expect(after?.matchReport).toStrictEqual(before?.matchReport);
+  });
+});
+
+describe("全局上下文注入(8.1a)", () => {
+  it("analyze-match 注入 job-matching-agent 的派生上下文", async () => {
+    const spy = vi.mocked(contextBuilder.buildUserContext);
+    spy.mockClear();
+    const outcome = await runMatch({
+      userId: userIdC,
+      jdText: noProfile.input.jdText,
+      profileSummary: null,
+      adapter: mockAdapterFor(noProfile),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 不整体深比较(prisma 实例对象图过大);逐参数断言
+    expect(spy.mock.calls[0]?.[1]).toBe(userIdC);
+    expect(spy.mock.calls[0]?.[2]).toBe("job-matching-agent");
   });
 });
