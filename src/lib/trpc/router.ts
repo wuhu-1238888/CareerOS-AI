@@ -47,6 +47,7 @@ import { extractRunInputString } from "@/lib/agents/run-input";
 import { RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { computeDashboardStats } from "@/lib/dashboard/stats";
 import { evaluateLinkageRules } from "@/lib/linkage/rules";
+import { computeGrowthAggregate, computeGrowthBlock, computeGrowthReport } from "@/lib/growth/data";
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -1766,6 +1767,14 @@ export const appRouter = t.router({
             });
         return { ok: true, choice: resolution.choice };
       }),
+  }),
+
+  // 个人成长(8.2):成长数据层三查询 —— 工作台轻量区块 / 完整报告 / 匿名聚合(见 src/lib/growth/data.ts)。
+  // block 与 report 为独立查询(区块不嵌套报告,避免工作台为全量数据买单);aggregate 无用户维度,仅脱敏输出。
+  growth: t.router({
+    block: protectedProcedure.query(async ({ ctx }) => computeGrowthBlock(ctx.prisma, ctx.userId, new Date())),
+    report: protectedProcedure.query(async ({ ctx }) => computeGrowthReport(ctx.prisma, ctx.userId, new Date())),
+    aggregate: protectedProcedure.query(async ({ ctx }) => computeGrowthAggregate(ctx.prisma)),
   }),
 });
 
