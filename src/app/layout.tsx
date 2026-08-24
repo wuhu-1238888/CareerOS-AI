@@ -31,7 +31,8 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <ThemeProvider>
-          <SessionProvider>
+          {/* 2026-08:焦点切换不再自动重拉 /api/auth/session(服务异常时该请求曾是 500 重复源) */}
+          <SessionProvider refetchOnWindowFocus={false}>
             <TRPCProvider>{children}</TRPCProvider>
             {/* 全局 Toast(2.6 纠偏「已记录,AI 将重新分析」);位置按 DesignSystem 右下 */}
             <Toaster position="bottom-right" />

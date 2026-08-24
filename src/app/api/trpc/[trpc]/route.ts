@@ -9,6 +9,14 @@ const handler = (req: Request) =>
     req,
     router: appRouter,
     createContext,
+    // 2026-08:服务端错误观测(此前 500 排查无日志接入点)。
+    // 仅 console.error,不修改返回给客户端的 payload;刻意不记录 input(简历/回答等用户内容,避免敏感信息进日志)
+    onError: ({ error, type, path }) => {
+      console.error(
+        `[trpc] ${type} ${path ?? "<unknown>"} failed: ${error.code} ${error.message}`,
+        error.stack
+      );
+    },
   });
 
 export { handler as GET, handler as POST };

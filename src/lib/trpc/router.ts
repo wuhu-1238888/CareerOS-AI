@@ -1659,7 +1659,7 @@ export const appRouter = t.router({
         throw new TRPCError({ code: "NOT_FOUND", message: "分析任务不存在" });
       }),
 
-    // 最近一次 run(7.1):页面轮询(700ms)与刷新恢复的统一入口(镜像 matching.latestRun;
+    // 最近一次 run(7.1):页面轮询(2s)与刷新恢复的统一入口(镜像 matching.latestRun;
     // 7.2 扩展评估 intent;7.3 扩展报告 intent)
     latestRun: protectedProcedure
       .input(

@@ -6,7 +6,19 @@ import { httpBatchLink } from "@trpc/client";
 import { trpc } from "./client";
 
 export function TRPCProvider({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // 2026-08:服务异常时防请求风暴(500 × retry 3 × 焦点重拉曾放大为全量轮询);
+            // 最多重试 1 次、切回标签页不自动全量重拉(staleTime/refetchOnMount 保持默认)
+            retry: 1,
+            refetchOnWindowFocus: false,
+          },
+        },
+      })
+  );
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [httpBatchLink({ url: "/api/trpc" })],

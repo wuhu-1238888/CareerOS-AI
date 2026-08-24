@@ -1,7 +1,7 @@
 "use client";
 // 模拟面试状态枢纽(7.2/7.3):无简历引导 / 场次设定 / 出题过程 / 对话作答 / 综合报告 / 失败恢复。
 // 镜像 matching-hub 状态机:出题态统一轮询 interview.latestRun({intent:"generate-interview-questions"})
-// (700ms,进度事件已随执行落库):出题中刷新页面按最近 run 恢复;
+// (2s,进度事件已随执行落库):出题中刷新页面按最近 run 恢复;
 // 失败态提供「重试」(会话内用最近一次设定;刷新后服务端从 AgentRun.input 重放)与「修改设定」。
 // 对话态(进行中场次)刷新后由 interview.get 直接恢复;结束面试 → finish(7.3)→ 综合报告视图,
 // 报告生成在途/失败经 interview.latestRun({intent:"generate-interview-report"}) 恢复与重放。
@@ -57,24 +57,24 @@ export function InterviewHub() {
   const hasSession = !!session.data?.questions && !!session.data?.answers;
   const hasActiveSession = hasSession && session.data?.status === "in_progress";
 
-  // 跟踪最近一次出题 run:无场次(首建/恢复)或提交在途时启用;仅 running/在途时轮询 700ms
+  // 跟踪最近一次出题 run:无场次(首建/恢复)或提交在途时启用;仅 running/在途时轮询 2s
   const latestRun = trpc.interview.latestRun.useQuery(
     { intent: "generate-interview-questions" },
     {
       enabled: !session.isLoading && (!hasSession || submitted),
       refetchInterval: (query) =>
-        submitted || query.state.data?.status === "running" ? 700 : false,
+        submitted || query.state.data?.status === "running" ? 2000 : false,
     }
   );
 
-  // 跟踪最近一次报告 run(7.3):进行中场次 + 报告生成在途时轮询 700ms;
+  // 跟踪最近一次报告 run(7.3):进行中场次 + 报告生成在途时轮询 2s;
   // 刷新恢复:报告 run 已 succeeded 但场次仍 in_progress → 刷新场次记录进入报告视图
   const reportRun = trpc.interview.latestRun.useQuery(
     { intent: "generate-interview-report" },
     {
       enabled: !session.isLoading && hasSession && session.data?.status !== "completed",
       refetchInterval: (query) =>
-        finishing || query.state.data?.status === "running" ? 700 : false,
+        finishing || query.state.data?.status === "running" ? 2000 : false,
     }
   );
 
