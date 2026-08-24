@@ -760,9 +760,11 @@ describe("in-flight 互斥与每用户串行化(真实写库,顺序执行)", () 
     // 慢适配器:评估进行中,AgentRun running 行可被观测
     const slow = new MockAdapter(300, () => evalJson(null));
     const first = runEvaluateAnswer({ userId: userIdC, answer: answerText, adapter: slow });
-    // 轮询 DB 直到 running 行出现(管线已过锁、run 已创建)→ 再发第二个提交
+    // 轮询 DB 直到 running 行出现(管线已过锁、run 已创建)→ 再发第二个提交。
+    // 窗口 250×20ms=5s:全量并行跑时(95 文件同库)run 行落库可能被其他文件的 DB 操作排队,
+    // 2s 曾偶发不够 → 放宽到 5s(慢适配器 300ms,语义不变:仅等待首条 running 可观测)
     let live: { id: string } | null = null;
-    for (let i = 0; i < 100 && !live; i++) {
+    for (let i = 0; i < 250 && !live; i++) {
       live = await prisma.agentRun.findFirst({
         where: { userId: userIdC, intent: "evaluate-interview-answer", status: "running" },
       });
