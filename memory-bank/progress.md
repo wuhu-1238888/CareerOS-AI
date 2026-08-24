@@ -3,7 +3,7 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)** 全部完成并推送、**Stage 7(7.1–7.3)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10、7.4/7.5 与阶段 8 按用户指示未执行
-- **最近更新**:2026-08-24,完成 Stage 7(7.1–7.3)——模拟面试全链路:出题 Agent(三档 5/10/15 题)→ 特许对话界面(打字机渲染 + 每题即时评估 + 追问)→ 综合报告(定性四要素 + 前端确定性均分);三个 commit `da1684d` / `6157be4` / `fb24846` 已推送;834/834 测试 + typecheck/lint/build 全绿;剩余 = 用户浏览器走查 **Stage 7 人工验收**
+- **最近更新**:2026-08-24,排查修复「加入模拟面试功能后」的 500 / JSON 解析错误 / 系统卡顿:根因 = `.next/` 被 3 个并发 dev server 共享 + dev 期间 `npm run build` 混写缓存 → webpack 编译 worker 崩溃(全部 API 返回 500 HTML 错误页);修复 = 环境清理 + QueryClient 重试/焦点重拉收紧 + 轮询 700→2000ms + 管线 in-flight 互斥(出题/报告复用、评估 CONFLICT→409)+ 历史消息打字机短路;3 个 commit `bbb73dd` / `2cb14e8` / `7669f32` 已推送,846/846 测试全绿;剩余 = 浏览器 10 项验收(与 Stage 7 人工验收同批)
 - **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9、7.1 – 7.3 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
 - **当前状态**:**Stage 7(7.1–7.3)已实现,可以进入人工验收**。不执行 6.10、7.4/7.5 与阶段 8(用户指示)。
 - **测试基线**:834 个测试 / 85 个文件全部通过;typecheck / lint 零错误;生产构建成功(/interview 8.47kB);prompt 打包 11/11(interview 新增 3 份)打入 tRPC Serverless 路由
@@ -779,3 +779,65 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 ## 下一步
 
 **Stage 7 人工验收**(用户浏览器走查):完整跑一场面试(建议短 5 题)→ 每题评分/追问 → 提前结束与全部答完两条路径 → 综合报告 → 返回对话只读回顾 → 开始新面试;Phase 1/2 回归不受影响(新增模块零改动既有功能)。
+
+---
+
+## 2026-08-24 修订:模拟面试 500 / JSON 解析错误 / 系统卡顿 排查修复
+
+### 现象与根因链
+
+用户报告 4 个症状(全部有证据,非猜测):
+
+1. `/api/auth/session` 500(重复)
+2. `/api/trpc/interview...` 500(重复)
+3. `ClientFetchError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON`
+4. 系统卡顿、部分请求失败、刷新偶恢复
+
+**根因链**:
+
+- **服务器端崩溃(500 的根源)**:3000 端口 dev server 的 webpack 编译 worker 崩溃——curl 提取的 500 响应体 = Next.js dev 错误页 HTML,内嵌 `__NEXT_DATA__` 完整堆栈 `Jest worker encountered 2 child process exceptions, exceeding retry limit`。服务器死透后**所有** API 请求都返回 500 + HTML 错误页 → 前端 `fetch` 按 JSON 解析 → `Unexpected token '<'`(症状 ①②③ 的共同来源)。
+- **崩溃诱因**:`.next/` 被 3 个并发 dev server(3000/3001/3002)共享读写;且 dev 运行期间执行过 `npm run build`——现场 `.next/cache/webpack/` 下 client-development / client-production / server-production 缓存并存(build 与 dev 混写同一目录)+ 948MB 孤儿 node 进程内存压力。
+- **反证**:同一份代码跑在健康的 3002 dev server 上完全正常(session 200、trpc 401 JSON)——代码无必然崩溃点,问题在运行时环境。
+- **卡顿放大机制(客户端)**:`src/trpc/provider.tsx` `new QueryClient()` 零配置(retry=3、refetchOnWindowFocus=true、staleTime=0 全默认,tRPC v11 不覆盖 retry)+ `src/app/layout.tsx` SessionProvider 裸包裹(next-auth 默认 focus 重拉 session)+ 面试页 700ms 双轮询(约 1.43 req/s)。服务器 500 时每个查询自动重试 3 次、每次切回标签页全量重拉 → 请求风暴 → 卡顿。「刷新偶恢复」= 偶发命中未损坏的编译缓存条目。
+- **已排除的疑点**(两份只读探查报告):无 useEffect 依赖数组循环、无 setInterval/refetchInterval 泄漏(全部状态门控且有 cleanup)、无重复创建面试场次(单行模型 upsert 幂等)、单次答题序列正常、LLM complete() 有 3 分钟超时、run 必落 succeeded/failed。**真实风险点 2 个**:①服务端无 in-flight 互斥(双标签页并发 finish/submitAnswer → 双倍 LLM + answers 快照互相覆写)②打字机对历史消息空转渲染。
+
+### 修复
+
+**Part A 环境修复(运行时,无代码变更)**:终止 3 条进程树(杀前逐条核对 CommandLine 确认归属)→ 删除被污染的 `.next`(纯缓存,在 .gitignore)→ 仅启动单一 dev server(端口 3000)→ 健康 curl 通过后再改代码。
+
+**B1–B6b 代码加固**(3 个 commit):
+
+- `bbb73dd` fix(trpc):①QueryClient `retry: 1` + `refetchOnWindowFocus: false`(挂载重拉保留,数据新鲜性不受损)②SessionProvider `refetchOnWindowFocus={false}` ③面试页两处轮询 700→2000ms(0.5 req/s,仅 running/在途时轮询语义不变)④tRPC 端点 onError 服务端日志(仅 error/type/path,不记 input——简历/回答等敏感内容不进日志)。
+- `2cb14e8` fix(interview):**管线 in-flight 互斥 + 每用户串行化**——`RUN_STALE_MS`(= LLM 超时 + 1 分钟余量)单源化到 orchestrator.ts(router 与管线共用口径,防 pipeline→router 成环);pipeline 五个公开入口(出题/评估/evaluateStored/追问/报告)全部包 `withUserLock`(每用户 promise 链排队,单进程)并做双检查(wrapper 锁前快速路径 + Inner 锁后权威复查;内部函数 runEvaluationForIndex 不得再加锁——死锁硬约束);命中「running 且未超 RUN_STALE_MS」的最近同 intent run 时:出题/报告 → 幂等复用 `{ok:true, runId}`(前端 latestRun 轮询自然收敛),评估 → `{ok:false, code:"CONFLICT", 文案「该题正在评估中,请稍候」}` → router 映射 HTTP 409,前端 friendlyError 直接显示中文文案。前端复用收敛(`interview-hub.tsx`):pendingRunIdRef/finishingRunIdRef 按 runId 精确匹配(防旧 run 误收敛)——出题复用保持出题视图等轮询收敛、报告复用保持生成中、场次 completed 清在途、报告失败按 runId 透出错误(不卡无限「生成中」)。
+- `7669f32` perf(interview):useTypewriter 加 `animate?: boolean`——历史消息 animate=false 时 hook 内短路(整段渲染、不调度帧、不回调 onDone),消除大量并发 rAF 空转。
+
+### 测试结果
+
+- 3 个 commit 各自全量绿,**846/846 全绿**;typecheck / lint / build 零错误
+- 新增 12 用例:pipeline 互斥 5(出题复用:同 runId + questions null + AgentRun 计数不变 + LLM 零调用;stale 放行:`prisma.agentRun.update` 显式回拨 updatedAt 超 RUN_STALE_MS → 新建 run;评估 CONFLICT:answers 与调用前 deep equal;evaluateStoredAnswer CONFLICT;在途并发确定性 CONFLICT:慢 MockAdapter + DB 轮询等 running 行出现再发第二个 → answers 仅第一条)+ interview 接口 3(start 遇 running 复用同 runId 计数不变;submitAnswer / evaluate 遇评估在途 → CONFLICT)+ hub 复用收敛 3(出题复用→收敛进对话、finish 复用→completed 进报告、finish 复用失败→按 runId 透出)+ typewriter animate:false 1(首帧整段、不调度帧、onDone 不触发)
+
+### 性能变化(修复前后对比)
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 服务器 500 | 全部 API 返回 HTML 错误页(webpack worker 崩溃) | 健康(单一 dev server + 干净 .next) |
+| 单查询遇 500 | 1 + 3 重试 = 4 次 | 1 + 1 重试 = 2 次 |
+| 切回标签页 | session + 全部查询全量重拉 | 0(双 provider 均关焦点重拉) |
+| 出题/报告轮询 | 700ms(1.43 req/s) | 2000ms(0.5 req/s) |
+| 双标签页并发 finish/submitAnswer | 双倍 LLM + answers 覆写 | 复用/CONFLICT + 每用户串行 |
+
+### 开发纪律(长期生效)
+
+1. 开发时**只跑一个 dev server**
+2. `npm run build` **必须在无 dev server 运行时执行**(build 与 dev 混写 .next 是本次崩溃诱因)
+3. 停 dev 再 prisma generate(Windows 下运行中的 dev 锁 Prisma 引擎 DLL)
+
+### 已知问题(遗留,不隐瞒)
+
+1. R4:每次答题约 17 条 DB 操作(进度事件逐条落库),量级可接受
+2. R6:出题 echo 校验失败的 UX 无差异化提示
+3. `stream()` 无超时(当前生产路径只用 complete(),已带 3 分钟超时)
+4. `/matching`、`/resumes` 不在 authConfig.protectedPaths(既有遗留,见 Stage 7 遗留 #2)
+5. `dashboard/stats.ts` 保有独立 RUN_STALE_MS 副本(同值,可后续合并);matching/navigator 的 700ms 轮询未动(超范围);`withUserLock` 为单进程内存锁(单实例部署可接受)
+6. 单进程毫秒级 TOCTOU 窗口边界:排队后的第二个请求按完成时状态执行——start = 第二次出题覆盖(与「有意重新开始」同语义,不可区分也不该区分);evaluate = 第二条答案按推进后的当前题评估(极罕见、数据一致不损坏)
+7. 复用 run 的设定与本标签页不同时以先启动者为准,有「重新开始」出口
