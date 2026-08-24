@@ -5,8 +5,8 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTypewriter } from "../use-typewriter";
 
-function Probe({ text, onDone }: { text: string; onDone?: () => void }) {
-  const shown = useTypewriter(text, { onDone });
+function Probe({ text, onDone, animate }: { text: string; onDone?: () => void; animate?: boolean }) {
+  const shown = useTypewriter(text, { onDone, animate });
   return <p data-testid="out">{shown}</p>;
 }
 
@@ -75,6 +75,19 @@ describe("useTypewriter(7.2)", () => {
     expect(screen.getByTestId("out").textContent).toBe(TEXT);
     expect(onDone).toHaveBeenCalledTimes(1);
     window.matchMedia = original;
+  });
+
+  it("animate:false(历史消息):首帧整段渲染,不调度帧、不触发 onDone", () => {
+    const onDone = vi.fn();
+    render(<Probe text={TEXT} onDone={onDone} animate={false} />);
+    // 首帧整段 + 不回调(历史消息无需完成回调)
+    expect(screen.getByTestId("out").textContent).toBe(TEXT);
+    expect(onDone).not.toHaveBeenCalled();
+    // 未调度任何帧:rAF 从未被请求,手动驱动帧也不应改变内容
+    expect(rafCallback).toBeNull();
+    frame(20);
+    expect(screen.getByTestId("out").textContent).toBe(TEXT);
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   it("卸载后不再推进(cancelled 清理,不抛错)", () => {

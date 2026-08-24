@@ -27,10 +27,11 @@ function friendlyError(err: unknown): string {
   return err instanceof Error ? err.message : "操作失败,请稍后重试";
 }
 
-// 打字机文本(7.2):animate=false(恢复的历史消息)直接整段渲染;true 时逐字渲染并在完成回调
+// 打字机文本(7.2):animate=false(恢复的历史消息)直接整段渲染;true 时逐字渲染并在完成回调。
+// 2026-08:animate 透传进 hook——历史消息在 hook 内短路(不调度帧),消除大量并发 rAF 空转
 function TypedText({ text, animate, onDone }: { text: string; animate: boolean; onDone?: () => void }) {
-  const shown = useTypewriter(text, { onDone: animate ? onDone : undefined });
-  return <p className="break-words whitespace-pre-wrap">{animate ? shown : text}</p>;
+  const shown = useTypewriter(text, { animate, onDone });
+  return <p className="break-words whitespace-pre-wrap">{shown}</p>;
 }
 
 // 面试官头像(48px 时仍用小尺寸;与 Hub 出题视图 Bot 图标一致)
