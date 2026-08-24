@@ -17,6 +17,7 @@ import { AiBadge } from "@/components/shared/ai-badge";
 import { useTokenColor } from "@/lib/design/use-token-color";
 import { colors } from "@/lib/design/tokens";
 import { cn } from "@/lib/utils";
+import { DirectionConflictCard } from "./direction-conflict-card";
 import type { MatchAnalysis, MatchItem, ProfileRadar, RecommendationLevel } from "@/lib/matching/analysis-schemas";
 
 // 状态与建议等级徽章:颜色 + 文字双通道(DesignRules 可访问性)
@@ -43,6 +44,7 @@ export function MatchReport({
   onRedo,
   onCoach,
   coachExists = false,
+  conflict = null,
 }: {
   report: MatchAnalysis;
   /** 用户线雷达:最新画像 aiAnalysis.radar(防御解析后传入);null 时仅画岗位线 */
@@ -55,6 +57,14 @@ export function MatchReport({
   onCoach?: () => void;
   /** 已有教练计划(6.4):CTA 文案变「查看 90 天提升计划」 */
   coachExists?: boolean;
+  /** 8.1c:方向冲突对比块数据(仅 verdict=conflict 时由 matching-hub 组装传入) */
+  conflict?: {
+    verdict: { alignedDirection: string; reason: string };
+    profileDirections: string[];
+    profileBasis: string | null;
+    profileVersion: number;
+    matchDirection: string;
+  } | null;
 }) {
   // 深色模式下 Recharts grid/tick 用 CSS 变量色(6.9);变量未定义时回退浅色 token
   const token = useTokenColor();
@@ -105,6 +115,9 @@ export function MatchReport({
           )}
         </div>
       </section>
+
+      {/* 8.1c 方向冲突:并列呈现画像方向与匹配推荐,三选一裁决并记录(agent-design 4.4) */}
+      {conflict && !degraded && <DirectionConflictCard {...conflict} />}
 
       {degraded ? (
         /* 无画像降级形态文案:仅拆解(UI 闸门正常情况下不会进入,画像被删等边缘态兜底) */

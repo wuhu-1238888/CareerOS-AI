@@ -62,6 +62,28 @@ export function MatchingHub() {
   const userRadar = profileRadarSchema.safeParse(
     (profile.data?.aiAnalysis as { radar?: unknown } | null)?.radar
   );
+  // 8.1c 方向冲突数据:仅 verdict=conflict 时组装 —— 画像方向/依据(directions/summary)+
+  // 匹配推荐方向(报告 positionTitle)+ 最新画像版本号(裁决记录键)
+  const profileAnalysis = (profile.data?.aiAnalysis ?? null) as {
+    directions?: unknown;
+    summary?: unknown;
+  } | null;
+  const profileDirections = Array.isArray(profileAnalysis?.directions)
+    ? profileAnalysis.directions.filter((d): d is string => typeof d === "string")
+    : [];
+  const conflict =
+    report && report.directionVerdict?.verdict === "conflict" && profile.data
+      ? {
+          verdict: {
+            alignedDirection: report.directionVerdict.alignedDirection,
+            reason: report.directionVerdict.reason,
+          },
+          profileDirections,
+          profileBasis: typeof profileAnalysis?.summary === "string" ? profileAnalysis.summary : null,
+          profileVersion: profile.data.version,
+          matchDirection: report.positionTitle ?? "未标明岗位",
+        }
+      : null;
 
   // 跟踪最近一次匹配 run:无报告(首建/恢复)或提交在途时启用;仅 running/在途时轮询 700ms
   const latestRun = trpc.matching.latestRun.useQuery(
@@ -347,6 +369,7 @@ export function MatchingHub() {
         onRedo={() => enterFormMode("redo")}
         onCoach={handleCoach}
         coachExists={hasCoachPlan}
+        conflict={conflict}
       />
     );
   } else if (failedRun) {
