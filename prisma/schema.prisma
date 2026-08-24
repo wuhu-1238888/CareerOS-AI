@@ -42,6 +42,8 @@ model User {
   funnelEvents     FunnelEvent[]
   jobMatch         JobMatch?
   interviewSession InterviewSession?
+  linkageHints          LinkageHint[]
+  directionResolutions DirectionResolution[]
 
   @@map("users")
 }
@@ -249,4 +251,46 @@ model InterviewSession {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("interview_sessions")
+}
+
+// 联动提示(8.1b):三条联动规则的「是否已打扰过」去重记录。
+// 规则评估是状态派生(读域表),本表只记用户对某版本提示的关闭动作;
+// dismissedAt 为空 = 活跃(应展示),非空 = 已关闭(同 (userId, kind, refVersion) 不再骚扰)。
+// refVersion 语义按 kind:resume-project = 路线图 id(替换式重新生成 → 新 id → 新提示);
+// resume-outdated / roadmap-outdated = 画像版本号(新画像版本 → 新提示,版本隔离不串数据)。
+model LinkageHint {
+  id          String          @id @default(cuid(2))
+  userId      String          @map("user_id")
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        LinkageHintKind
+  refVersion  String          @map("ref_version")
+  dismissedAt DateTime?       @map("dismissed_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@unique([userId, kind, refVersion])
+  @@index([userId])
+  @@map("linkage_hints")
+}
+
+enum LinkageHintKind {
+  resume_project
+  resume_outdated
+  roadmap_outdated
+}
+
+// 匹配/画像方向冲突裁决(8.1c,agent-design 4.4「记录用户决策」):同一 (画像版本, 匹配方向)
+// 的冲突只问一次;再次出现同冲突 → 展示已记录选择,不重复询问。不挂 JobMatch 外键:
+// 裁决按 (profileVersion, matchDirection) 关联,跨匹配报告可复用。
+model DirectionResolution {
+  id               String   @id @default(cuid(2))
+  userId           String   @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileVersion   Int      @map("profile_version")
+  profileDirection String   @map("profile_direction")
+  matchDirection   String   @map("match_direction")
+  choice           String   @map("choice") // prefer_profile | prefer_match | keep_both
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("direction_resolutions")
 }
