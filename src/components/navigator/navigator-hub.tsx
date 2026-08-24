@@ -13,6 +13,7 @@ import { RoadmapTimeline } from "./roadmap-timeline";
 import { ShareCard } from "@/components/shared/share-card";
 import { ShareDialog } from "@/components/shared/share-dialog";
 import { AnalysisView } from "@/components/profile/analysis-view";
+import { LinkageBanners } from "@/components/linkage/linkage-banners";
 
 function friendlyError(err: unknown): string {
   return err instanceof Error ? err.message : "生成失败,请稍后重试";
@@ -255,5 +256,11 @@ export function NavigatorHub() {
     );
   }
 
-  return <>{view}</>;
+  return (
+    <div className="w-full space-y-4">
+      {/* 联动提示(8.1b,进入页面时评估):画像更新后路线图可能需重新生成 */}
+      <LinkageBanners kinds={["roadmap_outdated"]} />
+      {view}
+    </div>
+  );
 }

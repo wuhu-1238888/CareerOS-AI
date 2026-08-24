@@ -84,6 +84,11 @@ vi.mock("@/trpc/client", () => ({
         updateStatus: { useMutation: () => ({ mutateAsync: mocks.updateStatusMutateAsync }) },
       },
     },
+    // 8.1b 联动横幅(hub 测试关注状态机,横幅交互由 linkage-banners.test.tsx 覆盖;默认无规则)
+    linkage: {
+      rules: { useQuery: () => ({ data: [], isLoading: false }) },
+      dismiss: { useMutation: () => ({ mutate: vi.fn() }) },
+    },
   },
 }));
 

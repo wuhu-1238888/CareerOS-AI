@@ -27,6 +27,7 @@ import { ResumeUpload } from "./resume-upload";
 import { ResumeReview } from "./resume-review";
 import { ResumeResult } from "./resume-result";
 import { AnalysisView } from "@/components/profile/analysis-view";
+import { LinkageBanners } from "@/components/linkage/linkage-banners";
 import type { ParsedResume } from "@/lib/resume/analysis-schemas";
 
 function friendlyError(err: unknown): string {
@@ -525,5 +526,11 @@ export function ResumeHub() {
     );
   }
 
-  return <>{view}</>;
+  return (
+    <div className="w-full space-y-4">
+      {/* 联动提示(8.1b,进入页面时评估):完成项目可加入简历 / 画像更新后简历可能需重新生成 */}
+      <LinkageBanners kinds={["resume_project", "resume_outdated"]} />
+      {view}
+    </div>
+  );
 }
