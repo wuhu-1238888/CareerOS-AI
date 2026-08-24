@@ -7,7 +7,7 @@ import { matchingAgent } from "../matching.agent";
 import { matchAnalysisSchema } from "../matching.agent";
 import { AgentInputError, AgentOutputError } from "../types";
 import { matchingSamples } from "./matching-samples";
-import type { MatchAnalysis } from "../matching.agent";
+import type { MatchAnalysisInput } from "../matching.agent";
 
 describe("Matching Agent 固定样例集", () => {
   for (const sample of matchingSamples) {
@@ -49,6 +49,43 @@ describe("Matching Agent 固定样例集", () => {
   }
 });
 
+describe("Matching Agent 方向比对(8.1c)", () => {
+  it("冲突样例:directionVerdict 通过 Schema,verdict=conflict,alignedDirection 照抄画像方向", async () => {
+    const sample = matchingSamples.find((s) => s.id === "conflict-direction")!;
+    const adapter = new MockAdapter(0, () => JSON.stringify(sample.mockOutput));
+    const result = await matchingAgent.execute(sample.input, {}, { adapter });
+    expect(result.data.directionVerdict?.verdict).toBe("conflict");
+    expect(result.data.directionVerdict?.alignedDirection).toBe("后端开发");
+    expect(result.data.directionVerdict?.reason.length).toBeGreaterThan(0);
+  });
+
+  it("一致样例:verdict=aligned,reason 说明一致依据", async () => {
+    const sample = matchingSamples.find((s) => s.id === "aligned-direction")!;
+    const adapter = new MockAdapter(0, () => JSON.stringify(sample.mockOutput));
+    const result = await matchingAgent.execute(sample.input, {}, { adapter });
+    expect(result.data.directionVerdict?.verdict).toBe("aligned");
+    expect(result.data.directionVerdict?.reason).toContain("一致");
+  });
+
+  it("旧夹具无 directionVerdict 字段:解析后为 null(default 生效),零改动兼容", async () => {
+    const legacy = matchingSamples.find((s) => s.id === "backend-with-profile")!;
+    const adapter = new MockAdapter(0, () => JSON.stringify(legacy.mockOutput));
+    const result = await matchingAgent.execute(legacy.input, {}, { adapter });
+    expect(result.data.directionVerdict).toBeNull();
+  });
+
+  it("模型输出 directionVerdict.reason 超长 → AgentOutputError", async () => {
+    const invalid: MatchAnalysisInput = {
+      ...matchingSamples[0]!.mockOutput,
+      directionVerdict: { alignedDirection: "后端开发", verdict: "conflict", reason: "x".repeat(101) },
+    };
+    const adapter = new MockAdapter(0, () => JSON.stringify(invalid));
+    await expect(
+      matchingAgent.execute(matchingSamples[0]!.input, {}, { adapter })
+    ).rejects.toBeInstanceOf(AgentOutputError);
+  });
+});
+
 describe("Matching Agent 边界用例", () => {
   it("纯英文 JD:正常拆解,输出为中文(要求文本含中文字符)", async () => {
     const english = matchingSamples.find((s) => s.id === "english-jd")!;
@@ -75,7 +112,7 @@ describe("Matching Agent 边界用例", () => {
   });
 
   it("模型输出违反 Schema(overallScore 超范围)→ AgentOutputError", async () => {
-    const invalid: MatchAnalysis = { ...matchingSamples[0]!.mockOutput, overallScore: 150 };
+    const invalid: MatchAnalysisInput = { ...matchingSamples[0]!.mockOutput, overallScore: 150 };
     const adapter = new MockAdapter(0, () => JSON.stringify(invalid));
     await expect(
       matchingAgent.execute(matchingSamples[0]!.input, {}, { adapter })
@@ -83,7 +120,7 @@ describe("Matching Agent 边界用例", () => {
   });
 
   it("模型输出违反 Schema(items 指向不存在的 requirementId)→ AgentOutputError", async () => {
-    const invalid: MatchAnalysis = {
+    const invalid: MatchAnalysisInput = {
       ...matchingSamples[0]!.mockOutput,
       items: [
         {

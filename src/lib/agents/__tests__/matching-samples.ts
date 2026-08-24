@@ -1,7 +1,7 @@
 // 固定样例集(6.1):3 份手工标注的岗位匹配输入 + 手工构造的 Mock 输出。
 // 用于验证:输出通过 Schema、JD 拆解与标注一致、纯英文 JD 正常处理、无画像降级形态正确。
 // 真实 LLM 质量验证待 DeepSeek Key(progress.md 遗留 #1),本样例集保证管线正确性。
-import type { MatchingAgentInput, MatchAnalysis } from "../matching.agent";
+import type { MatchingAgentInput, MatchAnalysisInput } from "../matching.agent";
 
 export type MatchingSample = {
   id: string;
@@ -11,8 +11,8 @@ export type MatchingSample = {
   expectedRequirementKeywords: string[];
   /** 标注:期望整体匹配度范围;null 表示无画像降级(overallScore 应为 null) */
   expectedScoreRange: [number, number] | null;
-  /** 手工构造的 Mock 输出(需通过 outputSchema,且与标注一致) */
-  mockOutput: MatchAnalysis;
+  /** 手工构造的 Mock 输出(需通过 outputSchema,且与标注一致);输入形态:directionVerdict 可省略 */
+  mockOutput: MatchAnalysisInput;
 };
 
 const backendJd = `【后端开发工程师(校招)】
@@ -201,6 +201,122 @@ export const matchingSamples: MatchingSample[] = [
       recommendation: null,
       jobRadar: { 产品: 45, 技术: 25, 数据: 30, 沟通: 40, 项目: 50, 行业: 55 },
       resumeSuggestions: [],
+    },
+  },
+  {
+    id: "conflict-direction",
+    description: "画像声明后端开发 + 新媒体运营 JD:方向冲突,verdict=conflict",
+    input: {
+      jdText: shortJd,
+      profileSummary:
+        "计算机专业应届生,Python 熟练、SQL 熟练;两段后端开发经历;目标后端开发工程师;雷达:产品 40/技术 80/数据 68/沟通 50/项目 66/行业 45。",
+      optimizedResumeText: null,
+      feedback: [],
+    },
+    expectedRequirementKeywords: ["公众号"],
+    expectedScoreRange: [0, 100],
+    mockOutput: {
+      positionTitle: "新媒体运营实习生",
+      summary:
+        "岗位方向与画像声明目标(后端开发)差异明显,匹配度较低,请结合职业方向权衡。",
+      requirements: [
+        { id: "req-1", text: "负责公众号内容排版与发布", category: "显性", importance: 4 },
+        { id: "req-2", text: "熟悉微信公众号后台", category: "显性", importance: 5 },
+        { id: "req-3", text: "文字功底好", category: "隐性", importance: 4 },
+      ],
+      items: [
+        {
+          requirementId: "req-1",
+          status: "不足",
+          matchType: "可迁移",
+          userEvidence: "校园二手交易平台项目中撰写过项目文档与说明",
+          gap: "缺少新媒体内容排版与发布的直接经验",
+        },
+        {
+          requirementId: "req-2",
+          status: "不足",
+          matchType: "间接",
+          userEvidence: "无微信公众号后台使用经历",
+          gap: "完全不熟悉公众号后台操作",
+        },
+        {
+          requirementId: "req-3",
+          status: "接近",
+          matchType: "可迁移",
+          userEvidence: "实习期间撰写技术文档,文字表达清晰",
+          gap: "技术文档与新媒体文案风格差异较大",
+        },
+      ],
+      overallScore: 38,
+      recommendation: {
+        level: "不推荐",
+        reason: "岗位方向与画像声明目标差异明显,核心技能与经验难以迁移",
+      },
+      jobRadar: { 产品: 55, 技术: 25, 数据: 20, 沟通: 50, 项目: 45, 行业: 50 },
+      resumeSuggestions: [],
+      directionVerdict: {
+        alignedDirection: "后端开发",
+        verdict: "conflict",
+        reason: "画像声明目标为后端开发,本岗位为新媒体运营,方向差异明显",
+      },
+    },
+  },
+  {
+    id: "aligned-direction",
+    description: "画像声明后端开发 + 后端 JD:方向一致,verdict=aligned",
+    input: {
+      jdText: backendJd,
+      profileSummary:
+        "计算机专业应届生,Python 熟练、SQL 熟练;后端实习 3 个月;目标后端开发工程师。",
+      optimizedResumeText: null,
+      feedback: [],
+    },
+    expectedRequirementKeywords: ["Python", "MySQL"],
+    expectedScoreRange: [0, 100],
+    mockOutput: {
+      positionTitle: "后端开发工程师",
+      summary:
+        "技术栈与岗位要求基本匹配,方向与画像声明目标一致,补充工程实践后竞争力更强。",
+      requirements: [
+        { id: "req-1", text: "本科及以上学历,计算机相关专业", category: "显性", importance: 4 },
+        { id: "req-2", text: "熟悉 Python 或 Java,了解数据结构与算法", category: "显性", importance: 5 },
+        { id: "req-3", text: "熟悉 MySQL、Redis 等常用存储与 Linux 基本操作", category: "显性", importance: 4 },
+      ],
+      items: [
+        {
+          requirementId: "req-1",
+          status: "达标",
+          matchType: "直接",
+          userEvidence: "计算机专业本科在读",
+          gap: "无明显差距",
+        },
+        {
+          requirementId: "req-2",
+          status: "达标",
+          matchType: "直接",
+          userEvidence: "Python 熟练,后端实习中使用 Python 开发接口",
+          gap: "无明显差距",
+        },
+        {
+          requirementId: "req-3",
+          status: "接近",
+          matchType: "间接",
+          userEvidence: "SQL 熟练,实习接触 MySQL;Redis 与 Linux 仅有课程了解",
+          gap: "缺少 Redis 与 Linux 工程实践",
+        },
+      ],
+      overallScore: 80,
+      recommendation: {
+        level: "建议投递",
+        reason: "方向与画像目标一致,核心编程要求达标,可尝试投递",
+      },
+      jobRadar: { 产品: 30, 技术: 90, 数据: 55, 沟通: 60, 项目: 70, 行业: 40 },
+      resumeSuggestions: [],
+      directionVerdict: {
+        alignedDirection: "后端开发",
+        verdict: "aligned",
+        reason: "岗位为后端开发,与画像声明目标方向一致",
+      },
     },
   },
 ];

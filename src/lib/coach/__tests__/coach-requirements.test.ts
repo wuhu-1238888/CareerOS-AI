@@ -16,6 +16,7 @@ function makeReport(requirements: MatchAnalysis["requirements"], items: MatchAna
     items,
     jobRadar: { 产品: 50, 技术: 60, 数据: 40, 沟通: 70, 项目: 55, 行业: 45 },
     resumeSuggestions: [],
+    directionVerdict: null,
   };
 }
 

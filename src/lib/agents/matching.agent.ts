@@ -6,10 +6,10 @@ import { BaseAgent } from "./base";
 import type { AgentContext } from "./types";
 import type { ChatMessage } from "@/lib/llm/adapter";
 import { matchAnalysisSchema, profileRadarSchema } from "@/lib/matching/analysis-schemas";
-import type { MatchAnalysis, ProfileRadar } from "@/lib/matching/analysis-schemas";
+import type { MatchAnalysis, MatchAnalysisInput, ProfileRadar } from "@/lib/matching/analysis-schemas";
 
 export { matchAnalysisSchema, profileRadarSchema };
-export type { MatchAnalysis, ProfileRadar };
+export type { MatchAnalysis, MatchAnalysisInput, ProfileRadar };
 
 export const matchingAgentInputSchema = z.object({
   // JD 原文(用户粘贴,≤8000 字)

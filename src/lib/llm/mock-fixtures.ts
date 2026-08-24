@@ -45,6 +45,11 @@ export function mockMatchAnalysisFixture(): MatchAnalysis {
       { requirementId: "req-3", suggestion: "补充 Redis 与 Linux 相关课程或实验经历,突出 SQL 实践" },
       { requirementId: "req-5", suggestion: "补充一次跨团队协作或项目推进中解决分歧的案例" },
     ],
+    directionVerdict: {
+      alignedDirection: "后端开发",
+      verdict: "aligned",
+      reason: "岗位为后端开发,与画像声明目标方向一致",
+    },
   };
 }
 

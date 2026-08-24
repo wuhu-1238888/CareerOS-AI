@@ -65,6 +65,18 @@ export const matchAnalysisSchema = z
       )
       .max(5, "优化建议最多 5 条")
       .default([]),
+    // 方向比对(8.1c):比对本岗位方向与画像声明方向。alignedDirection 逐字照抄画像方向,
+    // verdict=aligned/conflict,reason 一句话说明;无画像或画像未声明方向时为 null。
+    // optional+default(null):旧夹具与存量 matchReport 零改动兼容(冲突并列呈现依赖此字段)。
+    directionVerdict: z
+      .object({
+        alignedDirection: z.string().min(1, "画像方向不能为空").max(20, "画像方向最多 20 字"),
+        verdict: z.enum(["aligned", "conflict"]),
+        reason: z.string().min(1, "比对理由不能为空").max(100, "比对理由最多 100 字"),
+      })
+      .nullable()
+      .optional()
+      .default(null),
   })
   .superRefine((value, ctx) => {
     // 对比条目必须指向存在的岗位要求(镜像 roadmapSummarySchema.stageCount 先例)
@@ -80,3 +92,5 @@ export const matchAnalysisSchema = z
     });
   });
 export type MatchAnalysis = z.infer<typeof matchAnalysisSchema>;
+// 输入形态:directionVerdict/resumeSuggestions 等带 default 的字段可省略(夹具构造用)
+export type MatchAnalysisInput = z.input<typeof matchAnalysisSchema>;

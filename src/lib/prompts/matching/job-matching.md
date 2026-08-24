@@ -11,10 +11,11 @@
 3. 差距分析:对未达标或接近的要求,用一句话说明差距;同时结合能力匹配情况给出简历针对性优化建议(resumeSuggestions)。
 4. 岗位六维雷达:对「该岗位对六维能力的要求强度」逐维评分(产品、技术、数据、沟通、项目、行业,每维 0-100 整数),依据全部来自 JD 本身;与用户能力无关。
 5. 投递建议:结合 overallScore 给出 recommendation,level 取 建议投递 / 建议补课后投递 / 不推荐,reason 一句话说明依据。overallScore 是 0-100 整数,每个分数都能在对比条目中找到依据。
+6. 方向比对:当 profileSummary 非空且包含画像声明方向(如「目标后端开发工程师」或 directions 字段)时,将本岗位方向(由 JD 职责与 positionTitle 推断)与画像声明方向比对。方向一致 → verdict 取 "aligned",alignedDirection 逐字照抄画像声明方向,reason 一句话说明一致依据;方向明显不同(如画像声明后端开发而岗位为新媒体运营)→ verdict 取 "conflict",alignedDirection 仍逐字照抄画像声明方向,reason 一句话说明冲突点。只比对不裁决:不贬低画像方向,不替用户做选择。profileSummary 为 null 或画像未声明方向 → directionVerdict 输出 null。
 
 ## 无画像降级(必须遵守)
 
-当 profileSummary 为 null 时:只做第 1 步与第 4 步,输出 items 为空数组、overallScore 为 null、recommendation 为 null、resumeSuggestions 为空数组。summary 写「仅基于 JD 的岗位要求拆解,完成职业画像后可查看完整匹配分析」。
+当 profileSummary 为 null 时:只做第 1 步与第 4 步,输出 items 为空数组、overallScore 为 null、recommendation 为 null、resumeSuggestions 为空数组、directionVerdict 为 null。summary 写「仅基于 JD 的岗位要求拆解,完成职业画像后可查看完整匹配分析」。
 
 ## 纠偏反馈(如有)
 
@@ -52,8 +53,10 @@
   "jobRadar": { "产品": 60, "技术": 82, "数据": 70, "沟通": 55, "项目": 64, "行业": 50 },
   "resumeSuggestions": [
     { "requirementId": "req-3", "suggestion": "简历优化建议" }
-  ]
+  ],
+  "directionVerdict": { "alignedDirection": "后端开发", "verdict": "aligned", "reason": "岗位方向与画像声明目标一致" }
 }
 
 数量约束:requirements 1-20 条、items 0-20 条(有画像时与 requirements 一一对应)、resumeSuggestions 0-5 条。
 status 取 达标 / 接近 / 不足;matchType 取 直接 / 间接 / 可迁移。
+directionVerdict 为 null 或对象:alignedDirection 逐字照抄画像声明方向(最多 20 字),verdict 取 aligned / conflict,reason 1-100 字。
