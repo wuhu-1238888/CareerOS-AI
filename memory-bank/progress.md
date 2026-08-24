@@ -841,3 +841,54 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 5. `dashboard/stats.ts` 保有独立 RUN_STALE_MS 副本(同值,可后续合并);matching/navigator 的 700ms 轮询未动(超范围);`withUserLock` 为单进程内存锁(单实例部署可接受)
 6. 单进程毫秒级 TOCTOU 窗口边界:排队后的第二个请求按完成时状态执行——start = 第二次出题覆盖(与「有意重新开始」同语义,不可区分也不该区分);evaluate = 第二条答案按推进后的当前题评估(极罕见、数据一致不损坏)
 7. 复用 run 的设定与本标签页不同时以先启动者为准,有「重新开始」出口
+
+---
+
+# Stage 8 完成(统一全局上下文与联动 8.1 + 个人成长报告 8.2,2026-08-24)
+
+## 完成情况表
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| 8.1a | 全局上下文派生组装(context-builder)+ 11 处管线注入 | ✅ |
+| 8.1b | 联动规则服务 + LinkageHint 表 + 简历/路线图页提示横幅(按版本去重) | ✅ |
+| 8.1c | 匹配输出 directionVerdict + DirectionResolution 表 + 匹配报告页冲突对比块与裁决 | ✅ |
+| 8.2 | growth 命名空间(block/report/aggregate)+ 工作台成长区块 + /dashboard/growth 报告页 | ✅ |
+
+## 主要修改(8 commit)
+
+- `f984536` feat(orchestration):派生组装全局上下文并注入 11 处管线——`context-builder.ts` 读域表组装(用户 ID/最新画像版本/当前阶段/各 Agent 近 N 条 succeeded 产出摘要,封顶防膨胀),新用户返回空信封不抛错;11 处 `context: {}` 全部接通(profile/navigator/matching/resume/coach/interview 管线)
+- `fb6dc3a` feat(db):新增 LinkageHint 与 DirectionResolution 两表,单迁移 add_linkage_tables(纯新增、无回填、不动既有 13 模型)
+- `5c7e5bc` feat(matching):匹配输出 schema 新增 directionVerdict 可选字段(optional+default null,旧 3 夹具与存量 matchReport 零改动)+ prompt 第 6 推理步(比对画像声明方向)+ 2 份新样例
+- `68e08ae` feat(linkage):联动规则服务与 linkage 命名空间——rules.ts 三条规则(①路线图已完成项目可加入简历 ②画像更新 → 简历/路线图需重新生成,按画像版本去重);`linkage.rules` / `linkage.dismiss`(写 dismissedAt,@@unique([userId,kind,refVersion]) 幂等)/ `linkage.resolveDirection`
+- `cd4f8bd` feat(linkage):简历页「可加入简历」提示(引导手动补写,零自动修改数据)+ 简历/路线图页「画像已更新」横幅(进入页面时评估,关闭后同画像版本不再出现,新版本再现——不重复骚扰+版本隔离)
+- `e466f9f` feat(linkage):匹配报告页冲突对比块——directionVerdict=conflict 时并列呈现「画像方向+依据」(绿边)与「匹配推荐+理由」(紫边+「为什么」折叠),三选一裁决落库;已有裁决 role="status" 展示已记录选择不重复询问;aligned/无字段不显示
+- `f123f2b` feat(growth):成长数据层 growth 命名空间——block(画像版本数/最新匹配度/近 8 周 sparkline)/ report(版本演进+相邻版 diffRadar+diffAbilityTags/12 周任务趋势/最近 20 次匹配曲线)/ aggregate(按方向分组的平均阶段达成率,组内 <5 用户不返回,仅脱敏输出);block 与 report 独立查询(区块不嵌套报告)
+- `f9195cd` feat(growth):工作台成长区块(⑤,AI 洞察与我的工作之间:版本/匹配度/近 8 周 sparkline 内联 SVG+深色 use-token-color+「查看完整报告」区块内深链)+ /dashboard/growth 报告页(版本时间线选中相邻两版 → 双线雷达+能力变化徽章/任务趋势柱状/匹配度折线/聚合卡「示例」标注);每图四态(loading 骨架/error 重试/empty 引导/data),数据不足展示引导不报错
+
+## 测试结果
+
+- 每个 commit 各自全量绿;**最终 911/911(94 文件)全绿**;typecheck / lint 零错误
+- 新增 65 用例:context-builder 组装/空信封/注入接线、linkage 三规则检测/dismiss 去重/版本隔离/resolveDirection 落库复用、matching schema directionVerdict 有/无/旧夹具兼容、growth 三查询(阈值 5/脱敏/周桶边界/损坏数据回退)、组件(横幅出现关闭/冲突卡三选一/成长区块与报告页四态+空态引导+聚合「示例」+时间线选中相邻版本)
+
+## DesignRules 偏差记录(自检 12 条逐项过)
+
+1. **无新顶栏入口**(L80):报告页仅经工作台区块「查看完整报告」深链进入(决策 D1),合规
+2. **首屏组件数**:工作台由 4 区块增至 5 区块,仍 ≤7 红线,合规
+3. **对比块**(L40):匹配冲突对比块为计划批准的「允许对比块」形态(绿边画像+紫边匹配),合规
+4. **图表纪律**:chart.green/violet 只进图表(sparkline/柱状/折线/雷达);聚合卡进度条为非图表语义,用 bg-green-500、图标用 text-green-600,记录以免误读
+5. **AI 徽章**:冲突对比块的 AI 理由带 ai-insight+「为什么」折叠;成长报告各图均为统计数据(非 AI 生成),不带 ai-badge,符合「AI 内容才带徽章」
+6. **匿名聚合**:聚合卡标「示例」,服务端只返回方向/样本数/均值,组内 ≥5 才返回
+
+## 已知问题(遗留,不隐瞒)
+
+1. **替换式路线图无历史**(生成时 deleteMany 旧路线图):报告页时间线不含路线图演进;任务完成趋势仅覆盖当前路线图的任务——历史任务随路线图替换而失联(数据边界,计划确认记为遗留)
+2. **全局上下文不落库**:派生组装(读域表即时组装,无第二份状态),也意味着无跨会话上下文快照;「Agent 写入」= 写自身域模型,下一 Agent 组装时读到
+3. **聚合仅 CareerPath 方向维度**;样本阈值 MIN_AGGREGATE_USERS=5 为默认常量,可后续调
+4. **联动规则为「进入页面时」评估**(决策 D3),无实时推送;联动提示零自动修改用户数据(仅提示+引导手动操作,决策 D2)
+5. **「共分析 N 次」口径** = 画像版本数(版本与 AgentRun 一一对应);匹配曲线来自 matching AgentRun 日志(JobMatch 单行无历史)
+6. 聚合查询为全库扫描(组内计数),测试用唯一方向名隔离;数据量增大后可加索引/物化
+
+## 下一步
+
+Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → build(无 dev server)→ 起 dev → curl 健康 + 新端点 401 JSON(growth.block/report/aggregate + linkage.*)→ 浏览器人工验收(同场景不重复骚扰/版本隔离/冲突块/成长页空态与数据态)。
