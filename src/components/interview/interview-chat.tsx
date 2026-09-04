@@ -1,10 +1,12 @@
 "use client";
-// 模拟面试对话界面(7.2,DesignRules L188 特许对话形态,全产品唯一聊天式布局):
+// 模拟面试对话界面(7.2,DesignRules「模拟面试页(7.2/7.3)」特许对话形态,全产品唯一聊天式布局):
 // 面试官提问气泡(本轮新出现者打字机渲染,useTypewriter)+ 用户答案气泡(右)+ 每题评估卡
 // (内容/表达分徽章 + 改进建议)+ 追问气泡与追问输入行(ghost「跳过追问」)+ 行为面 STAR 提示。
 // 评估为等待式(答案先落库再评估):等待期「面试官正在思考」气泡(role=status),输入在途禁用;
 // 评估失败答案保留 → 评估槽「重试评估」(evaluate 端点);全部答完 → 完成卡 + 结束面试 Dialog。
 // 刷新恢复:已存在的消息整段渲染,仅本轮新出现的气泡打字机;长文本 break-words 不撑破容器。
+// 布局(2026-09 优化):对话视图全宽继承 1160px 壳(w-full space-y-6 py-6,与结果视图一致),
+// 页面单一纵向滚动(对话区无内嵌滚动)、顶部状态栏吸顶、输入为全宽 composer 卡。
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
@@ -50,12 +52,10 @@ function InterviewerAvatar() {
 // (作答记录中的评估不含追问字段,传入 NonNullable<InterviewAnswerItem["evaluation"]>)
 function EvaluationCard({ evaluation }: { evaluation: NonNullable<InterviewAnswerItem["evaluation"]> }) {
   return (
-    <div className="ml-10 max-w-[85%] rounded-2xl rounded-bl-sm border border-hairline bg-sunken p-4">
-      <div className="flex items-center gap-2">
+    <div className="rounded-2xl border border-hairline bg-sunken p-4">
+      <div className="flex flex-wrap items-center gap-2">
         <AiBadge />
         <p className="text-body-sm font-medium text-ink">面试官点评</p>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2">
         <span className="rounded-pill bg-surface px-2.5 py-1 text-body-sm text-ink">
           内容 <strong>{evaluation.contentScore}</strong>/10
         </span>
@@ -228,9 +228,9 @@ export function InterviewChat({
   const remaining = questions.length - index;
 
   return (
-    <div className="mx-auto w-full max-w-[720px] px-4 py-6">
+    <div className="w-full space-y-6 py-6">
       {/* 顶部:进度 / 场次信息 / 结束面试 */}
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="sticky top-16 z-30 flex flex-wrap items-center justify-between gap-3 bg-canvas py-2">
         <div className="flex min-w-0 items-center gap-2 text-body-sm text-ink-secondary">
           <span className="font-medium text-ink">
             第 {questionNumber} / {questions.length} 题
@@ -264,10 +264,11 @@ export function InterviewChat({
       </div>
 
       {/* 对话区(特许形态):面试官左、用户右;历史消息整段,新气泡打字机。
-          不用 role=log(隐式 live region 会逐字朗读打字机内容),状态播报由思考气泡 role=status 承担 */}
+          不用 role=log(隐式 live region 会逐字朗读打字机内容),状态播报由思考气泡 role=status 承担。
+          全宽、页面级滚动、无内嵌滚动条(2026-09 布局优化,消除双重滚动) */}
       <section
         aria-label="面试对话"
-        className="max-h-[55vh] space-y-4 overflow-y-auto rounded-card border border-hairline bg-surface p-4 shadow-card"
+        className="space-y-4 rounded-card border border-hairline bg-surface p-6 shadow-card"
       >
         {questions.slice(0, index + 1).map((q, i) => {
           const item = answers.find((a) => a.questionId === q.id);
@@ -277,7 +278,7 @@ export function InterviewChat({
               {/* 面试官提问气泡 */}
               <div className="flex items-end gap-2">
                 <InterviewerAvatar />
-                <div className="max-w-[80%] rounded-2xl rounded-bl-sm border border-hairline bg-sunken px-4 py-3 text-body text-ink">
+                <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-hairline bg-sunken px-4 py-3 text-body text-ink">
                   <span className="sr-only">面试官提问:</span>
                   <TypedText
                     text={q.question}
@@ -314,7 +315,7 @@ export function InterviewChat({
                   {item.evaluation ? (
                     <EvaluationCard evaluation={item.evaluation} />
                   ) : isCurrent ? (
-                    <div className="ml-10 max-w-[85%] space-y-2 rounded-2xl border border-dashed border-hairline bg-sunken p-4">
+                    <div className="space-y-2 rounded-2xl border border-dashed border-hairline bg-sunken p-4">
                       <p role="alert" className="break-words text-body-sm text-danger">
                         {evalError ?? "评估未完成,你可以重试"}
                       </p>
@@ -329,14 +330,14 @@ export function InterviewChat({
                       </Button>
                     </div>
                   ) : (
-                    <p className="pl-10 text-caption text-ink-faint">该题未评估</p>
+                    <p className="text-caption text-ink-faint">该题未评估</p>
                   )}
 
                   {/* 追问气泡(新出现者打字机)/ 追问回答 / 跳过注记 */}
                   {item.followUpQuestion && (
                     <div className="flex items-end gap-2">
                       <InterviewerAvatar />
-                      <div className="max-w-[80%] rounded-2xl rounded-bl-sm border border-hairline bg-sunken px-4 py-3 text-body text-ink">
+                      <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-hairline bg-sunken px-4 py-3 text-body text-ink">
                         <span className="sr-only">面试官追问:</span>
                         <TypedText
                           text={item.followUpQuestion}
@@ -376,12 +377,11 @@ export function InterviewChat({
           </div>
         )}
 
-        <div ref={bottomRef} />
       </section>
 
       {/* 全部答完:完成卡(进行中 → 结束面试生成报告;已完成 → 直接查看报告) */}
       {allDone && (
-        <div className="mt-4 rounded-card border border-hairline bg-surface p-6 text-center shadow-card">
+        <div className="rounded-card border border-hairline bg-surface p-6 text-center shadow-card">
           <Check className="mx-auto size-8 text-green-600" aria-hidden />
           <h3 className="mt-2 text-h3 text-ink">全部 {questions.length} 题已完成</h3>
           <p className="mt-1 text-body-sm text-ink-secondary">
@@ -399,7 +399,7 @@ export function InterviewChat({
 
       {/* 已完成但未答完(提前结束):只读回顾 + 结束注记 + 查看报告 */}
       {completed && !allDone && (
-        <div className="mt-4 rounded-card border border-hairline bg-surface p-6 text-center shadow-card">
+        <div className="rounded-card border border-hairline bg-surface p-6 text-center shadow-card">
           <h3 className="text-h3 text-ink">面试已结束</h3>
           <p className="mt-1 text-body-sm text-ink-secondary">
             未作答的 {questions.length - index} 道题不计入本次报告。
@@ -414,9 +414,9 @@ export function InterviewChat({
       {!allDone &&
         !completed &&
         (followUpPending ? (
-          <div className="mt-4 space-y-2">
+          <div className="rounded-card border border-hairline bg-surface">
             <Textarea
-              className="min-h-[72px]"
+              className="min-h-[72px] resize-y rounded-none border-0 px-4 pt-4 pb-2 shadow-none"
               placeholder="回答面试官的追问…(Enter 发送,Shift+Enter 换行)"
               aria-label="追问回答"
               rows={2}
@@ -426,29 +426,32 @@ export function InterviewChat({
               onKeyDown={handleFollowUpKeyDown}
               disabled={followUpSubmitting}
             />
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSkipFollowUp}
-                disabled={followUpSubmitting}
-              >
-                跳过追问
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleFollowUpSend}
-                disabled={followUpSubmitting || !followUpDraft.trim()}
-              >
-                {followUpSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
-                回答
-              </Button>
+            <div className="flex items-center justify-between gap-2 px-4 pb-3">
+              <p className="text-caption text-ink-faint">{followUpDraft.length}/2000</p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSkipFollowUp}
+                  disabled={followUpSubmitting}
+                >
+                  跳过追问
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleFollowUpSend}
+                  disabled={followUpSubmitting || !followUpDraft.trim()}
+                >
+                  {followUpSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                  回答
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
-          <div className="mt-4 space-y-2">
+          <div className="rounded-card border border-hairline bg-surface">
             <Textarea
-              className="min-h-[88px]"
+              className="min-h-[96px] resize-y rounded-none border-0 px-4 pt-4 pb-2 shadow-none"
               placeholder="输入你的回答…(Enter 发送,Shift+Enter 换行)"
               aria-label="你的回答"
               rows={3}
@@ -458,7 +461,7 @@ export function InterviewChat({
               onKeyDown={handleKeyDown}
               disabled={submitting || retryingEval}
             />
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 px-4 pb-3">
               <p className="text-caption text-ink-faint">{draft.length}/2000</p>
               <Button onClick={handleSend} disabled={submitting || retryingEval || !draft.trim()}>
                 {submitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
@@ -467,6 +470,9 @@ export function InterviewChat({
             </div>
           </div>
         ))}
+
+      {/* 自动滚底锚点(2026-09 布局优化:页面级滚动,置于根容器尾部保证输入区完整可见) */}
+      <div ref={bottomRef} />
 
       {/* 结束面试确认 */}
       <Dialog open={endOpen} onOpenChange={setEndOpen}>
