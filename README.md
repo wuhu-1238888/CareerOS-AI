@@ -1,36 +1,170 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CareerOS AI — AI 职业成长操作系统
 
-## Getting Started
+**AI 职业顾问 · 成长教练 · 求职助手 —— 让每个人都能清晰地看见自己的职业未来**
 
-First, run the development server:
+## 项目简介
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+CareerOS AI 是一个面向大学生、应届生与 0-3 年职场新人的 AI 职业成长平台。它不做单一环节的求职工具,而是把职业成长的完整链路——**自我认知 → 方向发现 → 路径规划 → 能力提升 → 价值表达 → 机会匹配**——串成一个连贯的产品体验:先让 AI 理解你是谁,再帮你找到方向、规划路径、补齐差距、优化表达,最后在模拟面试中检验成果。
+
+核心设计理念是**数据复利**:职业画像、任务进度、简历版本、面试记录都沉淀在同一个系统中,越使用,AI 的分析越贴合个人——这也是它区别于「简历工具 + AI」「题库 + AI」等单点产品的地方。
+
+## 产品闭环
+
+```
+注册登录 → 职业画像 → 成长路线图 → 岗位匹配 → 90 天提升计划 → 简历优化 → 模拟面试
+             │          │             │          │               │           │
+             │ AI 分析  │ AI 生成     │ AI 拆解  │ AI 制定       │ AI 改写   │ AI 出题
+             │ 能力标签 │ 3-4 阶段    │ 匹配度   │ 13 周计划     │ ATS 评分  │ 逐题评估
+             │ 推荐方向 │ 任务三态    │ 差距分析 │ 资源推荐      │ 逐条对比  │ 综合报告
+             │ 六维雷达 │             │          │               │           │
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+个人成长报告(画像版本演进 / 任务完成趋势 / 匹配度变化)全程追踪,回到工作台,进入下一轮「下一步建议」。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 核心功能
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| 模块 | 一句话价值 | 关键能力 |
+| --- | --- | --- |
+| 工作台 | 每次登录都知道「进行到哪、下一步做什么」 | 问候行、规则链驱动的「下一步建议」、KPI 行、三位 AI 顾问的洞察区、成长区块 |
+| 职业画像 | 让 AI 先理解你是谁 | 四步采集;AI 生成画像摘要、能力标签、2-4 个推荐方向(含匹配度)、六维雷达、发展建议;「这不是我」纠偏;版本历史对比 |
+| 成长路线图 | 把方向变成可执行的路径 | AI 生成 3-4 阶段路线图(目标 / 学习内容 / 实践项目 / 检查点);任务三态;「太难了 / 已经会了」触发单阶段重新生成 |
+| 岗位匹配 | 粘贴 JD,立刻知道「我差在哪」 | AI 拆解必备 / 加分 / 隐性要求;匹配度评分;逐项对比与双线雷达;「我其实满足」纠偏重匹配 |
+| 技能分析(90 天提升计划) | 从「知道差距」到「有行动路径」 | 差距优先级矩阵;13 周周计划(每周主题 / 任务 / 产出要求);资源推荐免费优先 |
+| 简历优化与简历中心 | 先理解你,再优化表达 | PDF / Word / 粘贴文本解析核对;逐条改写(原文 / 改写 / 理由,可接受拒绝撤销);ATS 评分;复制 + 应用内 PDF 预览;多简历并存、多目标方向版本管理 |
+| 模拟面试 | 从「我能去哪」到「我能过吗」 | 行为面 / 技术面 / 案例面 × 5/10/15 题;基于简历与岗位个性化出题;每题即时评估(内容 / 表达 1-10 分 + 建议 + 至多一次追问);综合报告 |
+| 个人成长报告 | 看见自己的成长曲线 | 画像版本演进、能力变化双线雷达、任务完成趋势、匹配度变化;匿名聚合基准(≥5 人脱敏统计,标注「示例」) |
 
-## Learn More
+另有深色模式(跟随系统 / 浅色 / 深色三态)与分享卡片(画像、路线图可一键生成 PNG 图片)。
 
-To learn more about Next.js, take a look at the following resources:
+## AI 能力
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 11 个专职 Agent,而不是一个「万能助手」
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+按职业环节分工,每个 Agent 有独立的角色边界与输出契约:
 
-## Deploy on Vercel
+| 环节 | Agent | 职责 |
+| --- | --- | --- |
+| 画像 | 画像分析 Agent | 从教育 / 技能 / 经历 / 目标中提炼能力标签、优势、推荐方向与匹配度、六维雷达 |
+| 路线 | 路线规划 Agent、阶段重生成 Agent | 生成 3-4 阶段路线图;收到「太难了 / 已经会了」后仅重新生成单个阶段 |
+| 简历 | 解析 Agent、改写 Agent、ATS 评分 Agent | 简历文本结构化;逐条改写(不改事实、重建叙事);评分与改进建议 |
+| 匹配 | 岗位匹配 Agent、技能教练 Agent | JD 拆解、匹配度与差距分析;13 周提升计划与资源推荐 |
+| 面试 | 出题 Agent、评估 Agent、报告 Agent | 基于简历 + 岗位个性化出题;逐题评估与追问;综合报告 |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 结构化输出治理
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+每个 Agent 的输出都经 Zod Schema 强校验,失败自动重试并留痕;每次调用写入 AgentRun 观测表,可追溯输入、输出与耗时。
+
+### 跨 Agent 协作
+
+- **全局上下文**:各 Agent 的产出统一组装,注入画像分析、路线规划、简历优化、岗位匹配、模拟面试等全部管线
+- **数据联动**:路线图完成的项目提示可写入简历;画像更新提示相关模块重新生成
+- **冲突裁决**:画像推荐方向与匹配结论冲突时,并列呈现双方依据,由用户裁决
+
+### 设计哲学:AI 是顾问,不是替代
+
+所有 AI 建议都可解释、可纠偏、可拒绝——画像「这不是我」、匹配「我其实满足」、简历逐条接受 / 拒绝。用户始终是决策者。
+
+### LLM 适配层
+
+- **Mock**(默认):按 Agent 返回 schema 合规的演示数据,零 API 成本,全链路可完整跑通
+- **DeepSeek / OpenAI / Anthropic**:真实模型,环境变量一键切换
+
+## 产品截图
+
+> 截图即将补充(将存放于 docs/screenshots/ 目录)。
+
+## 技术栈
+
+| 层 | 技术 |
+| --- | --- |
+| 前端框架 | Next.js 14(App Router)+ React 18 + TypeScript |
+| 样式与组件 | Tailwind CSS + shadcn/ui + 自建设计系统(DesignSystem token) |
+| 前后端类型安全 | tRPC v11(全栈共享类型) |
+| 数据层 | Prisma 6 + PostgreSQL |
+| 认证 | NextAuth v5(邮箱 + 密码,JWT 会话) |
+| AI 接入 | 自建轻量 Agent 框架 + LLM 适配层(DeepSeek / OpenAI / Anthropic / Mock) |
+| 可视化 | Recharts(雷达 / 趋势 / 柱状图) |
+| 简历解析与导出 | pdf-parse、mammoth、@react-pdf/renderer |
+| 测试 | Vitest + Testing Library(917 个用例 / 95 个文件,全部通过) |
+| 安全 | 简历文件 AES-256-GCM 加密落盘,用户可随时删除 |
+
+## 产品与工程难点
+
+### 1. LLM 输出的业务可靠性
+
+- **问题**:通用 LLM 输出不稳定,而产品要求严格的结构化结果与业务规则(优先级排序、时间预算一致、评分稳定)。
+- **解决思路**:所有 Agent 输出经 Zod Schema 强校验,失败自动重试;关键管线加 echo 交叉校验(输出必须与输入参数回声一致,否则拒绝落库);排序类字段确定性归一化(不信任模型自报的优先级标签,按「重要性 × 差距」重算)。
+- **最终结果**:测试集中大量 AI 输出固定样例回归,917 个用例全部通过;真实模型反复出现的违规输出也能被拦截或纠正。
+
+### 2. 多 Agent 共享数据的写入一致性
+
+- **问题**:匹配报告与教练计划由两条独立管线先后写入同一业务对象,直接替换式写入会互相抹掉对方数据。
+- **解决思路**:匹配记录按列 upsert(两个 Agent 各写自己的列);模拟面试采用每用户单行存储,对话消息不入表、由题目与作答 JSON 派生;画像每次分析生成不可变版本快照。
+- **最终结果**:11 个 Agent 的产出稳定共存,画像版本历史可追溯、可对比。
+
+### 3. 简历解析的格式保真与隐私
+
+- **问题**:PDF / DOCX 提取文本的顺序经常错乱(分栏、文本框),而简历原文是高度敏感的用户数据。
+- **解决思路**:pdf-parse 按视觉坐标排序重建阅读顺序;mammoth 配合文本框锚点坐标重排;文件 AES-256-GCM 加密后落盘(存储层抽象,支持本地磁盘 / Vercel Blob),原文永不覆盖,用户可随时删除。
+- **最终结果**:多格式简历解析保序、可核对;敏感文件加密存储,删除即同步清理。
+
+### 4. 无流式基建的模拟面试等待体验
+
+- **问题**:全栈项目未引入流式输出基建,面试逐题出题 / 评估的等待期体验差。
+- **解决思路**:服务端完整落库 + AgentRun 进度轮询 + 前端逐字打字机渲染(新气泡逐字出现),等待期显示「面试官正在思考」气泡;刷新后从中断处继续。
+- **最终结果**:零新增基建获得流畅的等待体验,中断恢复无数据丢失。
+
+## 项目文档
+
+**产品与规划**
+
+- [PRD](memory-bank/PRD.md) — 产品需求文档(MVP 范围与验收指标)
+- [产品愿景](memory-bank/product-vision.md) — 愿景、核心洞见与目标用户
+- [用户画像](memory-bank/user-persona.md) — 四类目标用户的痛点与使用场景
+- [竞品分析](memory-bank/competitor-analysis.md) — 市场格局与差异化策略
+- [产品架构](memory-bank/product-architecture.md) — 三层能力架构与价值闭环
+- [实施计划](memory-bank/implementation-plan.md) — 全部开发任务、状态与偏差记录
+- [开发进度](memory-bank/progress.md) — 按里程碑的进度记录
+- [部署检查清单](memory-bank/deployment-checklist.md) — 生产部署检查项
+
+**设计与工程**
+
+- [多 Agent 体系设计](memory-bank/agent-design.md) — 11 个 Agent 的角色、边界与协作机制
+- [技术设计](memory-bank/technical-design.md) — 技术选型论证与关键设计决策
+- [设计系统](design/DesignSystem.md) — 设计 token 与组件规格
+- [前端开发规范](design/DesignRules.md) — 页面规则与开发约束
+
+**演示**
+
+- [面试官体验路线](docs/demo-flow.md) — 3~5 分钟走完全产品闭环
+
+## 本地运行
+
+环境要求:Node.js ≥ 18.17、PostgreSQL(本地或远程)。
+
+```bash
+git clone https://github.com/wuhu-1238888/CareerOS-AI.git
+cd CareerOS-AI
+npm install
+cp .env.example .env    # 填写 DATABASE_URL 与 NEXTAUTH_SECRET;LLM_PROVIDER 默认 mock,无需任何 API Key
+npx prisma migrate dev  # 初始化数据库
+npm run dev             # 打开 http://localhost:3000
+```
+
+> Windows 下复制命令为 `copy .env.example .env`。
+
+质量命令:
+
+```bash
+npm test           # 917 个用例 / 95 个文件
+npm run lint
+npm run typecheck
+```
+
+## Demo 说明
+
+当前**没有线上部署**,演示方式为本地运行(见上节):
+
+- **默认 Mock 模式**:LLM 适配层按 Agent 返回 schema 合规的演示数据,注册 → 画像 → 路线图 → 匹配 → 简历 → 面试全链路可完整走通,**不产生任何 API 费用**——不需要任何模型 Key 即可演示全部功能
+- **切换真实模型**:`.env` 中设置 `LLM_PROVIDER=deepseek` 并填入 `DEEPSEEK_API_KEY`(DeepSeek 为 OpenAI 兼容接口,也可选择 openai / anthropic)
+- **体验路线**:3~5 分钟走完全产品闭环,见 [docs/demo-flow.md](docs/demo-flow.md)
