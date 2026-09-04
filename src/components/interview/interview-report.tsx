@@ -1,6 +1,7 @@
 "use client";
-// 模拟面试综合报告视图(7.3):①Hero(面试类型/岗位 + 已评估题数 + 内容/表达均分大数字,
-// 前端对已评估题确定性计算——报告 Agent 只产出定性内容)②总体评价 ③突出优势列表
+// 模拟面试综合报告视图(7.3):①Hero(面试类型/岗位 + 内容/表达能力均分大数字,显式「/ 10」
+// 明示 10 分制 + 动态「已评估 X / N 题」注记;均分由前端对已评估题确定性计算——
+// 报告 Agent 只产出定性内容)②总体评价 ③突出优势列表
 // ④主要短板列表 ⑤重点改进方向卡(ai-insight 视觉)⑥底部操作:ghost「返回对话」
 // + 主行动「开始新面试」(确认 Dialog,覆盖式新建由 Hub 处理)。
 // report null(服务端防御解析失败)→ 兜底卡片 + 开始新面试,不报错。
@@ -30,6 +31,8 @@ export function InterviewReport({
   session: {
     interviewType: string;
     targetPosition: string;
+    /** 本场题目总数(注记分母,来自 interview.get 的 questionCount) */
+    questionCount: number;
     answers: InterviewAnswerItem[] | null;
     report: InterviewReportData | null;
   };
@@ -40,6 +43,7 @@ export function InterviewReport({
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const report = session.report;
+  const questionCount = session.questionCount;
 
   // 均分确定性计算:仅含已评估题(未评估题不计入分母)
   const evaluated = (session.answers ?? []).filter((a) => a.evaluation);
@@ -64,20 +68,39 @@ export function InterviewReport({
               {session.interviewType} · {session.targetPosition}
             </p>
           </div>
-          {avgContent !== null && avgExpression !== null && (
+          {avgContent !== null && avgExpression !== null ? (
             <div className="shrink-0 text-right">
-              <div className="flex items-baseline justify-end gap-3">
-                <span>
-                  <span className="text-num text-green-600">{avgContent.toFixed(1)}</span>
-                  <span className="ml-1 text-caption text-ink-muted">内容均分</span>
-                </span>
-                <span>
-                  <span className="text-num text-green-600">{avgExpression.toFixed(1)}</span>
-                  <span className="ml-1 text-caption text-ink-muted">表达均分</span>
-                </span>
+              <div className="flex items-start justify-end gap-6">
+                <div>
+                  <p className="text-num text-green-600">
+                    <span>{avgContent.toFixed(1)}</span>
+                    <span className="ml-1 text-body-lg text-ink-muted">/ 10</span>
+                  </p>
+                  <p className="mt-0.5 text-body-sm text-ink-muted">内容能力</p>
+                </div>
+                <div>
+                  <p className="text-num text-green-600">
+                    <span>{avgExpression.toFixed(1)}</span>
+                    <span className="ml-1 text-body-lg text-ink-muted">/ 10</span>
+                  </p>
+                  <p className="mt-0.5 text-body-sm text-ink-muted">表达能力</p>
+                </div>
               </div>
+              <p className="mt-2 text-caption text-ink-muted">
+                已评估 {evaluated.length} / {questionCount} 题
+                {evaluated.length >= questionCount
+                  ? " · 本次面试评分已完成"
+                  : " · 当前评分仅供阶段性参考"}
+              </p>
               <p className="mt-1 text-caption text-ink-faint">
-                基于 {evaluated.length} 道已评估题计算
+                评分标准:10 分制 · 基于已完成题目的回答进行评估
+              </p>
+            </div>
+          ) : (
+            /* 0 道已评估:不渲染虚假的 0.0 分数,仅提示暂无评分 */
+            <div className="shrink-0 text-right">
+              <p className="mt-1 text-caption text-ink-muted">
+                已评估 0 / {questionCount} 题 · 本场暂无评分
               </p>
             </div>
           )}
