@@ -3,7 +3,7 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)** 全部完成并推送、**Stage 7(7.1–7.3)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10、7.4/7.5 与阶段 8 按用户指示未执行
-- **最近更新**:2026-08-24,排查修复「加入模拟面试功能后」的 500 / JSON 解析错误 / 系统卡顿:根因 = `.next/` 被 3 个并发 dev server 共享 + dev 期间 `npm run build` 混写缓存 → webpack 编译 worker 崩溃(全部 API 返回 500 HTML 错误页);修复 = 环境清理 + QueryClient 重试/焦点重拉收紧 + 轮询 700→2000ms + 管线 in-flight 互斥(出题/报告复用、评估 CONFLICT→409)+ 历史消息打字机短路;3 个 commit `bbb73dd` / `2cb14e8` / `7669f32` 已推送,846/846 测试全绿;剩余 = 浏览器 10 项验收(与 Stage 7 人工验收同批)
+- **最近更新**:2026-09-04,模拟面试对话页布局优化(commit `942de96`):对话视图 720px 窄栏 → 全宽继承 1160px 壳(+62%),消除双重滚动(移除 55vh 内嵌滚动,页面单一纵向滚动),状态栏吸顶、评估卡/重试槽全宽、输入 composer 卡;917/917 测试全绿、typecheck/lint 零错误、停 dev 后 build 成功;业务逻辑零改动
 - **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9、7.1 – 7.3 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
 - **当前状态**:**Stage 7(7.1–7.3)已实现,可以进入人工验收**。不执行 6.10、7.4/7.5 与阶段 8(用户指示)。
 - **测试基线**:834 个测试 / 85 个文件全部通过;typecheck / lint 零错误;生产构建成功(/interview 8.47kB);prompt 打包 11/11(interview 新增 3 份)打入 tRPC Serverless 路由
@@ -892,3 +892,32 @@ Schema 定义「是什么」;originalIndex/sectionOrder 定义「用户原本放
 ## 下一步
 
 Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → build(无 dev server)→ 起 dev → curl 健康 + 新端点 401 JSON(growth.block/report/aggregate + linkage.*)→ 浏览器人工验收(同场景不重复骚扰/版本隔离/冲突块/成长页空态与数据态)。
+
+---
+
+# 面试对话布局优化(2026-09-04,commit 942de96)
+
+## 背景
+
+用户反馈:模拟面试对话态工作区仅 720px(嵌套 1160px 壳),大屏左右留白巨大;对话区 55vh 内嵌滚动与页面滚动并存(双重滚动);输入区随窄容器收缩。按「页面 Header → 状态栏 → 对话区 → 输入区」层级重组,对齐结果视图全宽先例(2.5 画像 / 3.x 路线图 / 4.8 简历)。
+
+## 主要修改(1 commit)
+
+- `942de96` style(interview):对话视图全宽化并消除双重滚动——对话视图 `max-w-[720px] px-4` → `w-full space-y-6 py-6`(与 profile-result / roadmap-timeline / resume-result 等 6 处结果视图逐字一致);对话区删除 `max-h-[55vh] overflow-y-auto`、p-4→p-6,页面单一纵向滚动;bottomRef 从对话区尾部移至根容器尾部(useEffect 与 deps 零改动,scrollIntoView 收敛为页面滚底,jsdom 下仍 no-op);状态栏 sticky top-16 吸顶于顶栏下方 + flex-wrap;面试官提问/追问气泡 80%→85%、用户回答保持 85%、评估卡与评估失败重试槽全宽(去 ml-10/max-w,头部徽章+双评分 pill 合并单行 flex-wrap)、STAR 提示保持 ml-10;输入区 composer 卡(rounded-card + border-hairline + bg-surface,无边框 Textarea 96px/72px + resize-y + 底行字数与绿色主 CTA),追问 composer 同款并补字数统计;同步 DesignRules(模拟面试页布局约定 + 走查记录)与 DesignSystem(页面解剖学「对话视图」宽度规则,front matter interview token 零变更)
+
+## 验证
+
+- interview-chat 15 用例零修改全绿;全量 **917/917(95 文件)** 全绿;typecheck / lint 零错误
+- 停 dev server(taskkill PID 树)后 build 成功(/interview 8.51kB);build 后重启 dev 供人工走查
+- 红线 grep:变更文件零 #hex 新色值、零 bg-white、零渐变、无 max-w-[720px] / max-h-[55vh] / max-w-[80%] 残留
+- 业务逻辑零改动:出题/评估/评分/对话结构/API/状态机/题目数/Prompt 均未动
+
+## 已知问题(遗留,不隐瞒)
+
+1. 自动滚底为「新内容到达即滚底」(与旧内嵌滚动行为一致),未做「仅当用户在底部才跟随」的位置判断
+2. 气泡 85% 上限在 1160px 壳下约 900px 行宽(用户明确要求 85–90%),走查若观感过宽可单类名回落
+3. 移动端边距与结果视图一致(壳 px-4 + 对话区 p-6),无独立移动端气泡缩窄
+
+## 下一步
+
+浏览器人工验收(与 Stage 7 验收同批):1440/1600/1920/平板/手机宽度走查(单滚动条、状态栏吸顶与对齐、自动滚底后输入框完整可见、深色模式、IME 发送),完成后继续 Stage 7 人工验收与生产部署。
