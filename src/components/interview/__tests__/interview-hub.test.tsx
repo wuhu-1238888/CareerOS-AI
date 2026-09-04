@@ -300,7 +300,7 @@ describe("InterviewHub 报告(7.3)", () => {
     // 均分:1 道已评估题(内容 8 / 表达 7),题目总数 5 → 阶段性注记
     expect(screen.getByText("8.0")).toBeInTheDocument();
     expect(screen.getByText("7.0")).toBeInTheDocument();
-    expect(screen.getByText("已评估 1 / 5 题 · 当前评分仅供阶段性参考")).toBeInTheDocument();
+    expect(screen.getByText("已评估 1 / 5 题 · 阶段性评分")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "返回对话" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始新面试" })).toBeInTheDocument();
   });

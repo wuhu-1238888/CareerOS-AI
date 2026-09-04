@@ -1,6 +1,6 @@
 // 模拟面试综合报告视图测试(7.3):均分前端确定性计算(仅含已评估题,一位小数,
-// 未评估题不计入分母)/评分展示(「/ 10」明示 10 分制 + 内容能力/表达能力标签 +
-// 动态「已评估 X / N 题」注记:部分=阶段性参考、全部=评分已完成、0=暂无评分不渲染分数)/
+// 未评估题不计入分母)/评分摘要(双列横排,「/ 10」明示 10 分制 + 内容能力/表达能力标签 +
+// 动态「已评估 X / N 题」注记:部分=阶段性评分、全部=面试评分已完成、0=暂无评分不渲染分数)/
 // 四要素渲染(总体评价/突出优势/主要短板/重点改进方向)/
 // 返回对话回调/开始新面试确认 Dialog(取消不回调,确认回调 onNewInterview)/
 // report null 兜底卡(作答记录保留提示,不报错)。
@@ -71,9 +71,8 @@ describe("InterviewReport(7.3)", () => {
     expect(screen.getByText("内容能力")).toBeInTheDocument();
     expect(screen.getByText("表达能力")).toBeInTheDocument();
     expect(screen.getAllByText("/ 10")).toHaveLength(2);
-    // 2 / 2 全部评估 → 完成态措辞 + 评分标准辅助文案
-    expect(screen.getByText("已评估 2 / 2 题 · 本次面试评分已完成")).toBeInTheDocument();
-    expect(screen.getByText("评分标准:10 分制 · 基于已完成题目的回答进行评估")).toBeInTheDocument();
+    // 2 / 2 全部评估 → 完成态措辞
+    expect(screen.getByText("已评估 2 / 2 题 · 面试评分已完成")).toBeInTheDocument();
   });
 
   it("均分仅含已评估题(未评估不计入分母)→ 部分评估阶段性注记;answers null → 0 已评估不渲染分数", () => {
@@ -92,7 +91,7 @@ describe("InterviewReport(7.3)", () => {
     const { unmount } = render(
       <InterviewReport session={session} onBackToChat={() => undefined} onNewInterview={() => undefined} />
     );
-    expect(screen.getByText("已评估 1 / 2 题 · 当前评分仅供阶段性参考")).toBeInTheDocument();
+    expect(screen.getByText("已评估 1 / 2 题 · 阶段性评分")).toBeInTheDocument();
     expect(screen.getByText("8.0")).toBeInTheDocument();
     expect(screen.getByText("6.0")).toBeInTheDocument();
     unmount();
