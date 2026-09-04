@@ -94,8 +94,9 @@ export function ResumeCenter() {
       {list.isSuccess && list.data.length > 0 && (
         <ul className="mt-4 divide-y divide-hairline rounded-control border border-hairline">
           {list.data.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
-              <div className="flex min-w-0 items-center gap-3">
+            <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              {/* 4.16:信息区 flex-1 占满剩余宽度(文件名 truncate 不撑破布局),操作按钮组靠右 */}
+              <div className="flex min-w-0 flex-1 items-center gap-3">
                 <FileText className="size-5 shrink-0 text-ink-muted" aria-hidden />
                 <div className="min-w-0">
                   <p className="truncate text-body-sm font-medium text-ink">
