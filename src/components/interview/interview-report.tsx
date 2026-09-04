@@ -69,25 +69,21 @@ export function InterviewReport({
             </p>
           </div>
           {avgContent !== null && avgExpression !== null ? (
-            /* 评分摘要:双列横排(数字 + 标签上下成组),一行注记居中于下方 */
-            <div className="flex shrink-0 flex-col items-center">
-              <div className="flex items-start gap-8">
-                <div className="text-center">
-                  <p className="text-num text-green-600">
-                    <span>{avgContent.toFixed(1)}</span>
-                    <span className="ml-1 text-body-lg text-ink-muted">/ 10</span>
-                  </p>
-                  <p className="mt-1 text-body-sm text-ink-muted">内容能力</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-num text-green-600">
-                    <span>{avgExpression.toFixed(1)}</span>
-                    <span className="ml-1 text-body-lg text-ink-muted">/ 10</span>
-                  </p>
-                  <p className="mt-1 text-body-sm text-ink-muted">表达能力</p>
-                </div>
+            /* 评分摘要:双单元横排(数字 + / 10 + 标签基线对齐同行),一行注记于下方 */
+            <div className="shrink-0">
+              <div className="flex items-baseline gap-6">
+                <span className="flex items-baseline">
+                  <span className="text-num text-green-600">{avgContent.toFixed(1)}</span>
+                  <span className="ml-1 text-body-lg text-ink-muted">/ 10</span>
+                  <span className="ml-2 text-body-sm text-ink-muted">内容能力</span>
+                </span>
+                <span className="flex items-baseline">
+                  <span className="text-num text-green-600">{avgExpression.toFixed(1)}</span>
+                  <span className="ml-1 text-body-lg text-ink-muted">/ 10</span>
+                  <span className="ml-2 text-body-sm text-ink-muted">表达能力</span>
+                </span>
               </div>
-              <p className="mt-3 text-caption text-ink-muted">
+              <p className="mt-2 text-caption text-ink-muted">
                 已评估 {evaluated.length} / {questionCount} 题
                 {evaluated.length >= questionCount ? " · 面试评分已完成" : " · 阶段性评分"}
               </p>
