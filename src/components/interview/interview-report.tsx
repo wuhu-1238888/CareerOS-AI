@@ -83,7 +83,7 @@ export function InterviewReport({
                   <span className="ml-2 text-body-sm text-ink-muted">表达能力</span>
                 </span>
               </div>
-              <p className="mt-2 text-caption text-ink-muted">
+              <p className="mt-2 text-right text-caption text-ink-muted">
                 已评估 {evaluated.length} / {questionCount} 题
                 {evaluated.length >= questionCount ? " · 面试评分已完成" : " · 阶段性评分"}
               </p>
