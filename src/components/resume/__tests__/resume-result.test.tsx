@@ -4,6 +4,8 @@
 // 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分);
 // 4.13:「上传新简历」按钮触发 onReupload 回调 + 「查看全部简历」链接指向「我的简历」Tab(/resume?tab=resumes)+ 当前简历名显示。
 // 6.6:版本选择器(单版本隐藏/多版本切换渲染旧版本,动作作用于当前行)、复制为新版本、删除版本(确认 Dialog/末版禁用)。
+// IA 调整 2026-09:全部接受移入 AI 建议区标题行(先确认后执行:取消零变化/确认走 acceptAll);
+// 导出 PDF 移入最终文本预览区(ResumeExport stub 接线不变,props 仍透传 finalText)。
 // 注意:userEvent.setup() 会安装自己的剪贴板桩,因此 clipboard/execCommand 必须在 setup 之后 stub。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -205,7 +207,7 @@ describe("ResumeResult 结果视图", () => {
     expect(screen.getByText("主导新功能设计与落地")).toBeInTheDocument();
   });
 
-  it("导出工具条:渲染并透传最终文本与采纳状态(4.7)", () => {
+  it("导出(预览区):渲染并透传最终文本与采纳状态(4.7)", () => {
     renderResult();
     expect(screen.getByTestId("resume-export")).toBeInTheDocument();
     expect(mocks.exportProps).toEqual({
@@ -214,7 +216,7 @@ describe("ResumeResult 结果视图", () => {
     });
   });
 
-  it("零采纳:导出工具条 canExport=false(4.7)", () => {
+  it("零采纳:导出 canExport=false(4.7)", () => {
     const noneAccepted: ResultVersion = {
       ...version,
       optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
@@ -226,9 +228,12 @@ describe("ResumeResult 结果视图", () => {
     expect(mocks.exportProps).toEqual({ finalText: version.finalText, canExport: false });
   });
 
-  it("全部接受:acceptAll(versionId)+ 失效刷新 + 成功 toast", async () => {
+  it("全部接受(确认后执行):点击仅开确认不调 mutation;确认后 acceptAll(versionId)+ 失效刷新 + 成功 toast", async () => {
     const { user } = renderResult();
     await user.click(screen.getByRole("button", { name: "全部接受" }));
+    expect(screen.getByText("确认接受全部 AI 建议?")).toBeInTheDocument();
+    expect(mocks.acceptAllMutateAsync).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "确认全部接受" }));
     await waitFor(() => expect(mocks.acceptAllMutateAsync).toHaveBeenCalledWith({ versionId: "v1" }));
     await waitFor(() => expect(mocks.invalidateResume).toHaveBeenCalled());
     expect(await screen.findByText("已全部采纳,最终文本已更新")).toBeInTheDocument();
@@ -238,8 +243,25 @@ describe("ResumeResult 结果视图", () => {
     mocks.acceptAllMutateAsync.mockRejectedValueOnce(new Error("优化版本不存在"));
     const { user } = renderResult();
     await user.click(screen.getByRole("button", { name: "全部接受" }));
+    await user.click(screen.getByRole("button", { name: "确认全部接受" }));
     expect(await screen.findByText("优化版本不存在")).toBeInTheDocument();
     expect(mocks.invalidateResume).not.toHaveBeenCalled();
+  });
+
+  it("全部接受取消:不调用 mutation,不改变任何建议状态", async () => {
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "全部接受" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(mocks.acceptAllMutateAsync).not.toHaveBeenCalled();
+    expect(mocks.invalidateResume).not.toHaveBeenCalled();
+  });
+
+  it("全部接受确认框:正文显示尚未采纳条数", async () => {
+    const { user } = renderResult();
+    await user.click(screen.getByRole("button", { name: "全部接受" }));
+    expect(
+      screen.getByText("当前共有 1 条 AI 建议尚未采纳。接受后将一次性应用所有 AI 修改。")
+    ).toBeInTheDocument();
   });
 
   it("全部已采纳:「全部接受」禁用", () => {
@@ -308,14 +330,14 @@ describe("ResumeResult 结果视图", () => {
     expect(mocks.logExportMutate).not.toHaveBeenCalled();
   });
 
-  it("零采纳:复制按钮禁用 + 提示(预览卡与导出工具条)", () => {
+  it("零采纳:复制与导出均禁用,提示仅最终文本预览区一处", () => {
     const noneAccepted: ResultVersion = {
       ...version,
       optimizations: version.optimizations.map((o) => ({ ...o, status: "pending" as const })),
     };
     render(<ResumeResult version={noneAccepted} resumeId="r1" onReanalyze={() => {}} onEdit={() => {}} onReupload={() => {}} />);
     expect(screen.getByRole("button", { name: "复制最终文本" })).toBeDisabled();
-    expect(screen.getAllByText("尚未采纳任何修改").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("尚未采纳任何修改").length).toBe(1);
   });
 
   it("finalText 为空:预览面板显示占位文案 + 复制按钮禁用", () => {
@@ -396,8 +418,9 @@ describe("ResumeResult 结果视图", () => {
     // 旧版本内容渲染(目标方向与优化片段)
     expect(await screen.findByText("旧版本优化片段")).toBeInTheDocument();
     expect(screen.getByText(/目标方向:测试工程师/)).toBeInTheDocument();
-    // 全部接受作用于当前查看的旧版本 id,并失效 getVersion
+    // 全部接受作用于当前查看的旧版本 id,并失效 getVersion(确认后执行)
     await user.click(screen.getByRole("button", { name: "全部接受" }));
+    await user.click(screen.getByRole("button", { name: "确认全部接受" }));
     await waitFor(() => expect(mocks.acceptAllMutateAsync).toHaveBeenCalledWith({ versionId: "v0" }));
     expect(mocks.invalidateGetVersion).toHaveBeenCalled();
   });

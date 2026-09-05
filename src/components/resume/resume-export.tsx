@@ -1,12 +1,14 @@
 "use client";
-// 简历导出工具条(4.7;4.10-layout 修订;4.16 修订):「导出 PDF」= 打开应用内 PDF 预览浮层。
+// 简历导出(4.7;4.10-layout 修订;4.16 修订;IA 调整 2026-09 移入最终文本预览区右上,主交付操作):
+// 「导出 PDF」= 打开应用内 PDF 预览浮层。
 // 不再用 PDFDownloadLink —— 其外层 <a href download> 与项目内层 <a href={url}> 嵌套锚点使浏览器
 // 跟随内层锚点(无 download)整页跳转 blob: URL(浏览器 PDF 查看器、应用 UI 消失、无返回入口),
 // Back 返回后还叠加 动态 import 待定/加载中死链/渲染失败 url=null/bfcache 陈旧 四重失效窗口。
 // @react-pdf/renderer 与 PDF 文档组件仍仅经 useEffect 动态 import(react-pdf 引 window/canvas,
 // SSR 路径 import 即崩);BlobProvider 每次打开浮层重新挂载 = 全新生成,关闭卸载即 revoke 旧
 // blob URL(react-pdf usePDF 内置 revoke-on-unmount),重复导出零陈旧状态、零页面导航。
-// 零采纳修改时禁用并提示「尚未采纳任何修改」(拒绝=恢复原文,此时导出无意义;4.7 语义)。
+// 零采纳修改时禁用(拒绝=恢复原文,此时导出无意义;4.7 语义);「尚未采纳任何修改」提示由所在区域
+// (最终文本预览头部)统一呈现,组件内不再重复(IA 调整 2026-09)。
 import { useEffect, useState } from "react";
 import { FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,20 +54,18 @@ export function ResumeExport({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {disabled || loadFailed || !modules ? (
-        // 禁用态/加载失败态:普通禁用按钮(占位,保证工具条布局稳定)
-        <Button type="button" variant="secondary" disabled title="尚未采纳任何修改">
+        // 禁用态/加载失败态:普通禁用按钮
+        <Button type="button" disabled>
           <FileDown aria-hidden />
           导出 PDF
         </Button>
       ) : (
         // 4.16:真按钮(主视图零锚点,不再有跳转/死链);打开浮层即挂载 BlobProvider 全新生成
-        <Button type="button" variant="secondary" onClick={() => setPreviewOpen(true)}>
+        <Button type="button" onClick={() => setPreviewOpen(true)}>
           <FileDown aria-hidden />
           导出 PDF
         </Button>
       )}
-
-      {disabled && <span className="text-caption text-ink-muted">尚未采纳任何修改</span>}
 
       {/* 4.16:BlobProvider 随浮层开合挂载/卸载。children 为函数子节点 —— BlobProvider 的
           d.ts 原生接受函数子节点(BlobProviderParams),无需 PDFDownloadLink 的 ReactNode 桥接。

@@ -3,10 +3,10 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)**、**Stage 7(7.1–7.3)**、**Stage 8(8.1–8.2)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10、7.4/7.5 按用户指示未执行
-- **最近更新**:2026-09-05,文档整理:删除两份一次性验收清单(phase2-acceptance-checklist.md、stage6-acceptance-checklist.md),Stage 6 走查要点并入 Stage 6 节「下一步」;顶部状态头同步 Stage 8 完成状态与最新测试基线(917/95 文件)
+- **最近更新**:2026-09-05,简历优化页操作区 IA 调整(全部接受移入 AI 建议区加确认、导出 PDF 移入最终文本预览区);测试基线 926/97
 - **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9、7.1 – 7.3、8.1 – 8.2 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
 - **当前状态**:**Stage 6–8 已实现并推送,浏览器人工验收待做**(Phase 2 整体验收 + Stage 7 面试验收 + Stage 8 走查同批,要点见各节「下一步」);6.10、7.4/7.5 按用户指示不执行;生产部署暂缓(清单见 deployment-checklist.md)。
-- **测试基线**:917 个测试 / 95 个文件全部通过;typecheck / lint 零错误;生产构建成功;prompt 打包 11/11 打入 tRPC Serverless 路由
+- **测试基线**:926 个测试 / 97 个文件全部通过;typecheck / lint 零错误;生产构建成功;prompt 打包 11/11 打入 tRPC Serverless 路由
 
 ## 已完成的工作
 
@@ -1044,3 +1044,31 @@ Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → buil
 ## 下一步
 
 浏览器人工验收:多简历并存切换、上传成功落优化 tab、删除、响应式抽屉、深色模式整体走查(截图任务由用户手动执行)。
+
+# 简历优化页操作区 IA 调整:全部接受移入 AI 建议区(加确认)、导出 PDF 移入最终文本预览区(2026-09-05)
+
+## 背景
+
+用户对「简历优化」结果视图做信息架构调整,形成清晰操作链:当前简历/管理 → AI 建议 → 逐条接受/拒绝 →(必要时)全部接受 → 最终文本预览 → 复制/导出 PDF → ATS 评分。「AI 建议处理」与「最终简历交付」明确分区,只移入口不改业务逻辑。规格要点:顶部操作栏仅保留管理/分析操作;全部接受移入 AI 建议区标题行且必须加确认交互;不新增全部拒绝;单条建议交互不变;导出 PDF 移入最终文本预览区右上且为主交付操作;预览/复制/PDF 统一数据源、PDF 保持原始模块顺序;零采纳规则不变;不加 Sticky Bar。
+
+## 主要修改
+
+- `resume-result.tsx`:Hero 行删除 已采纳计数 / 「全部接受」/「导出 PDF」三项,保留 版本选择器(多版本时)/复制为新版本/删除版本/重新分析/修改信息/上传新简历/查看全部简历;新增 AI 建议 section 标题行(`h3`「AI 建议」+「已采纳 X/Y」+「全部接受」secondary,与单条「接受」default 实心形成视觉层级差);新增全部接受确认 Dialog(复用删除版本确认的既有 Dialog 模式与组件,标题「确认接受全部 AI 建议?」、正文「当前共有 X 条 AI 建议尚未采纳。接受后将一次性应用所有 AI 修改。」、取消 ghost / 确认全部接受 default);`handleAcceptAll` 原逻辑零改动,finally 关 Dialog;最终文本预览区头部改为 [提示] [复制最终文本 secondary] [导出 PDF]
+- `resume-export.tsx`:组件内「尚未采纳任何修改」提示与 disabled 按钮 title 移除(全页该提示仅预览区头部一处,不重复);两个按钮 variant 由 secondary 改 default(最终交付主操作);禁用条件(!canExport || !finalText)与 BlobProvider 浮层逻辑零改动
+- 数据源结论零代码改动即成立:预览渲染、复制写入、导出透传同一 `row.finalText`(服务端 canonical `buildFinalTextForVersion`,在原文字符串上按位替换 accepted 片段 → 模块顺序天然等于原文顺序);ATS 评分同样经该构造入口
+- 测试:resume-result 新增确认流用例(点击只开 Dialog 不调 mutation → 确认才调;取消零变化;正文显示未采纳数 7)、既有「全部接受」/多版本用例补确认步骤、零采纳用例断言提示仅一处;resume-export 删 2 处 title/提示断言;两文件头注释同步;926/926(97 文件)
+- 文档:DesignRules 简历分析页第 4 条补 AI 建议标题行规格、第 6 条改导出位置与主次;DesignSystem L622 工具条描述改写(顶部仅管理/分析操作、AI 建议标题行、最终文本预览区 复制 secondary + 导出 primary)
+
+## 已知问题
+
+- **PDF 浮层渲染在 dev 模式确定性失败**:BlobProvider 生成报「Expected null or instance of Config, got an instance of Config」。根因定位:`@react-pdf/layout` 双入口(index.cjs / index.js,exports 条件导出)各自独立缓存 `loadYoga()` 实例,yoga-layout 每种构建变体自带独立 emscripten 胶水与类注册表 —— 同一页面解析进两种入口即产生两套 yoga 胶水,Config 对象跨实例即触发该类型链检查失败。**与本次 IA 调整无关**(未触碰 import 图;4.7/4.16 的验证均为单测 mock,从未真实浏览器渲染过 PDF,故此前未暴露)。浮层机制本身正常:打开/失败面板/返回全通。生产构建是否同样受影响未验证(验证需停全部 dev server 后 build + next start,待用户安排)。候选修复方向:next.config webpack `resolve.alias` 强制 yoga-layout 单一入口(改动小、独立于本任务)
+
+## 验证
+
+- 全量测试 926/926(97 文件);typecheck / lint 零错误;build 成功
+- Playwright 登录态走查 45/46(mock 模式 + DB 直插结果视图夹具;注册新用户 → 顶栏 6 入口无简历中心 → 直插 Resume/ResumeVersion/8 条 Optimization → 结果视图):顶部 6 操作 + 查看全部简历在位且无 全部接受/导出 PDF/已采纳;AI 建议标题行 计数 0/8 + 全部接受(布局在工具条之下、与标题同行);0 采纳 复制/导出禁用 + 提示仅一处 + 预览显示原文;单条拒绝→已拒绝、单条接受→1/8 且复制/导出解禁;全部接受 点击只弹确认框(正文「当前共有 7 条」)、取消零变化、确认后 8/8 + 按钮禁用 + 提示消失;预览保持原始模块顺序(教育→技能→工作/实习→项目)且含采纳改写片段;复制内容与预览逐字一致(剪贴板读回比对);导出 PDF 打开应用内浮层(唯一失败项见上)、返回关闭;ATS 卡在预览之后且入口在位;查看全部简历 → 我的简历 Tab → 继续优化(?resumeId= 保留)→ 修改信息返回核对表单
+- 走查配套:mock 模式经 `LLM_PROVIDER=mock npm run dev -- -p 3001`(进程 env 优先于 .env,不动用户配置);因 mock 适配器无 rewrite/ats Agent 夹具(既有缺口),结果视图数据以 Prisma 直插夹具替代,未改动 AI 层
+
+## 下一步
+
+浏览器人工验收:真实浏览器(非 headless)PDF 浮层渲染复测;生产构建下 PDF 导出验证(需停 dev server 后 build + next start);若确认同样失败则评估 yoga-layout 单入口 alias 修复。

@@ -1,7 +1,8 @@
-// 简历导出工具条测试(4.7;4.10-layout 修订;4.16 修订):动态 import 的 react-pdf 与 PDF 文档组件全部 mock 隔离。
+// 简历导出测试(4.7;4.10-layout 修订;4.16 修订;IA 调整 2026-09):动态 import 的 react-pdf 与 PDF 文档组件全部 mock 隔离。
 // 4.16:PDFDownloadLink 改 BlobProvider + 应用内预览浮层 —— 覆盖 禁用态(零采纳/空文本,主视图零锚点)/
 // 点击开浮层(BlobProvider 挂载透传 finalText)/ 加载/失败/就绪三态(iframe + 下载锚点)/ 返回关闭/
 // 重新打开 = 全新挂载(核心回归:「Back 后无法再次导出」)/ Escape 关闭。
+// IA 调整 2026-09:「尚未采纳任何修改」提示移出组件(由最终文本预览区头部统一呈现),禁用态仅剩按钮本身。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -58,21 +59,18 @@ async function openPreview(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("ResumeExport(简历导出,4.7/4.16)", () => {
-  it("零采纳(canExport=false):按钮禁用 + 提示;主视图零锚点、无浮层", async () => {
+  it("零采纳(canExport=false):按钮禁用;主视图零锚点、无浮层", async () => {
     render(<ResumeExport finalText={finalText} canExport={false} />);
     const btn = await screen.findByRole("button", { name: "导出 PDF" });
     expect(btn).toBeDisabled();
-    expect(btn).toHaveAttribute("title", "尚未采纳任何修改");
-    expect(screen.getByText("尚未采纳任何修改")).toBeInTheDocument();
     expect(document.querySelector("a")).toBeNull();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("最终文本为空(finalText=null):同样禁用 + 提示,无浮层", async () => {
+  it("最终文本为空(finalText=null):同样禁用,无浮层", async () => {
     render(<ResumeExport finalText={null} canExport />);
     const btn = await screen.findByRole("button", { name: "导出 PDF" });
     expect(btn).toBeDisabled();
-    expect(screen.getByText("尚未采纳任何修改")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

@@ -1,6 +1,8 @@
 "use client";
-// 简历优化结果视图(4.5):全宽布局(画像结果页先例)。顶部 Hero 行(AI 标识 + 目标方向 + 采纳计数)
-// + 工具条(全部接受 / 导出 PDF / 重新分析 / 修改信息)。
+// 简历优化结果视图(4.5):全宽布局(画像结果页先例)。顶部 Hero 行(AI 标识 + 目标方向)+ 工具条
+// (版本选择 / 复制为新版本 / 删除版本 / 重新分析 / 修改信息 / 上传新简历 / 查看全部简历)。
+// IA 调整 2026-09(操作区优化):「已采纳计数 + 全部接受」移入 AI 建议区标题行(全部接受需先确认);
+// 「导出 PDF」移入最终文本预览区右上(与复制最终文本同排,预览/复制/导出同源 finalText)。
 // 信息层级(4.10-layout 修订):优化结果对比卡(改前/改后/原因)→ 最终文本预览(卡内复制按钮)→ ATS 评分卡 ——
 // 最终文本是流程产出、ATS 是对产出的质量检测,故预览在 ATS 之前;
 // 预览直接渲染服务端 canonical finalText,与复制按钮、导出 PDF 同源同一字符串,无二次组装。
@@ -101,6 +103,8 @@ export function ResumeResult({
   const duplicate = trpc.resume.duplicateVersion.useMutation();
   const remove = trpc.resume.deleteVersion.useMutation();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 全部接受确认(IA 调整 2026-09):用户进入页面尚未阅读建议 → 点击仅打开确认,不直接应用
+  const [acceptAllOpen, setAcceptAllOpen] = useState(false);
 
   const row: ResultVersion = viewingId && versionQuery.data ? versionQuery.data : version;
   const versionList = versions.data ?? [];
@@ -173,6 +177,9 @@ export function ResumeResult({
       toast.success("已全部采纳,最终文本已更新");
     } catch (err) {
       toast.error(friendlyError(err));
+    } finally {
+      // IA 调整 2026-09:确认 Dialog 在 mutation 结算后关闭(镜像删除版本确认模式)
+      setAcceptAllOpen(false);
     }
   }
 
@@ -255,18 +262,6 @@ export function ResumeResult({
             <Trash2 aria-hidden />
             删除版本
           </Button>
-          <span className="text-body-sm text-ink-muted">
-            已采纳 {acceptedCount}/{total}
-          </span>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={acceptAll.isPending || acceptedCount === total}
-            onClick={() => void handleAcceptAll()}
-          >
-            全部接受
-          </Button>
-          <ResumeExport finalText={row.finalText} canExport={acceptedCount > 0} />
           <Button type="button" variant="ghost" disabled={update.isPending} onClick={onReanalyze}>
             重新分析
           </Button>
@@ -283,21 +278,40 @@ export function ResumeResult({
         </div>
       </div>
 
-      {/* 对比卡列表:逐条接受/拒绝/撤销(AI 分析:改前/改后/原因,置于最终文本预览之前) */}
-      <ul className="space-y-4" aria-label="修改建议列表">
-        {row.optimizations.map((optimization) => (
-          <li key={optimization.id}>
-            <ResumeAnalysisCard
-              optimization={optimization}
-              pending={pendingId === optimization.id}
-              onStatusChange={(id, status) => void handleStatusChange(id, status)}
-            />
-          </li>
-        ))}
-      </ul>
+      {/* AI 建议区(IA 调整 2026-09):标题行 = 「已采纳 X/N」+「全部接受」(secondary,点击先确认、
+          确认后才应用);对比卡列表逐条接受/拒绝/撤销(AI 分析:改前/改后/原因,置于最终文本预览之前) */}
+      <section className="space-y-4" aria-label="AI 建议">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-h3 text-ink">AI 建议</h3>
+          <div className="flex items-center gap-3">
+            <span className="text-body-sm text-ink-muted">
+              已采纳 {acceptedCount}/{total}
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={acceptAll.isPending || acceptedCount === total}
+              onClick={() => setAcceptAllOpen(true)}
+            >
+              全部接受
+            </Button>
+          </div>
+        </div>
+        <ul className="space-y-4" aria-label="修改建议列表">
+          {row.optimizations.map((optimization) => (
+            <li key={optimization.id}>
+              <ResumeAnalysisCard
+                optimization={optimization}
+                pending={pendingId === optimization.id}
+                onStatusChange={(id, status) => void handleStatusChange(id, status)}
+              />
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {/* 最终文本预览(4.10;4.10-layout 修订:置于优化结果之后、ATS 之前):
-          直接渲染服务端 canonical finalText;卡内复制按钮与顶部导出 PDF 均使用此处同一字符串,无二次组装 */}
+          直接渲染服务端 canonical finalText;卡内复制按钮与导出 PDF 均使用此处同一字符串,无二次组装 */}
       <section className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -319,6 +333,8 @@ export function ResumeResult({
               <ClipboardCopy aria-hidden />
               复制最终文本
             </Button>
+            {/* IA 调整 2026-09:「导出 PDF」从顶部工具条移入本区 —— 与预览/复制同源 finalText,主交付操作 */}
+            <ResumeExport finalText={row.finalText} canExport={acceptedCount > 0} />
           </div>
         </div>
         {row.finalText ? (
@@ -342,6 +358,32 @@ export function ResumeResult({
         atsReport={row.atsReport ?? null}
         stale={atsStale}
       />
+
+      {/* 全部接受确认(IA 调整 2026-09):用户进入页面尚未阅读建议,点击不直接应用;
+          确认后执行既有 accept-all 逻辑(后端整版置 accepted);取消不改变任何建议状态 */}
+      <Dialog open={acceptAllOpen} onOpenChange={setAcceptAllOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>确认接受全部 AI 建议?</DialogTitle>
+            <DialogDescription>
+              当前共有 {total - acceptedCount} 条 AI 建议尚未采纳。接受后将一次性应用所有 AI
+              修改。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setAcceptAllOpen(false)}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              disabled={acceptAll.isPending}
+              onClick={() => void handleAcceptAll()}
+            >
+              确认全部接受
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 删除版本确认(6.6):级联删建议;简历原文与其他版本不受影响 */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
