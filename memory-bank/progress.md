@@ -1094,3 +1094,24 @@ Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → buil
 ## 下一步
 
 浏览器人工验收:深色模式下版本菜单与确认框可读性;真实浏览器另存为后版本列表滚动/长文案截断表现。
+
+# 简历优化页「删除版本」IA 调整:入口收进版本选择器(2026-09-05)
+
+## 背景
+
+延续「另存为新版本」IA 调整:将顶部独立的「删除版本」按钮移除,底层删除业务逻辑零改动,「删除当前版本」放入版本选择器菜单底部,与「另存为新版本」形成统一版本管理区。规格要点:菜单结构 = 当前版本 ✓(置顶)/ 其他历史版本 / 分隔线 / ＋ 另存为新版本 / 删除当前版本;删除使用危险操作视觉样式但不过度突出(text-destructive 文字 + focus 浅红底,非实心红按钮);点击先弹既有确认 Dialog,不直接删除;仅剩一个版本时菜单项禁用(服务端同校验「至少保留一个优化版本」);删除成功后沿用既有 setViewingId(null) + 三路 invalidate 自动切换剩余版本;不改 DB、不改 AI 建议/最终文本/PDF/ATS;复用既有 deleteVersion 与确认 Dialog。
+
+## 主要修改
+
+- `resume-result.tsx`(唯一业务文件):顶部「删除版本」ghost Button 删除;菜单改为 当前版本(Check 置顶,派生 `currentVersion`)+ 其他历史版本(派生 `otherVersions`,createdAt 降序)+ Separator + 「另存为新版本」+ 新增「删除当前版本」菜单项(Trash2 图标、`text-destructive focus:bg-destructive/10 focus:text-destructive`、`disabled={deleteDisabled}`、onSelect → setConfirmOpen(true));handleDelete/确认 Dialog(标题「删除该版本?」/正文「删除后不可恢复;简历原文与其他版本不受影响。」/确认删除 destructive)/handleDuplicate/handleSelectVersion 全部原样复用
+- 测试:resume-result.test.tsx 删除 3 例改菜单流(查看历史版本 → menuitem「删除当前版本」→ Dialog → 确认删除/取消/失败);单版本用例断言反转(顶部无「删除版本」按钮、菜单内「删除当前版本」disabled、「另存为新版本」enabled);多版本用例补「删除当前版本」enabled 断言;resume-hub.test.tsx 零改动
+- 文档:DesignSystem L622 工具条去「删除版本」、下拉描述加版本管理区;DesignRules 第 7 条同步(危险色、确认、末版禁用、自动切换);progress.md 本条
+
+## 验证
+
+- 定向(resume-result + resume-hub)70/70;全量 929/929(97 文件);typecheck / lint 零错误(未跑 build:用户 dev server 在跑)
+- Playwright 走查 8/8(复用用户 3001 dev server;Prisma 直插双版本夹具;期间修复两处夹具问题:parsedData 须通过 parsedResumeSchema 校验(basicInfo 必填)否则 hub 落「简历已就绪」;jest-dom toBeDisabled 对 aria-disabled 的 div 不生效,改用 toHaveAttribute;走查后 4 个测试用户已级联删除、临时脚本已清):①顶部无「删除版本」按钮 ②菜单含「另存为新版本」与「删除当前版本」(多版本均可用),当前版本 Check 置顶 ③另存为确认框正常、取消零变化,AI 建议对比卡与最终文本预览(accepted 片段)在位 ④删除当前版本 → 确认框 → 确认 → toast「版本已删除」→ 自动切换到剩余版本(第 1 版 · 测试工程师)⑤唯一版本下「删除当前版本」禁用、Check 仍在 ⑥唯一版本下另存为完整流正常,新版本自动生效 ⑦剩余版本建议对比卡/最终文本预览/ATS 评分卡/工具条其余按钮(重新分析/修改信息/上传新简历/查看全部简历)全部在位
+
+## 下一步
+
+浏览器人工验收:深色模式下「删除当前版本」危险色菜单项与确认框可读性。

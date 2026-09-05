@@ -1,6 +1,6 @@
 "use client";
 // 简历优化结果视图(4.5):全宽布局(画像结果页先例)。顶部 Hero 行(AI 标识 + 目标方向)+ 工具条
-// (版本选择器(常显:版本列表 + 分隔 + 另存为新版本)/ 删除版本 / 重新分析 / 修改信息 / 上传新简历 / 查看全部简历)。
+// (版本选择器(常显:版本列表 + 分隔 + 另存为新版本 / 删除当前版本)/ 重新分析 / 修改信息 / 上传新简历 / 查看全部简历)。
 // IA 调整 2026-09(操作区优化):「已采纳计数 + 全部接受」移入 AI 建议区标题行(全部接受需先确认);
 // 「导出 PDF」移入最终文本预览区右上(与复制最终文本同排,预览/复制/导出同源 finalText)。
 // 信息层级(4.10-layout 修订):优化结果对比卡(改前/改后/原因)→ 最终文本预览(卡内复制按钮)→ ATS 评分卡 ——
@@ -11,8 +11,9 @@
 // 状态持久化走 resume.updateOptimization / resume.acceptAll;成功后失效 resume.get 以刷新采纳计数与最终文本。
 // 6.6 版本选择器:镜像 profile-result 自持模式(listVersions + viewingId + getVersion),查看旧版本时
 // accept/reject/导出/ATS 全部既有逻辑作用于当前 row 零改动;「另存为新版本」(菜单项 → 确认 Dialog,
-// 确认后走既有 duplicateVersion 深拷贝,ATS 置空)、「删除版本」仅剩一个时禁用(确认 Dialog,级联删建议,简历原文不动)。
-// 2026-09 常显改造:Radix Select 换 DropdownMenu(单版本也显示 trigger);「另存为新版本」收进菜单分隔线之后。
+// 确认后走既有 duplicateVersion 深拷贝,ATS 置空)、「删除当前版本」(菜单底部危险项 → 确认 Dialog,
+// 走既有 deleteVersion 级联删建议,仅剩一个时禁用,简历原文不动)。
+// 2026-09 常显改造:Radix Select 换 DropdownMenu(单版本也显示 trigger);版本管理操作统一收进菜单分隔线之后。
 import { useState } from "react";
 import Link from "next/link";
 import { Check, ChevronDown, ClipboardCopy, CopyPlus, Trash2 } from "lucide-react";
@@ -100,7 +101,7 @@ export function ResumeResult({
     { versionId: viewingId ?? "" },
     { enabled: viewingId !== null }
   );
-  // 另存为新版本 / 删除版本(6.6):仅剩一个版本时禁止删除(服务端同样校验)
+  // 另存为新版本 / 删除当前版本(6.6):仅剩一个版本时禁止删除(服务端同样校验)
   const duplicate = trpc.resume.duplicateVersion.useMutation();
   const remove = trpc.resume.deleteVersion.useMutation();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -123,6 +124,9 @@ export function ResumeResult({
       v.targetDirection ? ` · ${v.targetDirection}` : ""
     }`;
   };
+  // 菜单排序(2026-09):当前版本带 Check 置顶,其余历史版本按时间降序紧随其后
+  const currentVersion = versionList.find((v) => v.id === row.id);
+  const otherVersions = versionList.filter((v) => v.id !== row.id);
 
   const total = row.optimizations.length;
   const acceptedCount = row.optimizations.filter((o) => o.status === "accepted").length;
@@ -241,8 +245,8 @@ export function ResumeResult({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* 版本选择器(6.6;2026-09 常显改造):下拉 = 版本列表(当前版本带 Check 指示)+ 分隔 +
-              「另存为新版本」(菜单项 → 确认 Dialog);单版本也显示,点击当前项仅关菜单 */}
+          {/* 版本选择器(6.6;2026-09 常显改造):下拉 = 当前版本(Check 置顶)+ 历史版本 + 分隔 +
+              版本管理区「另存为新版本」/「删除当前版本」(危险样式,单版本禁用);点击当前项仅关菜单 */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -256,13 +260,17 @@ export function ResumeResult({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[220px]">
-              {versionList.map((v) => (
+              {currentVersion && (
+                <DropdownMenuItem onSelect={() => handleSelectVersion(currentVersion.id)}>
+                  <Check className="size-4 text-green-600" aria-hidden data-testid="current-version-check" />
+                  {`第 ${versionNo(currentVersion.id)} 版 · ${formatDate(currentVersion.createdAt)}${
+                    currentVersion.targetDirection ? ` · ${currentVersion.targetDirection}` : ""
+                  }`}
+                </DropdownMenuItem>
+              )}
+              {otherVersions.map((v) => (
                 <DropdownMenuItem key={v.id} onSelect={() => handleSelectVersion(v.id)}>
-                  {row.id === v.id ? (
-                    <Check className="size-4 text-green-600" aria-hidden data-testid="current-version-check" />
-                  ) : (
-                    <span className="size-4 shrink-0" aria-hidden />
-                  )}
+                  <span className="size-4 shrink-0" aria-hidden />
                   {`第 ${versionNo(v.id)} 版 · ${formatDate(v.createdAt)}${
                     v.targetDirection ? ` · ${v.targetDirection}` : ""
                   }`}
@@ -273,17 +281,16 @@ export function ResumeResult({
                 <CopyPlus aria-hidden />
                 另存为新版本
               </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                disabled={deleteDisabled}
+                onSelect={() => setConfirmOpen(true)}
+              >
+                <Trash2 aria-hidden />
+                删除当前版本
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={deleteDisabled || remove.isPending}
-            onClick={() => setConfirmOpen(true)}
-          >
-            <Trash2 aria-hidden />
-            删除版本
-          </Button>
           <Button type="button" variant="ghost" disabled={update.isPending} onClick={onReanalyze}>
             重新分析
           </Button>
