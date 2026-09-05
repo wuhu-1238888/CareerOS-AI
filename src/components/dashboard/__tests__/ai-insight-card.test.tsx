@@ -1,5 +1,6 @@
-// AI 洞察卡测试(工作台 IA 重构):五态(未分析引导/加载骨架/错误重试/降级/内容)、
-// top-3 截断、短板来源前缀、空行不渲染、AI 原始文本逐字呈现(卡片不添加命令式措辞)。
+// AI 洞察卡测试(工作台 IA 重构 + 摘要化):五态(未分析引导/加载骨架/错误重试/降级/内容)、
+// 优势 top-3、短板 top-2 且与重点关注同文去重、重点关注 = 首个建议 gap 一行、
+// 不渲染建议 action(职责让位「下一步建议」/成长路线)、AI 原始文本逐字呈现(无命令式措辞)。
 // 数据源 profile.get 的 aiAnalysis 在客户端经 profileAnalysisSchema.safeParse 校验(先例 profile-result.tsx)。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -28,7 +29,7 @@ vi.mock("@/trpc/client", () => ({
   },
 }));
 
-// 合法画像分析:4 优势(验证 top-3 截断)+ 2 方向(各 1 短板,验证来源前缀)+ 3 建议(验证 gap/action 双行)
+// 合法画像分析:4 优势(验证 top-3 截断)+ 2 方向(短板含与首个建议 gap 同文项,验证去重)+ 3 建议
 const validAnalysis = {
   summary: "计算机专业应届生。",
   abilityTags: [
@@ -80,12 +81,12 @@ describe("AiInsightCard", () => {
     expect(screen.getByText("AI 洞察")).toBeInTheDocument();
     expect(screen.getByText("来自你最近一次画像分析")).toBeInTheDocument();
     expect(
-      screen.getByText("完成画像分析后,这里会展示你的岗位优势、当前短板与推荐行动")
+      screen.getByText("完成画像分析后,这里会展示你的岗位优势、当前短板与重点关注")
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "去完成画像" })).toHaveAttribute("href", "/profile");
     expect(screen.queryByText("岗位优势")).toBeNull();
     expect(screen.queryByText("当前短板")).toBeNull();
-    expect(screen.queryByText("推荐行动")).toBeNull();
+    expect(screen.queryByText("重点关注")).toBeNull();
     expect(screen.queryByRole("link", { name: "查看完整分析" })).toBeNull();
   });
 
@@ -121,32 +122,48 @@ describe("AiInsightCard", () => {
     expect(screen.queryByText("岗位优势")).toBeNull();
   });
 
-  it("内容态:三行摘要 top-3 截断 + 短板来源前缀 + AiBadge + 查看完整分析深链", () => {
+  it("内容态:优势 top-3 + 短板 top-2 去重 + 重点关注一行 + AiBadge + 查看完整分析深链;无建议 action", () => {
     mocks.profileData = { aiAnalysis: validAnalysis };
     render(<AiInsightCard analyzed />);
-    // 三行眉标
+    // 三行眉标(推荐行动已删)
     expect(screen.getByText("岗位优势")).toBeInTheDocument();
     expect(screen.getByText("当前短板")).toBeInTheDocument();
-    expect(screen.getByText("推荐行动")).toBeInTheDocument();
+    expect(screen.getByText("重点关注")).toBeInTheDocument();
+    expect(screen.queryByText("推荐行动")).toBeNull();
     // 优势 top-3:第 4 条「学习能力强」被截断
     expect(screen.getByText("实践经历对口")).toBeInTheDocument();
     expect(screen.getByText("目标清晰")).toBeInTheDocument();
     expect(screen.getByText("技能组合完整")).toBeInTheDocument();
     expect(screen.queryByText("学习能力强")).toBeNull();
-    // 短板带来源前缀(前缀与原文分属两个 span,断言来源 span + 原文)
-    expect(screen.getByText("后端开发:")).toBeInTheDocument();
+    // 短板 top-2:「后端开发:缺少分布式经验」与重点关注同文被去重,只剩「数据分析」一条
+    expect(screen.queryByText("后端开发:")).toBeNull();
     expect(screen.getByText("数据分析:")).toBeInTheDocument();
-    expect(screen.getAllByText("缺少分布式经验")).toHaveLength(2); // 短板原文 + 建议 gap(真实数据同文常见)
     expect(screen.getByText("不熟悉可视化工具")).toBeInTheDocument();
-    // 建议 = gap 眉行 + action 行,全部 3 条
-    expect(screen.getByText("完成一个分布式项目")).toBeInTheDocument();
-    expect(screen.getByText("沟通表达")).toBeInTheDocument();
-    expect(screen.getByText("参与一次项目汇报")).toBeInTheDocument();
-    expect(screen.getByText("行业认知")).toBeInTheDocument();
-    expect(screen.getByText("阅读行业报告")).toBeInTheDocument();
+    // 重点关注 = 首个建议 gap 一行(同文仅此一处,短板不再重复)
+    expect(screen.getAllByText("缺少分布式经验")).toHaveLength(1);
+    // 建议 action 一律不渲染(不承担成长路线职责)
+    expect(screen.queryByText("完成一个分布式项目")).toBeNull();
+    expect(screen.queryByText("参与一次项目汇报")).toBeNull();
+    expect(screen.queryByText("阅读行业报告")).toBeNull();
     // AI 内容标记与底部深链
     expect(screen.getByText("AI 分析")).toBeInTheDocument(); // AiBadge 默认文案
     expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/profile#glance");
+  });
+
+  it("短板与重点关注不同文:两者并存,短板保留来源前缀", () => {
+    mocks.profileData = {
+      aiAnalysis: {
+        ...validAnalysis,
+        suggestions: [{ gap: "沟通表达", action: "参与一次项目汇报" }],
+      },
+    };
+    render(<AiInsightCard analyzed />);
+    // 无同文去重 → 两条短板均显示
+    expect(screen.getByText("后端开发:")).toBeInTheDocument();
+    expect(screen.getByText("数据分析:")).toBeInTheDocument();
+    expect(screen.getByText("缺少分布式经验")).toBeInTheDocument();
+    // 重点关注 = 「沟通表达」
+    expect(screen.getByText("沟通表达")).toBeInTheDocument();
   });
 
   it("全部方向无短板:当前短板行整体不渲染,其余行完好", () => {
@@ -159,19 +176,16 @@ describe("AiInsightCard", () => {
     render(<AiInsightCard analyzed />);
     expect(screen.queryByText("当前短板")).toBeNull();
     expect(screen.getByText("岗位优势")).toBeInTheDocument();
-    expect(screen.getByText("推荐行动")).toBeInTheDocument();
+    expect(screen.getByText("重点关注")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看完整分析" })).toBeInTheDocument();
   });
 
-  it("分析导向纪律:AI 原始文本逐字呈现,卡片不添加命令式措辞", () => {
+  it("分析导向纪律:AI 原始文本逐字呈现,卡片不添加命令式措辞、不渲染行动", () => {
     mocks.profileData = { aiAnalysis: validAnalysis };
     render(<AiInsightCard analyzed />);
-    // 建议行只呈现 AI 原文(gap + action),不包装成「建议你…」的行动话术
-    expect(screen.getByText("完成一个分布式项目")).toBeInTheDocument();
     expect(screen.queryByText(/建议你/)).toBeNull();
     expect(screen.queryByText(/快去/)).toBeNull();
-    // 短板条目为 {来源}:{原文}(前缀独立 span),无额外修饰
-    expect(screen.getByText("后端开发:")).toBeInTheDocument();
-    expect(screen.getAllByText("缺少分布式经验")).toHaveLength(2);
+    // 摘要只呈现 gap 一行,action 文本不出现
+    expect(screen.queryByText("完成一个分布式项目")).toBeNull();
   });
 });

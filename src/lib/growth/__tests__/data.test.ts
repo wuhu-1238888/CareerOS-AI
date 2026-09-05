@@ -1,11 +1,10 @@
 // @vitest-environment node
-// 成长数据层测试(8.2,真实写库):周桶分窗(8 周 sparkline / 12 周趋势,固定 now 确定性断言)、
-// 画像版本演进(相邻版本 diff,损坏版本回退 null)、匹配度曲线(仅 succeeded + 数值分数,时间升序)、
-// 匿名聚合(按方向分组平均、样本阈值 5、最新版本去重、无用户标识)。
+// 成长数据层测试(8.2 + 概览化,真实写库):区块概览计数(任务完成不做周窗过滤)、12 周趋势分窗
+// (固定 now 确定性断言)、画像版本演进(相邻版本 diff,损坏版本回退 null)、匹配度曲线
+// (仅 succeeded + 数值分数,时间升序)、匿名聚合(按方向分组平均、样本阈值 5、最新版本去重、无用户标识)。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import {
-  BLOCK_WEEKS,
   MIN_AGGREGATE_USERS,
   REPORT_WEEKS,
   computeGrowthAggregate,
@@ -210,36 +209,29 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("computeGrowthBlock 工作台区块(固定 now)", () => {
+describe("computeGrowthBlock 工作台区块(概览口径)", () => {
   it("画像版本数/最新版本/最新匹配度/匹配时间", async () => {
-    const block = await computeGrowthBlock(prisma, userId, NOW);
+    const block = await computeGrowthBlock(prisma, userId);
     expect(block.profileVersionCount).toBe(3);
     expect(block.profileVersion).toBe(3);
     expect(block.latestMatchScore).toBe(72);
     expect(block.matchUpdatedAt).toEqual(expect.any(String));
   });
 
-  it("近 8 周 sparkline:周桶升序、窗口内外边界正确", async () => {
-    const block = await computeGrowthBlock(prisma, userId, NOW);
-    expect(block.sparkline).toHaveLength(BLOCK_WEEKS);
-    expect(block.sparkline[7]).toEqual({ weekStart: THIS_WEEK_START, count: 1 }); // 本周
-    expect(block.sparkline[6]).toEqual({ weekStart: "2026-08-09T16:00:00.000Z", count: 1 }); // 上周
-    expect(block.sparkline[3]).toEqual({ weekStart: "2026-07-19T16:00:00.000Z", count: 1 }); // 三周前
-    // 8 周窗口外(06-10)与两窗口外(05-20)均不计入
-    const total = block.sparkline.reduce((sum, bucket) => sum + bucket.count, 0);
-    expect(total).toBe(3);
-    expect(block.sparkline[0]!.weekStart).toBe("2026-06-28T16:00:00.000Z");
+  it("任务完成计数:概览口径不做周窗过滤,含出窗任务", async () => {
+    const block = await computeGrowthBlock(prisma, userId);
+    // 夹具 6 任务:5 completed(含 8 周窗口外两笔)+ 1 in_progress → 全部计入
+    expect(block.taskStats).toEqual({ completed: 5, total: 6 });
   });
 
   it("无数据用户:全部空值,不抛错", async () => {
     const fresh = await createTestUser(`growthdata-fresh-${suffix}@test.local`);
-    const block = await computeGrowthBlock(prisma, fresh.id, NOW);
+    const block = await computeGrowthBlock(prisma, fresh.id);
     expect(block.profileVersionCount).toBe(0);
     expect(block.profileVersion).toBeNull();
     expect(block.latestMatchScore).toBeNull();
     expect(block.matchUpdatedAt).toBeNull();
-    expect(block.sparkline).toHaveLength(BLOCK_WEEKS);
-    expect(block.sparkline.every((bucket) => bucket.count === 0)).toBe(true);
+    expect(block.taskStats).toEqual({ completed: 0, total: 0 });
   });
 });
 

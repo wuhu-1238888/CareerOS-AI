@@ -1,5 +1,5 @@
-// 工作台成长区块测试(8.2):四态(加载骨架/错误重试/空态引导/数据)、画像版本与匹配度展示、
-// sparkline sr-only 文本、完整报告深链(D1:区块内入口)。
+// 工作台成长区块测试(8.2 + 概览化):四态(加载骨架/错误重试/空态引导/数据)、
+// 概览三事实行(职业画像版本 / 最新岗位匹配度 / 任务完成计数)、完整报告深链(D1:区块内入口)。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,16 +34,7 @@ function dataBlock(partial: Partial<GrowthBlockData> = {}): GrowthBlockData {
     profileVersion: 3,
     latestMatchScore: 72,
     matchUpdatedAt: "2026-08-15T08:00:00.000Z",
-    sparkline: [
-      { weekStart: "2026-06-28T16:00:00.000Z", count: 0 },
-      { weekStart: "2026-07-05T16:00:00.000Z", count: 0 },
-      { weekStart: "2026-07-12T16:00:00.000Z", count: 0 },
-      { weekStart: "2026-07-19T16:00:00.000Z", count: 1 },
-      { weekStart: "2026-07-26T16:00:00.000Z", count: 0 },
-      { weekStart: "2026-08-02T16:00:00.000Z", count: 0 },
-      { weekStart: "2026-08-09T16:00:00.000Z", count: 2 },
-      { weekStart: "2026-08-16T16:00:00.000Z", count: 1 },
-    ],
+    taskStats: { completed: 4, total: 21 },
     ...partial,
   };
 }
@@ -55,7 +46,7 @@ beforeEach(() => {
   mocks.isError = false;
 });
 
-describe("GrowthBlock 工作台成长区块", () => {
+describe("GrowthBlock 工作台成长区块(概览)", () => {
   it("加载中:骨架屏", () => {
     mocks.isLoading = true;
     const { container } = render(<GrowthBlock />);
@@ -76,10 +67,7 @@ describe("GrowthBlock 工作台成长区块", () => {
       profileVersionCount: 0,
       profileVersion: null,
       latestMatchScore: null,
-      sparkline: [
-        { weekStart: "2026-08-16T16:00:00.000Z", count: 0 },
-        { weekStart: "2026-08-09T16:00:00.000Z", count: 0 },
-      ],
+      taskStats: { completed: 0, total: 0 },
     });
     render(<GrowthBlock />);
     expect(screen.getByText(/完成画像分析、匹配岗位或推进路线任务后/)).toBeInTheDocument();
@@ -87,14 +75,17 @@ describe("GrowthBlock 工作台成长区块", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("数据态:画像版本 + 匹配度 + sparkline sr-only 计数 + 完整报告深链", () => {
+  it("数据态:概览三事实行(版本/匹配度/任务完成)+ 完整报告深链", () => {
     mocks.blockData = dataBlock();
     render(<GrowthBlock />);
+    expect(screen.getByText("成长概览")).toBeInTheDocument();
     expect(screen.getByText("第 3 版")).toBeInTheDocument();
     expect(screen.getByText("共分析 3 次")).toBeInTheDocument();
     expect(screen.getByText("72%")).toBeInTheDocument();
-    expect(screen.getByLabelText("近 8 周任务完成数据")).toHaveTextContent("2 个任务");
-    expect(screen.getByLabelText("近 8 周任务完成数据")).toHaveTextContent("2026-08-16T16:00:00.000Z:1 个任务");
+    expect(screen.getByText("4 / 21")).toBeInTheDocument();
+    expect(screen.getByText("职业画像")).toBeInTheDocument();
+    expect(screen.getByText("最新岗位匹配度")).toBeInTheDocument();
+    expect(screen.getByText("任务完成")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /查看完整报告/ })).toHaveAttribute(
       "href",
       "/dashboard/growth"
@@ -105,6 +96,13 @@ describe("GrowthBlock 工作台成长区块", () => {
     mocks.blockData = dataBlock({ latestMatchScore: null });
     render(<GrowthBlock />);
     expect(screen.getByText("第 3 版")).toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("无路线图:任务完成显示占位,不报错", () => {
+    mocks.blockData = dataBlock({ taskStats: { completed: 0, total: 0 } });
+    render(<GrowthBlock />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText(/\/ 0/)).toBeNull();
   });
 });

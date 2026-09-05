@@ -1,10 +1,10 @@
 // @vitest-environment node
-// growth 命名空间接口测试(8.2,真实写库):未登录隔离、空数据回退(不报错)、
-// block 聚合正确、匿名聚合脱敏与样本阈值。
+// growth 命名空间接口测试(8.2 + 概览化,真实写库):未登录隔离、空数据回退(不报错)、
+// block 概览聚合正确、匿名聚合脱敏与样本阈值。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createCaller } from "../router";
 import { prisma } from "@/lib/db/prisma";
-import { BLOCK_WEEKS, REPORT_WEEKS } from "@/lib/growth/data";
+import { REPORT_WEEKS } from "@/lib/growth/data";
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 const mainEmail = `growthrouter-main-${suffix}@test.local`;
@@ -78,8 +78,7 @@ describe("growth 接口(真实写库,顺序执行)", () => {
     expect(block.profileVersion).toBeNull();
     expect(block.latestMatchScore).toBeNull();
     expect(block.matchUpdatedAt).toBeNull();
-    expect(block.sparkline).toHaveLength(BLOCK_WEEKS);
-    expect(block.sparkline.every((bucket) => bucket.count === 0)).toBe(true);
+    expect(block.taskStats).toEqual({ completed: 0, total: 0 });
   });
 
   it("report:空用户空序列,不报错", async () => {
@@ -90,15 +89,13 @@ describe("growth 接口(真实写库,顺序执行)", () => {
     expect(report.matchScores).toEqual([]);
   });
 
-  it("block:有数据用户(版本数/匹配度/本周任务入 sparkline 末桶)", async () => {
+  it("block:有数据用户(版本数/匹配度/任务完成计数)", async () => {
     const block = await caller(userId).growth.block();
     expect(block.profileVersionCount).toBe(1);
     expect(block.profileVersion).toBe(1);
     expect(block.latestMatchScore).toBe(72);
     expect(block.matchUpdatedAt).toEqual(expect.any(String));
-    expect(block.sparkline).toHaveLength(BLOCK_WEEKS);
-    expect(block.sparkline[BLOCK_WEEKS - 1]!.count).toBe(1);
-    expect(block.sparkline.slice(0, -1).every((bucket) => bucket.count === 0)).toBe(true);
+    expect(block.taskStats).toEqual({ completed: 1, total: 1 });
   });
 
   it("report:画像版本含未分析行(radar 回退 null),趋势含本周任务", async () => {

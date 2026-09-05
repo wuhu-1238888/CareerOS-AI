@@ -643,7 +643,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 | Skeleton | `sunken` 块 + `rounded.control`,尺寸与真实内容一致,透明度 0.5→1 呼吸动画;AI 分析页用 Agent 卡骨架 + 文案轮播 |
 | Table | 表头 12px/600 `ink-muted` + `hairline` 2px 底边;行 44px,悬停 `green-50`;数字右对齐等宽;空表 = 表格内 Empty State |
 | Stat Card | 眉标 12px/600 `ink-muted` → `{typography.num}` 大数字 → 13px 提升/下降徽章 + 16px 趋势图标;3-4 个一行(工作台固定 3 个) |
-| AI Insight Card(分析摘要卡) | `card` 底 + 24px 内边距;标题 text-h2 + `ai-badge` + 副标题 13px `ink-muted`;三行 = 眉标 12px `ink-faint`(岗位优势/当前短板/推荐行动)+ 条目 13px(优势 ✓ 绿 / 短板 中性图标无红 + 来源前缀 / 行动 → 绿,gap 眉行 + action 行);每行 top-3、空行不渲染;底部 ghost「查看完整分析」;未分析/解析失败 → 卡内引导(不造假);四态齐全 |
+| AI Insight Card(分析摘要卡) | `card` 底 + 24px 内边距;标题 text-h2 + `ai-badge` + 副标题 13px `ink-muted`;三行 = 眉标 12px `ink-faint`(岗位优势/当前短板/重点关注)+ 条目 13px(优势 ✓ 绿 top-3 仅标题 / 短板 中性图标无红 + 来源前缀 top-2,与重点关注同文去重 / 重点关注 = 首个建议 gap 一行 准星图标 13px medium);空行不渲染;底部 ghost「查看完整分析」;不渲染建议 action;未分析/解析失败 → 卡内引导(不造假);四态齐全 |
 | Progress Bar | 4px 高胶囊,`sunken` 轨道 + `green-600` 填充;进度环(ATS)12px 描边 |
 
 ### AI 内容约定(AI 语义的全局纪律)

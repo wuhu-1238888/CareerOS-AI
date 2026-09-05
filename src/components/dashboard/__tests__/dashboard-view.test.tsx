@@ -65,7 +65,7 @@ vi.mock("@/trpc/client", () => ({
             profileVersion: null,
             latestMatchScore: null,
             matchUpdatedAt: null,
-            sparkline: [],
+            taskStats: { completed: 0, total: 0 },
           },
           isLoading: false,
           isError: false,
@@ -76,8 +76,8 @@ vi.mock("@/trpc/client", () => ({
   },
 }));
 
-// 合法画像分析(形状同 profile-hub.test.tsx validAnalysis;4 优势 + 3 建议供 top-3 截断断言,
-// 截断细节在 ai-insight-card.test.tsx;此处仅需合法数据让 AI 洞察卡进入内容态)
+// 合法画像分析(形状同 profile-hub.test.tsx validAnalysis;优势/短板/建议不同文 → 三行均渲染;
+// 截断与去重细节在 ai-insight-card.test.tsx;此处仅需合法数据让 AI 洞察卡进入内容态)
 const validAnalysis = {
   summary: "计算机专业应届生。",
   abilityTags: [
@@ -109,8 +109,8 @@ const validAnalysis = {
   ],
   radar: { 产品: 40, 技术: 80, 数据: 68, 沟通: 50, 项目: 66, 行业: 45 },
   suggestions: [
-    { gap: "缺少分布式经验", action: "完成一个分布式项目" },
     { gap: "沟通表达", action: "参与一次项目汇报" },
+    { gap: "缺少分布式经验", action: "完成一个分布式项目" },
     { gap: "行业认知", action: "阅读行业报告" },
   ],
   confidence: { level: "高", note: "信息齐全" },
@@ -238,7 +238,7 @@ describe("DashboardView", () => {
     expect(screen.queryByText("下一步建议")).toBeNull(); // 空态走引导卡,不重复给下一步
   });
 
-  it("内容态:问候一句话 + 3 KPI + AI 洞察摘要 + 成长趋势;不再渲染本周任务与我的工作", () => {
+  it("内容态:问候一句话 + 3 KPI + AI 洞察摘要 + 成长概览;不再渲染本周任务与我的工作", () => {
     mocks.statsData = contentStats();
     mocks.profileData = { aiAnalysis: validAnalysis };
     render(<DashboardView />);
@@ -260,7 +260,7 @@ describe("DashboardView", () => {
     expect(screen.getByText("来自你最近一次画像分析")).toBeInTheDocument();
     expect(screen.getByText("岗位优势")).toBeInTheDocument();
     expect(screen.getByText("当前短板")).toBeInTheDocument();
-    expect(screen.getByText("推荐行动")).toBeInTheDocument();
+    expect(screen.getByText("重点关注")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/profile#glance");
     // 「我的工作」区已随 IA 重构删除
     expect(screen.queryByText("我的工作")).toBeNull();
@@ -281,7 +281,7 @@ describe("DashboardView", () => {
     render(<DashboardView />);
     expect(screen.getByText("AI 洞察")).toBeInTheDocument();
     expect(
-      screen.getByText("完成画像分析后,这里会展示你的岗位优势、当前短板与推荐行动")
+      screen.getByText("完成画像分析后,这里会展示你的岗位优势、当前短板与重点关注")
     ).toBeInTheDocument();
     expect(screen.queryByText("岗位优势")).toBeNull();
     expect(screen.queryByRole("link", { name: "查看完整分析" })).toBeNull();

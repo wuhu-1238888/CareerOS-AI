@@ -1772,7 +1772,7 @@ export const appRouter = t.router({
   // 个人成长(8.2):成长数据层三查询 —— 工作台轻量区块 / 完整报告 / 匿名聚合(见 src/lib/growth/data.ts)。
   // block 与 report 为独立查询(区块不嵌套报告,避免工作台为全量数据买单);aggregate 无用户维度,仅脱敏输出。
   growth: t.router({
-    block: protectedProcedure.query(async ({ ctx }) => computeGrowthBlock(ctx.prisma, ctx.userId, new Date())),
+    block: protectedProcedure.query(async ({ ctx }) => computeGrowthBlock(ctx.prisma, ctx.userId)),
     report: protectedProcedure.query(async ({ ctx }) => computeGrowthReport(ctx.prisma, ctx.userId, new Date())),
     aggregate: protectedProcedure.query(async ({ ctx }) => computeGrowthAggregate(ctx.prisma)),
   }),

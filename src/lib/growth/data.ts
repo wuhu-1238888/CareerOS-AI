@@ -1,6 +1,8 @@
 // 成长数据层(8.2):个人成长报告与匿名聚合的派生读取 —— 画像版本演进(CareerProfile 全版本行 +
-// 相邻版本差异)、任务完成趋势(近 N 周周界计数)、匹配度变化曲线(AgentRun 成功日志,JobMatch 单行无历史)、
-// 路径有效性聚合(按推荐方向分组的平均阶段达成率,仅脱敏输出)。
+// 相邻版本差异)、任务完成趋势(近 12 周周界计数,报告页)、匹配度变化曲线(AgentRun 成功日志,
+// JobMatch 单行无历史)、路径有效性聚合(按推荐方向分组的平均阶段达成率,仅脱敏输出)。
+// 工作台区块(computeGrowthBlock)为概览口径:真实趋势历史不足(匹配度无多行历史、任务历史受
+// 替换式路线图限制仅覆盖当前)→ 只返回计数快照,趋势一律去报告页。
 // 纯读:不写库、不启动 Agent。数据边界:路线图为替换式(生成时删旧建新)→ 任务完成历史仅覆盖
 // 当前路线图(遗留,见 progress.md);聚合组内用户数 < MIN_AGGREGATE_USERS 不返回该组(隐私下限)。
 import type { PrismaClient } from "@prisma/client";
@@ -15,8 +17,7 @@ import {
 } from "@/lib/profile/profile-diff";
 import { shanghaiWeekStarts } from "@/lib/dashboard/stats";
 
-// 工作台区块与报告页的周桶窗口(近 8 周 / 近 12 周)
-export const BLOCK_WEEKS = 8;
+// 报告页任务趋势的周桶窗口(近 12 周)
 export const REPORT_WEEKS = 12;
 // 聚合隐私下限:组内用户数不足则不返回该组(计划 8.2:样本不足展示引导而非报错)
 export const MIN_AGGREGATE_USERS = 5;
@@ -33,14 +34,14 @@ export type WeekBucket = {
 export type GrowthBlock = {
   /** 画像版本数(0 = 无画像) */
   profileVersionCount: number;
-  /** 最新画像版本号(区块展示「当前 V{n}」);无画像 → null */
+  /** 最新画像版本号(区块展示「第 X 版」);无画像 → null */
   profileVersion: number | null;
   /** 最新匹配度(JobMatch.matchReport.overallScore,防御解析);无匹配/损坏 → null */
   latestMatchScore: number | null;
   /** 最近一次匹配时间(仅在匹配度存在时前端展示) */
   matchUpdatedAt: string | null;
-  /** 近 8 周任务完成 sparkline(最早在前,当前周最后) */
-  sparkline: WeekBucket[];
+  /** 当前路线图任务完成计数(替换式路线图 → 历史仅覆盖当前;无路线图 → {0,0}) */
+  taskStats: { completed: number; total: number };
 };
 
 export type ProfileVersionPoint = {
@@ -122,10 +123,9 @@ const versionAnalysisSchema = profileAnalysisSchema.pick({ radar: true, abilityT
 
 export async function computeGrowthBlock(
   prisma: PrismaClient,
-  userId: string,
-  now: Date
+  userId: string
 ): Promise<GrowthBlock> {
-  const [versionCount, latestProfile, jobMatch, sparkline] = await Promise.all([
+  const [versionCount, latestProfile, jobMatch, tasks] = await Promise.all([
     prisma.careerProfile.count({ where: { userId } }),
     prisma.careerProfile.findFirst({
       where: { userId },
@@ -136,7 +136,10 @@ export async function computeGrowthBlock(
       where: { userId },
       select: { matchReport: true, updatedAt: true },
     }),
-    taskCompletionByWeek(prisma, userId, BLOCK_WEEKS, now),
+    prisma.task.findMany({
+      where: { stage: { roadmap: { userId } } },
+      select: { status: true },
+    }),
   ]);
   const score = matchScoreSchema.safeParse(jobMatch?.matchReport);
   return {
@@ -144,7 +147,10 @@ export async function computeGrowthBlock(
     profileVersion: latestProfile?.version ?? null,
     latestMatchScore: score.success && typeof score.data.overallScore === "number" ? score.data.overallScore : null,
     matchUpdatedAt: jobMatch ? jobMatch.updatedAt.toISOString() : null,
-    sparkline,
+    taskStats: {
+      completed: tasks.filter((task) => task.status === "completed").length,
+      total: tasks.length,
+    },
   };
 }
 
