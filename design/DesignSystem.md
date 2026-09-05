@@ -534,6 +534,8 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 
 ### 核心组件 1:Agent Card(Agent 顾问卡)
 
+> 2026-09 工作台 IA 重构后,工作台不再使用本卡(组件已删,顾问卡与顶部导航重复);模块页如需顾问卡沿用本规格。
+
 产品的叙事核心——"多个 AI 职业顾问共同服务你"。每个 Agent 一张卡:
 
 ```
@@ -640,7 +642,8 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 | Empty State | 居中,节点轨迹插画 ≤180px + 18px/600 标题 + 14px `ink-muted` 描述 + 主按钮。文案给"下一步":「还没有简历——上传或从画像生成第一版」 |
 | Skeleton | `sunken` 块 + `rounded.control`,尺寸与真实内容一致,透明度 0.5→1 呼吸动画;AI 分析页用 Agent 卡骨架 + 文案轮播 |
 | Table | 表头 12px/600 `ink-muted` + `hairline` 2px 底边;行 44px,悬停 `green-50`;数字右对齐等宽;空表 = 表格内 Empty State |
-| Stat Card | 眉标 12px/600 `ink-muted` → `{typography.num}` 大数字 → 13px 提升/下降徽章 + 16px 趋势图标;3-4 个一行 |
+| Stat Card | 眉标 12px/600 `ink-muted` → `{typography.num}` 大数字 → 13px 提升/下降徽章 + 16px 趋势图标;3-4 个一行(工作台固定 3 个) |
+| AI Insight Card(分析摘要卡) | `card` 底 + 24px 内边距;标题 text-h2 + `ai-badge` + 副标题 13px `ink-muted`;三行 = 眉标 12px `ink-faint`(岗位优势/当前短板/推荐行动)+ 条目 13px(优势 ✓ 绿 / 短板 中性图标无红 + 来源前缀 / 行动 → 绿,gap 眉行 + action 行);每行 top-3、空行不渲染;底部 ghost「查看完整分析」;未分析/解析失败 → 卡内引导(不造假);四态齐全 |
 | Progress Bar | 4px 高胶囊,`sunken` 轨道 + `green-600` 填充;进度环(ATS)12px 描边 |
 
 ### AI 内容约定(AI 语义的全局纪律)

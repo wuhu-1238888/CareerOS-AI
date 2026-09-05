@@ -786,6 +786,8 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 **验证**:每轮 typecheck / lint / 全量测试绿;P2 后 602/602(61 文件)。
 
+**工作台 IA 重构修订(2026-09-06)**:按用户验收意见,工作台从「数据展示 + 模块入口混合」收敛为 3 大核心区(状态 → 行动 → 洞察 → 成长),回答四问。① KPI 4 → 3(「本周任务」卡删除;stats.ts 零改动,weekTasks 仍供问候行一句话状态)。② 3 张顾问卡 → 单张 AIInsightCard(`src/components/dashboard/ai-insight-card.tsx`):数据源 profile.get 的 aiAnalysis 客户端 safeParse(先例 profile-result.tsx),岗位优势/当前短板(方向 weaknesses 派生,带来源前缀)/推荐行动各 top-3;底部「查看完整分析」→ /profile#glance(仅已分析且有合法数据);未分析/加载失败/解析失败 → 卡内引导,零伪造;零后端/DB/AI 改动。③ 「我的工作」区与 agent-card/module-card 组件删除(功能/路由/业务逻辑全保留)。④ computeNextStep 规则链与 CTA 深链 100% 不变;stats 700ms 轮询保留。⑤ 「下一步建议」视觉层级增强(标题 16px/600、说明 14px),逻辑零改动。
+
 ## 十二、M6 补记:Phase 2 增强能力(2026-08-23,任务 6.1–6.9 落地确认)
 
 M6(岗位匹配/技能教练/画像对比/简历多版本/分享卡片/深色模式)实施中形成的新架构决策,以实际代码为准:

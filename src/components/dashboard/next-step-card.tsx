@@ -30,8 +30,8 @@ export function NextStepCard({
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-caption font-semibold text-green-700">下一步建议</p>
-        <p className="mt-0.5 text-body-lg font-medium text-ink">{title}</p>
-        <p className="mt-0.5 text-body-sm text-ink-secondary">{text}</p>
+        <p className="mt-0.5 text-h3 text-ink">{title}</p>
+        <p className="mt-0.5 text-body text-ink-secondary">{text}</p>
       </div>
       <Button type="button" asChild>
         <Link href={href}>

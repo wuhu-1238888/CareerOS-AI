@@ -3,8 +3,8 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)**、**Stage 7(7.1–7.3)**、**Stage 8(8.1–8.2)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10、7.4/7.5 按用户指示未执行
-- **最近更新**:2026-09-05,简历优化页操作区 IA 调整(全部接受移入 AI 建议区加确认、导出 PDF 移入最终文本预览区);测试基线 926/97
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、6.1 – 6.9、7.1 – 7.3、8.1 – 8.2 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
+- **最近更新**:2026-09-06,工作台 IA 重构(3 大核心区:状态/下一步建议/KPI×3/AI 洞察摘要卡/成长趋势,删「我的工作」与顾问卡);测试基线 929/97
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、工作台 IA 重构、6.1 – 6.9、7.1 – 7.3、8.1 – 8.2 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
 - **当前状态**:**Stage 6–8 已实现并推送,浏览器人工验收待做**(Phase 2 整体验收 + Stage 7 面试验收 + Stage 8 走查同批,要点见各节「下一步」);6.10、7.4/7.5 按用户指示不执行;生产部署暂缓(清单见 deployment-checklist.md)。
 - **测试基线**:926 个测试 / 97 个文件全部通过;typecheck / lint 零错误;生产构建成功;prompt 打包 11/11 打入 tRPC Serverless 路由
 
@@ -1115,3 +1115,27 @@ Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → buil
 ## 下一步
 
 浏览器人工验收:深色模式下「删除当前版本」危险色菜单项与确认框可读性。
+
+# 工作台 IA 重构:状态 → 行动 → 洞察 → 成长(2026-09-06)
+
+## 背景
+
+用户验收意见:工作台当前结构(问候 → 4 KPI → 3 顾问卡 → 成长趋势 → 我的工作)混杂两种入口层级——顾问卡 = 功能入口(画像顾问/规划顾问/简历顾问)、「我的工作」= 模块入口(职业画像/成长路线/简历优化),均与顶部导航重复,真正的信息展示只占一半。要求重构为 3 大核心区,回答四问(我现在处于什么状态 / AI 发现了什么 / 我下一步应该做什么 / 我的成长有没有产生变化):①当前状态 + 下一步建议 ②AI 洞察 ③成长趋势。删除「我的工作」展示区(仅删展示,功能/路由/数据/业务逻辑全部保留)。用户已拍板:AI 洞察内容 = 画像分析为主(profile aiAnalysis,不混入岗位匹配报告);「查看完整分析」→ /profile#glance。
+
+## 主要修改
+
+- `dashboard-view.tsx`(唯一业务文件):JSX 顺序 = 问候行 → NextStepCard → KPI×3 → AIInsightCard → GrowthBlock;删「本周任务」StatCard(weekDelta/resumeHref/formatDate 一并删除;weekTasks 数据仍供问候行一句话状态)、删 3 张 AgentCard 的 AI 洞察区、删「我的工作」区整段;computeNextStep 规则链与 5 个 CTA 深链逐字不动;stats 查询层(700ms 轮询)零改动;骨架屏改 3 KPI + 单 AI 洞察块
+- `ai-insight-card.tsx`(新增):五态恒定外壳(未分析引导「去完成画像」→ /profile / 加载骨架 / 错误重试 / 降级「去画像页」→ /profile / 内容);数据源 profile.get 的 aiAnalysis 客户端 safeParse(先例 profile-result.tsx);岗位优势 / 当前短板(方向 weaknesses 派生,带来源前缀,中性图标无红)/ 推荐行动(gap+action 双行)各 top-3;底部「查看完整分析」→ /profile#glance 仅内容态;未分析不发请求(enabled);只呈现 AI 原文,无命令式措辞(与「下一步建议」分工);无新颜色/图表/ui 组件
+- `next-step-card.tsx`:视觉层级两处(标题 text-body-lg font-medium → text-h3、说明 text-body-sm → text-body),规则链与跳转零改动
+- 删除 `agent-card.tsx` / `module-card.tsx` / `module-card.test.tsx`(唯一消费者均为 dashboard-view;grep 核实);format.ts 保留(formatRelativeTime 失去消费者,留作后续清理候选)
+- 测试:dashboard-view.test.tsx 重写(删 Agent 顾问区/失败态/模块入口区等 6 套件,增 profile.get mock 与 validAnalysis fixture,新增 AI 洞察内容态 + 未分析引导两例;规则链全套保留,规则 4a 计数 2→1);ai-insight-card.test.tsx 新增 8 例(五态 + top-3 截断 + 来源前缀 + 空行不渲染 + 分析导向纪律)
+- 文档:DesignRules Dashboard 节重写(3 大核心区、KPI 3 卡、AI 洞察卡规格、删「卡片主体与 CTA 必须为两个不同导航目标」规则);DesignSystem Agent Card 留档注、Stat Card 行「工作台固定 3 个」、新增 AI Insight Card 行;technical-design 第十一节追加修订附记;page.tsx 注释同步
+
+## 验证
+
+- 定向(ai-insight-card + dashboard-view)22/22;全量 929/929(97 文件);typecheck / lint 零错误(未跑 build:用户 dev server 在跑)
+- Playwright 走查(msedge 有头,自起 dev server 3002,夹具直插 + 级联清理):**32/32 通过**。夹具 A(画像 v2 已分析 + 路线图 + 简历 2 pending):问候行「本周完成 1 个任务,路线图进度 25%」、下一步建议规则 5 单 CTA「继续成长路线」→ /navigator?focus=current、KPI 85/较上次 +15%/25%/2、无「本周任务」、AI 洞察三行眉标 + 真实条目(优势 top-3/短板带来源前缀/建议 gap+action)、查看完整分析 → /profile#glance 落到 #profile-glance 锚点、成长趋势「第 2 版/共分析 2 次」、无顾问卡/无我的工作、1280px 无横向溢出(scrollWidth-clientWidth=0)。夹具 B(无画像降级):规则 1「去完成画像」CTA 首位、AI 洞察卡内引导、无查看完整分析、无伪造条目、同样无溢出。走查期间发现并规避一环境坑:headless msedge 下页面 JS 不执行(无 callback 请求),且 goto 后立即交互会赶在水合前触发原生提交 → 登录前必须等 networkidle + 500ms 余量(已随脚本用后即删,不落库)
+
+## 下一步
+
+浏览器人工验收:1160px 容器三断点布局、AI 洞察长文本换行、深色模式可读性。

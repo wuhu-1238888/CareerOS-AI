@@ -1,6 +1,7 @@
-// 工作台测试(5.1):四态(加载骨架/空态引导/错误重试/内容)、KPI 增量徽章、Agent 卡状态与进度条、
-// 两排语义(AI 洞察/我的工作)与顾问卡行动提示、「下一步建议」行动卡与规则链、
-// 模块卡双链接(卡片主体 = 查看模块总览 ≠ CTA 深链定位)、画像过期提示、无基线时不渲染徽章
+// 工作台测试(5.1 + IA 重构):四态(加载骨架/空态引导/错误重试/内容)、KPI 增量徽章、
+// AI 洞察卡(最近一次画像分析摘要;未分析 → 卡内引导)、「下一步建议」行动卡与规则链、
+// 画像过期提示、无基线时不渲染徽章。IA 重构后已删:Agent 顾问区与「我的工作」模块入口区套件
+// (组件已删,工作台不再渲染顾问卡/模块卡)。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   statsData: null as DashboardStats | null,
   statsLoading: false,
   statsError: false,
+  profileData: null as unknown,
+  profileLoading: false,
+  profileError: false,
   refetch: vi.fn(),
 }));
 
@@ -41,6 +45,17 @@ vi.mock("@/trpc/client", () => ({
         }),
       },
     },
+    // AI 洞察卡数据源(画像页同款查询,aiAnalysis 原样返回)
+    profile: {
+      get: {
+        useQuery: () => ({
+          data: mocks.profileData,
+          isLoading: mocks.profileLoading,
+          isError: mocks.profileError,
+          refetch: mocks.refetch,
+        }),
+      },
+    },
     // 8.2:成长区块在工作台内容态渲染;测试聚焦工作台语义,区块数据固定为空(引导分支,无副作用)
     growth: {
       block: {
@@ -60,6 +75,46 @@ vi.mock("@/trpc/client", () => ({
     },
   },
 }));
+
+// 合法画像分析(形状同 profile-hub.test.tsx validAnalysis;4 优势 + 3 建议供 top-3 截断断言,
+// 截断细节在 ai-insight-card.test.tsx;此处仅需合法数据让 AI 洞察卡进入内容态)
+const validAnalysis = {
+  summary: "计算机专业应届生。",
+  abilityTags: [
+    { name: "Python", level: "熟练" },
+    { name: "SQL", level: "熟练" },
+    { name: "JavaScript", level: "基础" },
+  ],
+  strengths: [
+    { title: "实践经历对口", detail: "两段开发经历均与目标岗位直接相关" },
+    { title: "目标清晰", detail: "岗位目标与能力积累方向一致" },
+    { title: "技能组合完整", detail: "编程语言与数据库技能配套" },
+    { title: "学习能力强", detail: "自学完成多个课外项目" },
+  ],
+  directions: [
+    {
+      name: "后端开发",
+      matchScore: 85,
+      reason: "技术栈匹配",
+      strengths: ["Python 熟练"],
+      weaknesses: ["缺少分布式经验"],
+    },
+    {
+      name: "数据分析",
+      matchScore: 70,
+      reason: "SQL 基础",
+      strengths: ["SQL 熟练"],
+      weaknesses: [],
+    },
+  ],
+  radar: { 产品: 40, 技术: 80, 数据: 68, 沟通: 50, 项目: 66, 行业: 45 },
+  suggestions: [
+    { gap: "缺少分布式经验", action: "完成一个分布式项目" },
+    { gap: "沟通表达", action: "参与一次项目汇报" },
+    { gap: "行业认知", action: "阅读行业报告" },
+  ],
+  confidence: { level: "高", note: "信息齐全" },
+};
 
 function emptyStats(): DashboardStats {
   return {
@@ -149,6 +204,9 @@ beforeEach(() => {
   mocks.statsData = null;
   mocks.statsLoading = false;
   mocks.statsError = false;
+  mocks.profileData = null;
+  mocks.profileLoading = false;
+  mocks.profileError = false;
 });
 
 describe("DashboardView", () => {
@@ -180,28 +238,33 @@ describe("DashboardView", () => {
     expect(screen.queryByText("下一步建议")).toBeNull(); // 空态走引导卡,不重复给下一步
   });
 
-  it("内容态:问候一句话 + KPI 大数字与增量徽章(较上次/较上周)", () => {
+  it("内容态:问候一句话 + 3 KPI + AI 洞察摘要 + 成长趋势;不再渲染本周任务与我的工作", () => {
     mocks.statsData = contentStats();
+    mocks.profileData = { aiAnalysis: validAnalysis };
     render(<DashboardView />);
     expect(screen.getByText(/你好,甲/)).toBeInTheDocument();
     expect(screen.getByText("本周完成 3 个任务,路线图进度 43%")).toBeInTheDocument();
-    // KPI 眉标与数值
+    // KPI 眉标与数值(3 卡)
     expect(screen.getByText("岗位匹配度")).toBeInTheDocument();
     expect(screen.getByText("88")).toBeInTheDocument();
     expect(screen.getByText("路线图进度")).toBeInTheDocument();
     expect(screen.getByText("43%")).toBeInTheDocument();
     expect(screen.getByText("待处理建议")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument(); // 待处理建议 = 2(最近版本 2 条 pending)
-    expect(screen.getByText("本周任务")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument(); // 本周任务 = 3(简历版本数已由待处理建议替换)
-    // 增量徽章
+    expect(screen.queryByText("本周任务")).toBeNull();
+    expect(screen.queryByText("较上周")).toBeNull();
+    // 增量徽章(仅岗位匹配度有基线)
     expect(screen.getByText("较上次 +16%")).toBeInTheDocument();
-    expect(screen.getByText("较上周 +1")).toBeInTheDocument();
-    // 两排语义区块标题
+    // AI 洞察卡(最近一次画像分析摘要)
     expect(screen.getByText("AI 洞察")).toBeInTheDocument();
-    expect(screen.getByText("AI 最近帮你发现了什么")).toBeInTheDocument();
-    expect(screen.getByText("我的工作")).toBeInTheDocument();
-    expect(screen.getByText("你上次做到哪里")).toBeInTheDocument();
+    expect(screen.getByText("来自你最近一次画像分析")).toBeInTheDocument();
+    expect(screen.getByText("岗位优势")).toBeInTheDocument();
+    expect(screen.getByText("当前短板")).toBeInTheDocument();
+    expect(screen.getByText("推荐行动")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/profile#glance");
+    // 「我的工作」区已随 IA 重构删除
+    expect(screen.queryByText("我的工作")).toBeNull();
+    expect(screen.queryByText("你上次做到哪里")).toBeNull();
     // 「下一步建议」行动卡(规则 5:路线图 6/14 未完成)
     expect(screen.getByText("下一步建议")).toBeInTheDocument();
     expect(screen.getByText("继续推进成长路线")).toBeInTheDocument();
@@ -210,109 +273,30 @@ describe("DashboardView", () => {
     expect(nextStepCta.querySelector("svg")).not.toBeNull(); // P1:行动卡 CTA 尾部箭头(aria-hidden)
   });
 
-  it("无基线:岗位匹配度/本周任务均无徽章(较上次/较上周不渲染)", () => {
-    mocks.statsData = {
-      ...contentStats(),
-      profile: { ...contentStats().profile, matchScore: null, matchScoreDelta: null },
-      weekTasks: { completed: 0, delta: null },
-    };
-    render(<DashboardView />);
-    expect(screen.queryByText(/较上次/)).toBeNull();
-    expect(screen.queryByText(/较上周/)).toBeNull();
-    expect(screen.getByText("—")).toBeInTheDocument(); // 岗位匹配度无数据占位
-  });
-
-  it("Agent 顾问区:已完成/待命/分析中三态 badge + 运行中进度条(60%)与文案", () => {
-    mocks.statsData = contentStats();
-    render(<DashboardView />);
-    expect(screen.getByText("已完成")).toBeInTheDocument();
-    expect(screen.getByText("待命")).toBeInTheDocument();
-    expect(screen.getByText("分析中")).toBeInTheDocument();
-    expect(screen.getByText("正在分析…")).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "简历顾问分析进度" })).toHaveAttribute(
-      "aria-valuenow",
-      "60"
-    );
-    // 最近产出与上次分析时间
-    expect(screen.getByText("画像 v2 · 2 个推荐方向")).toBeInTheDocument();
-    expect(screen.getAllByText(/上次分析:/)).toHaveLength(2); // 画像(已完成)与简历(分析中)各一条
-    // 三张卡均可点击进入模块;画像顾问深链最近分析核心结论(工作台导航优化 P0)
-    expect(screen.getAllByRole("link", { name: /画像顾问/ }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /画像顾问/ })).toHaveAttribute("href", "/profile#glance");
-    expect(screen.getByRole("link", { name: /规划顾问/ })).toHaveAttribute("href", "/navigator");
-    expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute(
-      "href",
-      "/resume?resumeId=resume-r1"
-    );
-    // 底部行动提示行(AI 洞察语义)
-    expect(screen.getByText(/查看画像分析/)).toBeInTheDocument();
-    expect(screen.getByText(/查看成长规划/)).toBeInTheDocument();
-    expect(screen.getByText(/查看优化建议/)).toBeInTheDocument();
-  });
-
-  it("Agent 失败态:失败 badge + 进入模块重试引导", () => {
-    mocks.statsData = {
-      ...contentStats(),
-      agents: {
-        ...contentStats().agents,
-        resume: { status: "failed", lastRunAt: null, lastMessage: null, progressCount: 0 },
-      },
-    };
-    render(<DashboardView />);
-    expect(screen.getByText("失败")).toBeInTheDocument();
-    expect(screen.getByText("最近一次分析未完成,进入模块重试")).toBeInTheDocument();
-  });
-
-  it("模块入口区:卡片主体(查看模块)≠ CTA(继续工作);无路线图 →「开始规划」", () => {
-    mocks.statsData = {
-      ...contentStats(),
-      roadmap: { exists: false, completed: 0, total: 0, progress: null, stageCount: 0, targetDirection: null },
-    };
-    render(<DashboardView />);
-    // 卡片主体 = 查看模块总览;CTA = 继续当前工作(深链定位),两条链接目标不同
-    expect(screen.getByRole("link", { name: "查看职业画像" })).toHaveAttribute("href", "/profile");
-    expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile#glance");
-    expect(screen.getByRole("link", { name: "查看成长路线" })).toHaveAttribute("href", "/navigator");
-    expect(screen.getByRole("link", { name: "开始规划" })).toHaveAttribute("href", "/navigator");
-    expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resume?tab=resumes");
-    expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute("href", "/resume?resumeId=resume-r1");
-    expect(screen.getByText("本周完成 3 个任务,生成路线图后开始打卡")).toBeInTheDocument();
-    // 推荐下一步规则 3(无路线图)→ 生成成长路线(行动卡)
-    expect(screen.getByText("下一步建议")).toBeInTheDocument();
-    expect(screen.getByText("生成成长路线", { selector: "p" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "生成成长路线" })).toHaveAttribute("href", "/navigator");
-  });
-
-  it("模块卡真实状态文案:路线图阶段数/任务数 + 简历最近工作版本数", () => {
-    mocks.statsData = contentStats();
-    render(<DashboardView />);
-    expect(screen.getByText("3 个阶段 · 6/14 任务完成")).toBeInTheDocument();
-    expect(screen.getByText("最近:简历.docx · 3 个优化版本")).toBeInTheDocument();
-  });
-
-  it("无最近工作简历(无有效 run):简历 CTA 回退 /resume;画像/路线图深链不受影响", () => {
-    mocks.statsData = {
-      ...contentStats(),
-      resume: { ...contentStats().resume, lastActivityId: null, lastActivityFileName: null },
-    };
-    render(<DashboardView />);
-    expect(screen.getByRole("link", { name: /简历顾问/ })).toHaveAttribute("href", "/resume");
-    // 画像/路线图 CTA 深链最近结果;简历无最近工作记录 → 回退 /resume(服务端未传参时取最新行)
-    expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile#glance");
-    expect(screen.getByRole("link", { name: "继续学习" })).toHaveAttribute("href", "/navigator?focus=current");
-    expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute("href", "/resume");
-  });
-
-  it("表单已填未分析:完整工作台 + 画像模块「开始分析」", () => {
+  it("AI 洞察未分析:卡内引导「去完成画像」,无摘要条目、无查看完整分析(不造假)", () => {
     mocks.statsData = {
       ...contentStats(),
       profile: { ...contentStats().profile, analyzed: false, matchScore: null, matchScoreDelta: null, directionCount: 0 },
     };
     render(<DashboardView />);
-    expect(screen.getByText("岗位匹配度")).toBeInTheDocument();
-    // 卡片主体与 CTA(空态同页:模块页即创建流程)
-    expect(screen.getByRole("link", { name: "查看职业画像" })).toHaveAttribute("href", "/profile");
-    expect(screen.getByRole("link", { name: "开始分析" })).toHaveAttribute("href", "/profile");
+    expect(screen.getByText("AI 洞察")).toBeInTheDocument();
+    expect(
+      screen.getByText("完成画像分析后,这里会展示你的岗位优势、当前短板与推荐行动")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("岗位优势")).toBeNull();
+    expect(screen.queryByRole("link", { name: "查看完整分析" })).toBeNull();
+    // 「去完成画像」链接:下一步建议卡 CTA(DOM 首个)+ AI 洞察引导 + 成长区块空态引导,均指 /profile
+    expect(screen.getAllByRole("link", { name: "去完成画像" })[0]).toHaveAttribute("href", "/profile");
+  });
+
+  it("无基线:岗位匹配度无徽章(较上次不渲染)", () => {
+    mocks.statsData = {
+      ...contentStats(),
+      profile: { ...contentStats().profile, matchScore: null, matchScoreDelta: null },
+    };
+    render(<DashboardView />);
+    expect(screen.queryByText(/较上次/)).toBeNull();
+    expect(screen.getByText("—")).toBeInTheDocument(); // 岗位匹配度无数据占位
   });
 
   it("画像过期(8 天前):问候行显示建议更新提示与入口", () => {
@@ -336,7 +320,8 @@ describe("下一步建议(规则链,基于真实状态)", () => {
     expect(screen.getByText("下一步建议")).toBeInTheDocument();
     expect(screen.getByText("完成职业画像", { selector: "p" })).toBeInTheDocument();
     expect(screen.getByText("获得你的专属方向与建议")).toBeInTheDocument();
-    // 8.2:成长区块空态引导也有「去完成画像」链接(均指 /profile);本条断言下一步建议卡 CTA(DOM 中先于成长区块)
+    // 「去完成画像」共 3 处:下一步建议卡 CTA(DOM 中先于 AI 洞察与成长区块)、AI 洞察引导、成长区块空态引导;
+    // 本条断言下一步建议卡 CTA
     expect(screen.getAllByRole("link", { name: "去完成画像" })[0]).toHaveAttribute("href", "/profile");
   });
 
@@ -368,7 +353,7 @@ describe("下一步建议(规则链,基于真实状态)", () => {
     expect(screen.getByRole("link", { name: "生成成长路线" })).toHaveAttribute("href", "/navigator");
   });
 
-  it("规则 4a:无简历且从未优化 → 上传简历 → /resume?upload=1(与模块卡同向)", () => {
+  it("规则 4a:无简历且从未优化 → 上传简历 → /resume?upload=1", () => {
     mocks.statsData = {
       ...contentStats(),
       resume: {
@@ -384,11 +369,10 @@ describe("下一步建议(规则链,基于真实状态)", () => {
     };
     render(<DashboardView />);
     expect(screen.getByText("上传简历", { selector: "p" })).toBeInTheDocument();
-    // 说明文案与模块卡空态进度同文(行动卡 + 模块卡各一处)
-    expect(screen.getAllByText("上传或粘贴简历,开始针对性优化")).toHaveLength(2);
-    const uploadLinks = screen.getAllByRole("link", { name: "上传简历" }); // 行动卡 CTA + 模块卡 CTA
-    expect(uploadLinks).toHaveLength(2);
-    uploadLinks.forEach((l) => expect(l).toHaveAttribute("href", "/resume?upload=1"));
+    expect(screen.getByText("上传或粘贴简历,开始针对性优化")).toBeInTheDocument();
+    // 仅行动卡一处(模块卡已随 IA 重构删除)
+    expect(screen.getAllByRole("link", { name: "上传简历" })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "上传简历" })).toHaveAttribute("href", "/resume?upload=1");
   });
 
   it("规则 4b:有简历但从未优化 → 优化目标简历 → 最近工作简历深链", () => {
