@@ -215,7 +215,7 @@ describe("DashboardView", () => {
     const { container } = render(<DashboardView />);
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
     expect(screen.queryByText(/你好/)).toBeNull();
-    expect(screen.queryByText("岗位匹配度")).toBeNull();
+    expect(screen.queryByText("推荐方向匹配度")).toBeNull();
   });
 
   it("错误态:友好错误卡 + 重试触发 refetch", async () => {
@@ -233,7 +233,7 @@ describe("DashboardView", () => {
     expect(screen.getByText(/你好,甲/)).toBeInTheDocument();
     expect(screen.getByText("从职业画像开始你的探索")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "开始职业探索" })).toHaveAttribute("href", "/profile");
-    expect(screen.queryByText("岗位匹配度")).toBeNull();
+    expect(screen.queryByText("推荐方向匹配度")).toBeNull();
     expect(screen.queryByText("待处理建议")).toBeNull();
     expect(screen.queryByText("下一步建议")).toBeNull(); // 空态走引导卡,不重复给下一步
   });
@@ -245,7 +245,7 @@ describe("DashboardView", () => {
     expect(screen.getByText(/你好,甲/)).toBeInTheDocument();
     expect(screen.getByText("本周完成 3 个任务,路线图进度 43%")).toBeInTheDocument();
     // KPI 眉标与数值(3 卡)
-    expect(screen.getByText("岗位匹配度")).toBeInTheDocument();
+    expect(screen.getByText("推荐方向匹配度")).toBeInTheDocument();
     expect(screen.getByText("88")).toBeInTheDocument();
     expect(screen.getByText("路线图进度")).toBeInTheDocument();
     expect(screen.getByText("43%")).toBeInTheDocument();
@@ -253,7 +253,7 @@ describe("DashboardView", () => {
     expect(screen.getByText("2")).toBeInTheDocument(); // 待处理建议 = 2(最近版本 2 条 pending)
     expect(screen.queryByText("本周任务")).toBeNull();
     expect(screen.queryByText("较上周")).toBeNull();
-    // 增量徽章(仅岗位匹配度有基线)
+    // 增量徽章(仅推荐方向匹配度有基线)
     expect(screen.getByText("较上次 +16%")).toBeInTheDocument();
     // AI 洞察卡(最近一次画像分析摘要)
     expect(screen.getByText("AI 洞察")).toBeInTheDocument();
@@ -289,14 +289,14 @@ describe("DashboardView", () => {
     expect(screen.getAllByRole("link", { name: "去完成画像" })[0]).toHaveAttribute("href", "/profile");
   });
 
-  it("无基线:岗位匹配度无徽章(较上次不渲染)", () => {
+  it("无基线:推荐方向匹配度无徽章(较上次不渲染)", () => {
     mocks.statsData = {
       ...contentStats(),
       profile: { ...contentStats().profile, matchScore: null, matchScoreDelta: null },
     };
     render(<DashboardView />);
     expect(screen.queryByText(/较上次/)).toBeNull();
-    expect(screen.getByText("—")).toBeInTheDocument(); // 岗位匹配度无数据占位
+    expect(screen.getByText("—")).toBeInTheDocument(); // 推荐方向匹配度无数据占位
   });
 
   it("画像过期(8 天前):问候行显示建议更新提示与入口", () => {

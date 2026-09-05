@@ -76,7 +76,7 @@ export function GrowthBlock() {
       <div className="mt-4 grid gap-6 sm:grid-cols-3">
         <div>
           <p className="text-caption text-ink-faint">职业画像</p>
-          <p className="mt-1 text-body-lg font-medium text-ink">
+          <p className="mt-1 text-h2 text-ink">
             {data.profileVersion !== null ? `第 ${data.profileVersion} 版` : "—"}
             <span className="ml-2 text-caption font-normal text-ink-muted">
               {data.profileVersionCount > 0 ? `共分析 ${data.profileVersionCount} 次` : "尚未分析"}
@@ -85,13 +85,13 @@ export function GrowthBlock() {
         </div>
         <div>
           <p className="text-caption text-ink-faint">最新岗位匹配度</p>
-          <p className="mt-1 text-body-lg font-medium text-ink">
+          <p className="mt-1 text-h2 text-ink">
             {data.latestMatchScore !== null ? `${data.latestMatchScore}%` : "—"}
           </p>
         </div>
         <div>
           <p className="text-caption text-ink-faint">任务完成</p>
-          <p className="mt-1 text-body-lg font-medium text-ink">
+          <p className="mt-1 text-h2 text-ink">
             {data.taskStats.total > 0
               ? `${data.taskStats.completed} / ${data.taskStats.total}`
               : "—"}
