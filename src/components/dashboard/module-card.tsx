@@ -17,7 +17,7 @@ export function ModuleCard({
   icon: LucideIcon;
   /** 最新进展一句话(无数据 → 引导文案) */
   progress: string;
-  /** 卡片主体目标:查看模块总览(画像/路线图 → 模块页;简历 → 简历中心 /resumes) */
+  /** 卡片主体目标:查看模块总览(画像/路线图 → 模块页;简历 → 简历优化页「我的简历」Tab /resume?tab=resumes) */
   href: string;
   /** CTA 目标:继续当前工作(深链定位:画像 /profile#glance、路线图 /navigator?focus=current、简历 /resume?resumeId=) */
   actionHref: string;

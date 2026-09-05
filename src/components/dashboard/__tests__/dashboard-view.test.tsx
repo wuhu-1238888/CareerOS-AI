@@ -274,7 +274,7 @@ describe("DashboardView", () => {
     expect(screen.getByRole("link", { name: "继续查看" })).toHaveAttribute("href", "/profile#glance");
     expect(screen.getByRole("link", { name: "查看成长路线" })).toHaveAttribute("href", "/navigator");
     expect(screen.getByRole("link", { name: "开始规划" })).toHaveAttribute("href", "/navigator");
-    expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resumes");
+    expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resume?tab=resumes");
     expect(screen.getByRole("link", { name: "继续优化" })).toHaveAttribute("href", "/resume?resumeId=resume-r1");
     expect(screen.getByText("本周完成 3 个任务,生成路线图后开始打卡")).toBeInTheDocument();
     // 推荐下一步规则 3(无路线图)→ 生成成长路线(行动卡)

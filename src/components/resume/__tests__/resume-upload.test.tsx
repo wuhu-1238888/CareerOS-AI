@@ -400,10 +400,10 @@ describe("ResumeUpload", () => {
     expect(onExit).toHaveBeenCalledTimes(2);
   });
 
-  it("面包屑(4.14):crumbParent=简历中心 → 「简历中心 > 上传新简历」", () => {
-    render(<ResumeUpload onExit={vi.fn()} crumbParent="简历中心" />);
+  it("面包屑(4.14):crumbParent=我的简历 → 「我的简历 > 上传新简历」", () => {
+    render(<ResumeUpload onExit={vi.fn()} crumbParent="我的简历" />);
     const nav = screen.getByRole("navigation");
-    expect(within(nav).getByText("简历中心")).toBeInTheDocument();
+    expect(within(nav).getByText("我的简历")).toBeInTheDocument();
     expect(within(nav).getByText("上传新简历")).toBeInTheDocument();
   });
 });

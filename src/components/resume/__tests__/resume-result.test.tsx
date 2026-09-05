@@ -2,7 +2,7 @@
 // 全部已采纳禁用、重新分析/修改信息回调、单条接受走 updateOptimization;
 // 4.7:导出工具条接线(ResumeExport 子组件以 stub 隔离,其内部行为由 resume-export.test.tsx 覆盖);
 // 4.10-layout:预览卡内复制按钮(与预览同源)+ 信息层级顺序断言(对比卡 → 最终文本预览 → ATS 评分);
-// 4.13:「上传新简历」按钮触发 onReupload 回调 + 「查看全部简历」链接指向 /resumes + 当前简历名显示。
+// 4.13:「上传新简历」按钮触发 onReupload 回调 + 「查看全部简历」链接指向「我的简历」Tab(/resume?tab=resumes)+ 当前简历名显示。
 // 6.6:版本选择器(单版本隐藏/多版本切换渲染旧版本,动作作用于当前行)、复制为新版本、删除版本(确认 Dialog/末版禁用)。
 // 注意:userEvent.setup() 会安装自己的剪贴板桩,因此 clipboard/execCommand 必须在 setup 之后 stub。
 import { render, screen, waitFor } from "@testing-library/react";
@@ -343,9 +343,12 @@ describe("ResumeResult 结果视图", () => {
     expect(onReupload).toHaveBeenCalled();
   });
 
-  it("「查看全部简历」(4.13):链接指向简历中心 /resumes", () => {
+  it("「查看全部简历」(4.13):链接指向「我的简历」Tab /resume?tab=resumes", () => {
     renderResult();
-    expect(screen.getByRole("link", { name: "查看全部简历" })).toHaveAttribute("href", "/resumes");
+    expect(screen.getByRole("link", { name: "查看全部简历" })).toHaveAttribute(
+      "href",
+      "/resume?tab=resumes"
+    );
   });
 
   it("「当前简历」(4.13):resumeName 显示在 Hero 左区", () => {

@@ -23,6 +23,7 @@ describe("isProtectedPath", () => {
     expect(isProtectedPath("/profile")).toBe(true);
     expect(isProtectedPath("/navigator")).toBe(true);
     expect(isProtectedPath("/resume")).toBe(true);
+    expect(isProtectedPath("/resumes")).toBe(true); // IA 调整 2026-09:旧简历中心重定向页
     expect(isProtectedPath("/interview")).toBe(true); // 7.2 新增:模拟面试页
     expect(isProtectedPath("/settings")).toBe(true);
     expect(isProtectedPath("/settings/account")).toBe(true);

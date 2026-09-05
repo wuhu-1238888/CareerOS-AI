@@ -1012,3 +1012,35 @@ Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → buil
 - Stage 6 节「下一步」:「Phase 2 整体验收」从一行概述展开为要点式走查清单(匹配主链路/纠偏/无画像降级/画像历史对比/简历多版本/分享卡片/深色模式/Phase 1 回归 + 通过标准),去掉对已删除清单文件的指针;验收前提(mock 演示数据 / 真实 Key)沿用本文件已知问题 #2,不再重复
 - 顶部「当前项目状态」修正:补记 Stage 8(8.1–8.2)完成、测试基线更新为 917/95 文件(原 834/85 为 Stage 7 时点)、当前状态改为「Stage 6–8 人工验收待做」
 - 模拟面试报告评分展示优化节的浏览器验收注记同步最终措辞(「阶段性评分」/「面试评分已完成」,与二轮压缩后的实际 UI 一致)
+
+# 顶部导航 IA 调整:简历中心并入简历优化「我的简历」Tab(2026-09-05)
+
+## 背景
+
+用户决定:将「简历中心」从一级顶部导航移除,不再作为独立顶栏入口。最终一级导航固定 6 项:工作台｜职业画像｜成长路线｜岗位匹配｜简历优化｜模拟面试。简历中心全部能力(列表/查看/切换/新增上传/下载/删除)保留,整合进简历优化页作为页内「我的简历」Tab(概念树:简历优化 ├── 我的简历 └── 简历优化)。
+
+## 主要修改
+
+- 新增 `src/components/ui/tabs.tsx`:通用受控 Tabs(DesignSystem L634 规格:40px 高、选中 14px/500 ink + 2px green-600 下划线、未选中 ink-muted、←→ 键循环切换;仅渲染当前面板,面板卸载即停)
+- 新增 `src/components/resume/resume-tabs.tsx`:`?tab=resumes` 驱动「简历优化 / 我的简历」页内二级切换;切换 router.replace 且保留其他参数(resumeId 等),回默认 tab 删参数;未知值回落首项
+- `resume/page.tsx`:Suspense 内换 ResumeTabs;PageHeader 标题仍为「简历优化」
+- `resume-center.tsx`:移除 4.15「← 返回」按钮(页内 Tab 无返回语义),其余列表/新增/继续优化/下载/删除零改动
+- `topbar.tsx`:NAV_ITEMS 删「简历中心」,6 入口(桌面与移动抽屉共用配置)
+- 旧路由 `/resumes` 保留为薄重定向页(redirect("/resume?tab=resumes"),复用 src/app/page.tsx 的 redirect 先例),旧书签/外链不死链;auth.config protectedPaths 补 `/resumes`
+- 引用更新:resume-hub 退出上传去向 → /resume?tab=resumes + crumbParent「我的简历」;resume-result「查看全部简历」;dashboard-view 简历卡主体;interview-hub 引导改 /resume?upload=1「去上传简历」;router.ts 错误文案「请先上传简历」;privacy/settings 文案与注释
+- 文档:README 模块行「简历优化与简历中心」→「简历优化」;demo-flow 第 5 步可选条目;DesignRules 导航 6 入口修正(顺带补上原漏列的模拟面试)、工作台卡片主体、「同路由不同 Tab 视为不同视图目标」补注、原简历中心小节改标题;DesignSystem 顶栏入口列表同步
+
+## 已知取舍
+
+- 「我的简历」Tab 下 PageHeader 标题仍为「简历优化」(模块名不变,不重设计页面)
+- 切 tab 丢未保存表单编辑/中断在途上传 = 与「刷新/离开页面」等价语义,现状接受
+- /resumes 保留 307 跳转链
+
+## 验证
+
+- 全量测试 924/924(97 文件);typecheck / lint 零错误;停 dev 后 build 成功(/resumes 为 147B 静态重定向页)
+- Playwright 登录态走查 16/16:顶栏 6 入口无简历中心;/resumes → /resume?tab=resumes;我的简历空态与选中态;新增 → 上传视图面包屑「我的简历」→ 返回回 Tab;切优化 Tab 去参;面试无简历引导 /resume?upload=1;粘贴建行 → 继续优化(?resumeId=)→ 切 Tab 保留 resumeId;工作台简历卡主体 → /resume?tab=resumes;深色模式 Tab 正常(Radix 菜单打开时页面移出 a11y 树为既有行为,关菜单后正常)
+
+## 下一步
+
+浏览器人工验收:多简历并存切换、上传成功落优化 tab、删除、响应式抽屉、深色模式整体走查(截图任务由用户手动执行)。

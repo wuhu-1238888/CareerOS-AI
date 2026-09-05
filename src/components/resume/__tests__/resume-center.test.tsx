@@ -1,6 +1,5 @@
-// 简历中心测试(4.13,自设置页简历文件管理迁移):空态/列表与下载链接/继续优化与查看入口/删除确认弹窗/
-// 确认后调接口 + toast + 刷新/取消不调;卡片不存在「更换简历」
-// 4.15:「← 返回」—— 应用内(有历史/同源)→ router.back();直接打开(无历史)或外链(跨源)→ 回工作台 /dashboard
+// 我的简历测试(4.13,自设置页简历文件管理迁移;IA 调整 2026-09 并入简历优化页「我的简历」Tab):
+// 空态/列表与下载链接/继续优化与查看入口/删除确认弹窗/确认后调接口 + toast + 刷新/取消不调;卡片不存在「更换简历」
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Toaster } from "sonner";
@@ -22,12 +21,6 @@ const mocks = vi.hoisted(() => ({
   deleteMutateAsync: vi.fn(),
   deletePending: false,
   invalidate: vi.fn(),
-  // 4.15:稳定 router 对象(与生产 useRouter 一致)
-  router: { back: vi.fn(), replace: vi.fn(), push: vi.fn() },
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => mocks.router,
 }));
 
 vi.mock("@/trpc/client", () => ({
@@ -63,45 +56,13 @@ beforeEach(() => {
   mocks.deleteMutateAsync.mockResolvedValue({ ok: true });
 });
 
-describe("ResumeCenter(简历中心,4.13)", () => {
-  it("4.15:「← 返回」渲染;应用内进入(有历史、同源)→ router.back() 回上一页", async () => {
-    const lengthSpy = vi.spyOn(window.history, "length", "get").mockReturnValue(2);
-    mocks.listData = [];
-    render(<ResumeCenter />);
-    await userEvent.setup().click(screen.getByRole("button", { name: /返回/ }));
-    expect(mocks.router.back).toHaveBeenCalledTimes(1);
-    expect(mocks.router.replace).not.toHaveBeenCalled();
-    lengthSpy.mockRestore();
-  });
-
-  it("4.15:直接打开(无应用内历史)→ 回工作台 /dashboard", async () => {
-    const lengthSpy = vi.spyOn(window.history, "length", "get").mockReturnValue(1);
-    mocks.listData = [];
-    render(<ResumeCenter />);
-    await userEvent.setup().click(screen.getByRole("button", { name: /返回/ }));
-    expect(mocks.router.back).not.toHaveBeenCalled();
-    expect(mocks.router.replace).toHaveBeenCalledWith("/dashboard");
-    lengthSpy.mockRestore();
-  });
-
-  it("4.15:外链进入(跨源 referrer,首载自站外)→ 回工作台 /dashboard,不把用户带出应用", async () => {
-    const lengthSpy = vi.spyOn(window.history, "length", "get").mockReturnValue(2);
-    const referrerSpy = vi.spyOn(document, "referrer", "get").mockReturnValue("https://example.com/");
-    mocks.listData = [];
-    render(<ResumeCenter />);
-    await userEvent.setup().click(screen.getByRole("button", { name: /返回/ }));
-    expect(mocks.router.back).not.toHaveBeenCalled();
-    expect(mocks.router.replace).toHaveBeenCalledWith("/dashboard");
-    lengthSpy.mockRestore();
-    referrerSpy.mockRestore();
-  });
-
+describe("ResumeCenter(我的简历 Tab,4.13)", () => {
   it("空列表:显示空态引导 + 「新增简历」入口(4.12;4.14 带 from=resumes)", async () => {
     mocks.listData = [];
     render(<ResumeCenter />);
     expect(await screen.findByText("暂无简历")).toBeInTheDocument();
     expect(screen.getByText(/点击右上角「新增简历」上传或粘贴第一份简历/)).toBeInTheDocument();
-    // 4.14:from=resumes 供上传视图退出时返回简历中心
+    // 4.14:from=resumes 供上传视图退出时返回「我的简历」Tab
     expect(screen.getByRole("link", { name: /新增简历/ })).toHaveAttribute(
       "href",
       "/resume?upload=1&from=resumes"

@@ -5,7 +5,7 @@
 // 最终文本是流程产出、ATS 是对产出的质量检测,故预览在 ATS 之前;
 // 预览直接渲染服务端 canonical finalText,与复制按钮、导出 PDF 同源同一字符串,无二次组装。
 // 4.13:工具条「上传新简历」(原「重新上传简历」,进入上传视图新建简历行,当前简历与优化结果保留)
-// + 「查看全部简历」→ 顶级导航「简历中心」(/resumes);Hero 左区显示当前简历名(resumeName)。
+// + 「查看全部简历」→ 简历优化页「我的简历」Tab(/resume?tab=resumes);Hero 左区显示当前简历名(resumeName)。
 // 状态持久化走 resume.updateOptimization / resume.acceptAll;成功后失效 resume.get 以刷新采纳计数与最终文本。
 // 6.6 版本选择器:镜像 profile-result 自持模式(listVersions + viewingId + getVersion),查看旧版本时
 // accept/reject/导出/ATS 全部既有逻辑作用于当前 row 零改动;「复制为新版本」深拷贝(ATS 置空)、
@@ -276,9 +276,9 @@ export function ResumeResult({
           <Button type="button" variant="ghost" onClick={onReupload}>
             上传新简历
           </Button>
-          {/* 「查看全部简历」(4.13):顶级导航「简历中心」—— 查看/切换/新增/删除全部简历 */}
+          {/* 「查看全部简历」(4.13):简历优化页「我的简历」Tab —— 查看/切换/新增/删除全部简历 */}
           <Button asChild variant="secondary">
-            <Link href="/resumes">查看全部简历</Link>
+            <Link href="/resume?tab=resumes">查看全部简历</Link>
           </Button>
         </div>
       </div>

@@ -45,10 +45,10 @@ export function ResumeUpload({
   onUploaded?: () => void;
   /** 「从已有简历继续」(4.13):选择已有简历 → hub 切换活跃行并退出上传视图 */
   onSelectResume?: (id: string) => void;
-  /** 退出上传视图(4.14):hub 按来源动态决定去向(结果视图 / 简历中心);未传时隐藏返回与取消 */
+  /** 退出上传视图(4.14):hub 按来源动态决定去向(结果视图 / 「我的简历」Tab);未传时隐藏返回与取消 */
   onExit?: () => void;
-  /** 面包屑父级(4.14):与退出目标一致(简历优化 = 回原视图;简历中心 = 跳 /resumes) */
-  crumbParent?: "简历优化" | "简历中心";
+  /** 面包屑父级(4.14):与退出目标一致(简历优化 = 回原视图;我的简历 = 跳 /resume?tab=resumes) */
+  crumbParent?: "简历优化" | "我的简历";
 }) {
   const utils = trpc.useUtils();
   const resume = trpc.resume.get.useQuery({ resumeId });
@@ -131,7 +131,7 @@ export function ResumeUpload({
       await utils.resume.get.invalidate();
     } catch {
       // 用户主动「取消上传」:静默回到已选文件态(文件保留,可重试),不显示错误。
-      // 竞态说明:abort 时服务端可能已完成建行(孤儿行留在简历中心,属可接受限制);
+      // 竞态说明:abort 时服务端可能已完成建行(孤儿行留在「我的简历」Tab,属可接受限制);
       // 客户端不建任何占位行 —— 行只在完整上传完成后由服务端创建,取消不会产生空简历。
       if (controller.signal.aborted) return;
       setUploadError("上传失败,请检查网络后重试");

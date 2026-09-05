@@ -13,13 +13,13 @@ describe("ModuleCard 双链接(卡片主体 ≠ CTA)", () => {
         title="简历优化"
         icon={FileText}
         progress="最近:简历.docx · 3 个优化版本"
-        href="/resumes"
+        href="/resume?tab=resumes"
         actionHref="/resume?resumeId=r1"
         actionLabel="继续优化"
       />
     );
     expect(screen.getAllByRole("link")).toHaveLength(2); // 双链接不嵌套
-    expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resumes");
+    expect(screen.getByRole("link", { name: "查看简历优化" })).toHaveAttribute("href", "/resume?tab=resumes");
     const cta = screen.getByRole("link", { name: "继续优化" });
     expect(cta).toHaveAttribute("href", "/resume?resumeId=r1");
     expect(cta.querySelector("svg")).not.toBeNull(); // P1:CTA 尾部箭头图标(aria-hidden 不进可访问名)

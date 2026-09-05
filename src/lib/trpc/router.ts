@@ -1510,7 +1510,7 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const resumeText = await readOptimizedResumeTextForMatch(ctx);
         if (!resumeText) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "请先在简历中心上传简历" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "请先上传简历" });
         }
         const profileSummary = await readProfileSummaryForMatch(ctx);
         const outcome = await runInterviewQuestions({

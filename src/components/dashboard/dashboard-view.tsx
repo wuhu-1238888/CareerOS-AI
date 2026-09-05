@@ -330,7 +330,7 @@ export function DashboardView() {
                     ? `最近:${data.resume.lastActivityFileName ?? "简历"} · ${data.resume.lastActivityVersionCount} 个优化版本`
                     : "上传或粘贴简历,开始针对性优化"
                 }
-                href="/resumes"
+                href="/resume?tab=resumes"
                 actionHref={resumeHref}
                 actionLabel={data.resume.fileCount > 0 ? "继续优化" : "上传简历"}
               />

@@ -7,7 +7,7 @@ import { AppearanceForm } from "@/components/settings/appearance-form";
 export const metadata: Metadata = { title: "个人设置 - CareerOS AI" };
 
 // 个人设置(1.8):基本资料(昵称/头像配色)、修改密码。
-// 4.13:简历文件管理已整体迁移至顶级导航「简历中心」(/resumes),简历不再是设置项。
+// 4.13:简历文件管理已整体迁移(IA 调整 2026-09 起为简历优化页「我的简历」Tab,/resume?tab=resumes),简历不再是设置项。
 // 6.9:外观(主题三态切换)。
 export default function SettingsPage() {
   return (

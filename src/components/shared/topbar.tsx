@@ -1,6 +1,7 @@
 "use client";
-// 顶栏(64px):logo + 7 个一级入口(工作台/职业画像/成长路线/岗位匹配/简历优化/简历中心/模拟面试)+ 头像下拉(设置/退出)。
+// 顶栏(64px):logo + 6 个一级入口(工作台/职业画像/成长路线/岗位匹配/简历优化/模拟面试)+ 头像下拉(设置/退出)。
 // 当前入口高亮(aria-current + 绿色态);<768px 导航折叠为左侧抽屉。无侧栏、无渐变(DesignRules)。
+// IA 调整(2026-09):「简历中心」已并入简历优化页「我的简历」Tab(/resume?tab=resumes),不再是顶级入口。
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -25,7 +26,6 @@ export const NAV_ITEMS = [
   { href: "/navigator", label: "成长路线" },
   { href: "/matching", label: "岗位匹配" },
   { href: "/resume", label: "简历优化" },
-  { href: "/resumes", label: "简历中心" },
   { href: "/interview", label: "模拟面试" },
 ] as const;
 

@@ -124,10 +124,10 @@ describe("interview 接口(真实写库,顺序执行)", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("start:无简历 → BAD_REQUEST「请先在简历中心上传简历」", async () => {
+  it("start:无简历 → BAD_REQUEST「请先上传简历」", async () => {
     await expect(
       caller(userIdB).interview.start({ interviewType: "行为面", questionCount: 5, targetPosition: "后端" })
-    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "请先在简历中心上传简历" });
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "请先上传简历" });
   });
 
   it("start:成功路径(mock 出题)→ 返回 runId + get 可见新场次,覆盖旧场次", async () => {

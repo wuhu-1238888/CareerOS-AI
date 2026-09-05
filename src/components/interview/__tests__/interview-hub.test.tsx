@@ -175,7 +175,7 @@ describe("InterviewHub(7.2)", () => {
     mocks.resumeData = null;
     render(<InterviewHub />);
     expect(screen.getByText("先上传简历")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "去简历中心上传" })).toHaveAttribute("href", "/resumes");
+    expect(screen.getByRole("link", { name: "去上传简历" })).toHaveAttribute("href", "/resume?upload=1");
     expect(screen.queryByText("设定面试场次")).not.toBeInTheDocument();
   });
 

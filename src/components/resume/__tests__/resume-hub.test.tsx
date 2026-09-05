@@ -3,8 +3,8 @@
 // 4.4-4.5 优化阶段:开始优化触发改写(简历优化师分析中)/ 改写失败重试与返回核对 / 结果视图 / 刷新恢复
 // 4.12:URL 参数活跃简历(?resumeId= 透传 get / ?upload=1 初始上传视图 / 失效护栏去参)+ 上传视图无「更换简历」
 // 4.13:结果视图「上传新简历」按钮 + 当前简历名 + 「查看全部简历」;上传视图「从已有简历继续」切换活跃行
-// 4.14:上传视图退出 —— 返回按来源动态(简历中心 → /resumes;简历优化且有结果视图 → 回原视图;
-// 无结果视图 → /resumes)+ 面包屑父级 + 冷加载 ?upload=1 首帧守卫
+// 4.14:上传视图退出 —— 返回按来源动态(「我的简历」Tab → /resume?tab=resumes;简历优化且有结果视图 → 回原视图;
+// 无结果视图 → /resume?tab=resumes)+ 面包屑父级 + 冷加载 ?upload=1 首帧守卫
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -524,7 +524,7 @@ describe("ResumeHub 状态机", () => {
     expect(mocks.parseMutateAsync).not.toHaveBeenCalled();
   });
 
-  it("结果视图(4.13):显示当前简历名 + 「查看全部简历」链接指向 /resumes", async () => {
+  it("结果视图(4.13):显示当前简历名 + 「查看全部简历」链接指向 /resume?tab=resumes", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -538,7 +538,7 @@ describe("ResumeHub 状态机", () => {
     render(<ResumeHub />);
     expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
     expect(screen.getByText("当前简历:张伟简历.pdf")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看全部简历" })).toHaveAttribute("href", "/resumes");
+    expect(screen.getByRole("link", { name: "查看全部简历" })).toHaveAttribute("href", "/resume?tab=resumes");
   });
 
   it("「从已有简历继续」(4.13):点其他行 → 切活跃行(?resumeId=)并退出上传视图", async () => {
@@ -625,13 +625,13 @@ describe("ResumeHub 状态机", () => {
     // 4.14:无 from 参数 → 来源视为简历优化,面包屑「简历优化」
     expect(screen.getByText("简历优化")).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "返回" }));
-    // 退 uploadMode 回原视图(该行 parsedData=null → 「简历已就绪」),不跳简历中心
+    // 退 uploadMode 回原视图(该行 parsedData=null → 「简历已就绪」),不跳「我的简历」Tab
     expect(await screen.findByText("简历已就绪")).toBeInTheDocument();
     expect(screen.queryByLabelText("上传新简历")).not.toBeInTheDocument();
-    expect(mocks.replace).not.toHaveBeenCalledWith("/resumes");
+    expect(mocks.replace).not.toHaveBeenCalledWith("/resume?tab=resumes");
   });
 
-  it("URL ?upload=1&from=resumes(4.14):进入上传视图,面包屑「简历中心」;点返回 → 后退回简历中心(4.15:不 replace,避免相邻 /resumes 历史)", async () => {
+  it("URL ?upload=1&from=resumes(4.14):进入上传视图,面包屑「我的简历」;点返回 → 后退回「我的简历」Tab(4.15:不 replace,避免相邻同页历史)", async () => {
     mocks.searchParams = { upload: "1", from: "resumes" };
     mocks.resumeData = {
       id: "r1",
@@ -642,18 +642,18 @@ describe("ResumeHub 状态机", () => {
       parsedData: null,
       createdAt: "2026-08-20T10:00:00Z",
     };
-    // 4.15:来源是简历中心「新增简历」,上一历史条目即简历中心(history.length ≥ 2,同源)
+    // 4.15:来源是「我的简历」Tab「新增简历」,上一历史条目即该 Tab(history.length ≥ 2,同源)
     const lengthSpy = vi.spyOn(window.history, "length", "get").mockReturnValue(2);
     render(<ResumeHub />);
     expect(await screen.findByLabelText("上传新简历")).toBeInTheDocument();
-    expect(screen.getByText("简历中心")).toBeInTheDocument(); // 面包屑父级
+    expect(screen.getByText("我的简历")).toBeInTheDocument(); // 面包屑父级
     await userEvent.setup().click(screen.getByRole("button", { name: "返回" }));
     expect(mocks.back).toHaveBeenCalledTimes(1);
-    expect(mocks.replace).not.toHaveBeenCalledWith("/resumes");
+    expect(mocks.replace).not.toHaveBeenCalledWith("/resume?tab=resumes");
     lengthSpy.mockRestore();
   });
 
-  it("结果视图进入上传视图后点返回(4.14):回结果视图,不跳简历中心", async () => {
+  it("结果视图进入上传视图后点返回(4.14):回结果视图,不跳「我的简历」Tab", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "张伟简历.pdf",
@@ -670,7 +670,7 @@ describe("ResumeHub 状态机", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "返回" }));
     expect(await screen.findByRole("button", { name: "全部接受" })).toBeInTheDocument();
     expect(screen.queryByLabelText("上传新简历")).not.toBeInTheDocument();
-    expect(mocks.replace).not.toHaveBeenCalledWith("/resumes");
+    expect(mocks.replace).not.toHaveBeenCalledWith("/resume?tab=resumes");
   });
 
   it("解析失败视图进入上传视图后点返回(4.14):回失败视图(原视图复现)", async () => {
@@ -693,7 +693,7 @@ describe("ResumeHub 状态机", () => {
     expect(screen.queryByLabelText("上传新简历")).not.toBeInTheDocument();
   });
 
-  it("提取失败行自动渲染上传视图(4.14):点返回 → /resumes(无结果视图可回)", async () => {
+  it("提取失败行自动渲染上传视图(4.14):点返回 → /resume?tab=resumes(无结果视图可回)", async () => {
     mocks.resumeData = {
       id: "r1",
       fileName: "扫描件.pdf",
@@ -707,17 +707,17 @@ describe("ResumeHub 状态机", () => {
     expect(
       await screen.findByText("未从文件中提取到文本(可能是图片型 PDF),请粘贴简历文本继续")
     ).toBeInTheDocument();
-    expect(screen.getByText("简历中心")).toBeInTheDocument(); // 面包屑父级 = 退出目标
+    expect(screen.getByText("我的简历")).toBeInTheDocument(); // 面包屑父级 = 退出目标
     await userEvent.setup().click(screen.getByRole("button", { name: "返回" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/resumes");
+    expect(mocks.replace).toHaveBeenCalledWith("/resume?tab=resumes");
   });
 
-  it("无简历上传视图(4.14):点返回 → /resumes", async () => {
+  it("无简历上传视图(4.14):点返回 → /resume?tab=resumes", async () => {
     render(<ResumeHub />);
     expect(await screen.findByText("拖拽简历文件到这里,或点击选择文件")).toBeInTheDocument();
-    expect(screen.getByText("简历中心")).toBeInTheDocument(); // 面包屑父级 = 退出目标
+    expect(screen.getByText("我的简历")).toBeInTheDocument(); // 面包屑父级 = 退出目标
     await userEvent.setup().click(screen.getByRole("button", { name: "返回" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/resumes");
+    expect(mocks.replace).toHaveBeenCalledWith("/resume?tab=resumes");
   });
 
   it("冷加载 ?upload=1(4.14):行切换 effect 首帧不误复位 uploadMode", async () => {

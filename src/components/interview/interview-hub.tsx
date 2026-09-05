@@ -152,7 +152,7 @@ export function InterviewHub() {
             模拟面试的题目由 AI 面试官结合你的简历内容生成。上传并解析简历后,才能开启针对性面试。
           </p>
           <Button className="mt-6" asChild>
-            <Link href="/resumes">去简历中心上传</Link>
+            <Link href="/resume?upload=1">去上传简历</Link>
           </Button>
         </div>
       </div>
