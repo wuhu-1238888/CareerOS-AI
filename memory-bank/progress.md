@@ -1072,3 +1072,25 @@ Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → buil
 ## 下一步
 
 浏览器人工验收:真实浏览器(非 headless)PDF 浮层渲染复测;生产构建下 PDF 导出验证(需停 dev server 后 build + next start);若确认同样失败则评估 yoga-layout 单入口 alias 修复。
+
+# 简历优化页「另存为新版本」IA 调整:入口收进版本选择器(加确认),版本选择器常显(2026-09-05)
+
+## 背景
+
+用户要求优化「复制为新版本」的交互与信息架构:保留底层 duplicateVersion 创建能力(后端/API/DB 零改动),仅调整用户入口与文案。规格要点:顶部工具条移除「复制为新版本」按钮;用户可见文案统一「另存为新版本」;入口放入版本选择器(菜单 = 版本列表 + 分隔线 + 「＋ 另存为新版本」,不与普通版本混排);点击先弹轻量确认 Dialog,确认才创建(当前版本不变、新版本独立、继承应继承内容、后续修改互不影响、旧版本仍可访问);版本选择器常显(单版本也显示「第 1 版 · …」);与「上传新简历」明确区分(上传 = 新简历资产;另存为 = 版本副本);不新增命名系统、不改 DB 字段;复用既有「第 N 版」客户端派生编号。按用户要求本次**不 commit 不 push**(覆盖 CLAUDE.md 自动提交规则)。
+
+## 主要修改
+
+- `resume-result.tsx`(唯一业务文件):版本选择器由 Radix Select 换为既有 DropdownMenu(topbar 先例、menuitem 语义正确、onSelect 自动关菜单、常显零条件分支);trigger = Button outline + aria-label「查看历史版本」+ 常显文案 `versionLabel(row.id)`(row = 当前生效版本,默认最新/查看旧版本时为其 id,单多版本统一覆盖);菜单 = 版本列表(当前版本绿色 Check 指示,点击切换、点当前项仅关菜单,保真原 Select 语义)+ Separator + 「另存为新版本」菜单项 → 轻量确认 Dialog(标题「另存为新版本」/正文「将基于当前版本创建一个独立的新简历版本。当前版本不会受到影响。」/取消 ghost / 确认另存 default,复用删除版本确认的既有模式);`handleDuplicate` 原逻辑零改动(duplicateVersion → toast 改「已另存为新版本」→ setViewingId(null) + 三路 invalidate),finally 关 Dialog;删除版本/重新分析/修改信息/上传新简历/查看全部简历一字不动
+- 视图跳转零新增代码:另存后 `resume.get` 只回最新版本,setViewingId(null) + invalidate 后自动落到新版本
+- 测试:resume-result.test.tsx 重写 4 例(单版本断言反转:选择器常显「第 1 版」、无「复制为新版本」入口;多版本改 menuitem 交互 + 当前版本 Check + trigger 文案同步断言;复制/失败改菜单 → Dialog → 确认流)+ 新增 3 例(取消零变化/正文文案/在途确认按钮禁用);mock 补 isPending;resume-hub.test.tsx 仅补 mock 完整性
+- 文档:DesignRules 简历分析页补第 7 条版本管理规格;DesignSystem L622 工具条描述同步(版本选择器常显、下拉含另存为新版本)
+
+## 验证
+
+- 定向(resume-result + resume-hub)70/70;全量 929/929(97 文件);typecheck / lint 零错误(未跑 build:用户 dev server 在跑,本次未要求)
+- Playwright 走查 24/24(复用用户已启动的 3001 dev server,on-demand 编译加载新代码;Prisma 直插双版本夹具,走查后测试用户已删除):trigger 常显文案「第 2 版 · 日期 · 后端开发工程师」;菜单版本列表 + 当前版本 Check 仅一处 + 分隔后「另存为新版本」;另存确认框标题/正文正确;取消零变化;确认 → toast「已另存为新版本」→ trigger 变「第 3 版」且方向不变 → 列表出现第 3 版、第 1/2 版仍在;切换第 1 版旧内容渲染 + trigger 同步;切回第 3 版已采纳建议保留;删除版本原确认流;上传新简历/查看全部简历/AI 建议计数/最终文本预览/复制/导出 PDF/ATS 全部在位且无「复制为新版本」入口
+
+## 下一步
+
+浏览器人工验收:深色模式下版本菜单与确认框可读性;真实浏览器另存为后版本列表滚动/长文案截断表现。

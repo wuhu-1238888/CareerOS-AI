@@ -131,7 +131,7 @@ vi.mock("@/trpc/client", () => ({
       // 6.6:结果视图版本选择器(hub 测试关注状态机,版本列表为空 = 单版本形态,交互由 resume-result.test.tsx 覆盖)
       listVersions: { useQuery: () => ({ data: [], isLoading: false }) },
       getVersion: { useQuery: () => ({ data: undefined, isLoading: false }) },
-      duplicateVersion: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      duplicateVersion: { useMutation: () => ({ mutateAsync: vi.fn(), isPending: false }) },
       deleteVersion: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       createFromText: {
         useMutation: () => ({ mutateAsync: mocks.createMutateAsync, isPending: false }),

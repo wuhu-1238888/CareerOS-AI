@@ -1,6 +1,6 @@
 "use client";
 // 简历优化结果视图(4.5):全宽布局(画像结果页先例)。顶部 Hero 行(AI 标识 + 目标方向)+ 工具条
-// (版本选择 / 复制为新版本 / 删除版本 / 重新分析 / 修改信息 / 上传新简历 / 查看全部简历)。
+// (版本选择器(常显:版本列表 + 分隔 + 另存为新版本)/ 删除版本 / 重新分析 / 修改信息 / 上传新简历 / 查看全部简历)。
 // IA 调整 2026-09(操作区优化):「已采纳计数 + 全部接受」移入 AI 建议区标题行(全部接受需先确认);
 // 「导出 PDF」移入最终文本预览区右上(与复制最终文本同排,预览/复制/导出同源 finalText)。
 // 信息层级(4.10-layout 修订):优化结果对比卡(改前/改后/原因)→ 最终文本预览(卡内复制按钮)→ ATS 评分卡 ——
@@ -10,11 +10,12 @@
 // + 「查看全部简历」→ 简历优化页「我的简历」Tab(/resume?tab=resumes);Hero 左区显示当前简历名(resumeName)。
 // 状态持久化走 resume.updateOptimization / resume.acceptAll;成功后失效 resume.get 以刷新采纳计数与最终文本。
 // 6.6 版本选择器:镜像 profile-result 自持模式(listVersions + viewingId + getVersion),查看旧版本时
-// accept/reject/导出/ATS 全部既有逻辑作用于当前 row 零改动;「复制为新版本」深拷贝(ATS 置空)、
-// 「删除版本」仅剩一个时禁用(确认 Dialog,级联删建议,简历原文不动)。
+// accept/reject/导出/ATS 全部既有逻辑作用于当前 row 零改动;「另存为新版本」(菜单项 → 确认 Dialog,
+// 确认后走既有 duplicateVersion 深拷贝,ATS 置空)、「删除版本」仅剩一个时禁用(确认 Dialog,级联删建议,简历原文不动)。
+// 2026-09 常显改造:Radix Select 换 DropdownMenu(单版本也显示 trigger);「另存为新版本」收进菜单分隔线之后。
 import { useState } from "react";
 import Link from "next/link";
-import { ClipboardCopy, CopyPlus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ClipboardCopy, CopyPlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AiBadge } from "@/components/shared/ai-badge";
 import { Button } from "@/components/ui/button";
@@ -27,12 +28,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { trpc } from "@/trpc/client";
 import { ResumeAnalysisCard, type AnalysisCardOptimization } from "./resume-analysis-card";
 import { ResumeAtsCard } from "./resume-ats-card";
@@ -99,20 +100,29 @@ export function ResumeResult({
     { versionId: viewingId ?? "" },
     { enabled: viewingId !== null }
   );
-  // 复制为新版本 / 删除版本(6.6):仅剩一个版本时禁止删除(服务端同样校验)
+  // 另存为新版本 / 删除版本(6.6):仅剩一个版本时禁止删除(服务端同样校验)
   const duplicate = trpc.resume.duplicateVersion.useMutation();
   const remove = trpc.resume.deleteVersion.useMutation();
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 全部接受确认(IA 调整 2026-09):用户进入页面尚未阅读建议 → 点击仅打开确认,不直接应用
   const [acceptAllOpen, setAcceptAllOpen] = useState(false);
+  // 另存为新版本确认(2026-09):菜单项点击仅打开确认,确认后才创建
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
 
   const row: ResultVersion = viewingId && versionQuery.data ? versionQuery.data : version;
   const versionList = versions.data ?? [];
-  const showVersionSelector = versionList.length > 1;
   const deleteDisabled = versionList.length <= 1;
   // 「第 N 版」编号:列表时间降序,最新 = 第 N 版(N = 总数)
   const versionNo = (id: string) =>
     versionList.length - versionList.findIndex((v) => v.id === id);
+  // 下拉 trigger 常显文案(2026-09):row.id = 当前生效版本(默认最新;查看旧版本时为其 id)
+  const versionLabel = (id: string) => {
+    const v = versionList.find((x) => x.id === id);
+    if (!v) return "版本"; // 列表未加载/未含当前行时占位(同旧 placeholder)
+    return `第 ${versionNo(v.id)} 版 · ${formatDate(v.createdAt)}${
+      v.targetDirection ? ` · ${v.targetDirection}` : ""
+    }`;
+  };
 
   const total = row.optimizations.length;
   const acceptedCount = row.optimizations.filter((o) => o.status === "accepted").length;
@@ -126,10 +136,16 @@ export function ResumeResult({
       (o) => new Date(o.updatedAt).getTime() > new Date(row.atsScoredAt!).getTime()
     );
 
+  // 菜单项切换版本(2026-09):保真原 Select 语义 —— 点当前项仅关菜单;点最新版回默认视图,点旧版进入查看
+  function handleSelectVersion(id: string) {
+    if (id === row.id) return;
+    setViewingId(id === version.id ? null : id);
+  }
+
   async function handleDuplicate() {
     try {
       await duplicate.mutateAsync({ versionId: row.id });
-      toast.success("已复制为新版本");
+      toast.success("已另存为新版本");
       // 新版本成为最新版:回到默认视图(显示新版本)并刷新版本列表与当前简历
       setViewingId(null);
       void utils.resume.get.invalidate();
@@ -137,6 +153,9 @@ export function ResumeResult({
       void utils.resume.getVersion.invalidate();
     } catch (err) {
       toast.error(friendlyError(err));
+    } finally {
+      // 2026-09:确认 Dialog 在 mutation 结算后关闭(镜像删除版本确认模式)
+      setDuplicateOpen(false);
     }
   }
 
@@ -222,37 +241,40 @@ export function ResumeResult({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {showVersionSelector ? (
-            <Select
-              value={row.id}
-              onValueChange={(id) => setViewingId(id === version.id ? null : id)}
-            >
-              <SelectTrigger
-                className="w-auto min-w-[160px]"
+          {/* 版本选择器(6.6;2026-09 常显改造):下拉 = 版本列表(当前版本带 Check 指示)+ 分隔 +
+              「另存为新版本」(菜单项 → 确认 Dialog);单版本也显示,点击当前项仅关菜单 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-auto min-w-[160px] justify-between"
                 aria-label="查看历史版本"
               >
-                <SelectValue placeholder="版本" />
-              </SelectTrigger>
-              <SelectContent>
-                {versionList.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {`第 ${versionNo(v.id)} 版 · ${formatDate(v.createdAt)}${
-                      v.targetDirection ? ` · ${v.targetDirection}` : ""
-                    }`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={duplicate.isPending}
-            onClick={() => void handleDuplicate()}
-          >
-            <CopyPlus aria-hidden />
-            复制为新版本
-          </Button>
+                <span className="max-w-[220px] truncate">{versionLabel(row.id)}</span>
+                <ChevronDown className="size-4 opacity-50" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[220px]">
+              {versionList.map((v) => (
+                <DropdownMenuItem key={v.id} onSelect={() => handleSelectVersion(v.id)}>
+                  {row.id === v.id ? (
+                    <Check className="size-4 text-green-600" aria-hidden data-testid="current-version-check" />
+                  ) : (
+                    <span className="size-4 shrink-0" aria-hidden />
+                  )}
+                  {`第 ${versionNo(v.id)} 版 · ${formatDate(v.createdAt)}${
+                    v.targetDirection ? ` · ${v.targetDirection}` : ""
+                  }`}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setDuplicateOpen(true)}>
+                <CopyPlus aria-hidden />
+                另存为新版本
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             type="button"
             variant="ghost"
@@ -380,6 +402,31 @@ export function ResumeResult({
               onClick={() => void handleAcceptAll()}
             >
               确认全部接受
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 另存为新版本确认(2026-09):基于当前版本创建独立新版本,当前版本不变;
+          确认后执行既有 handleDuplicate(duplicateVersion 深拷贝,ATS 置空需重新评分) */}
+      <Dialog open={duplicateOpen} onOpenChange={setDuplicateOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>另存为新版本</DialogTitle>
+            <DialogDescription>
+              将基于当前版本创建一个独立的新简历版本。当前版本不会受到影响。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setDuplicateOpen(false)}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              disabled={duplicate.isPending}
+              onClick={() => void handleDuplicate()}
+            >
+              确认另存
             </Button>
           </DialogFooter>
         </DialogContent>
