@@ -100,7 +100,7 @@ export function AiInsightCard({
         </div>
       ) : (
         <>
-          <ul className="mt-4 space-y-4">
+          <ul className="mt-3 space-y-3">
             {strengthRows.length > 0 && (
               <li className="flex items-start gap-3">
                 <p className="w-16 shrink-0 text-caption text-ink-faint">岗位优势</p>
@@ -128,7 +128,7 @@ export function AiInsightCard({
               </li>
             )}
           </ul>
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-hairline pt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-hairline pt-3">
             {pendingCount !== null &&
               (pendingCount > 0 ? (
                 <Button type="button" size="sm" asChild>

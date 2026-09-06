@@ -643,7 +643,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 | Skeleton | `sunken` 块 + `rounded.control`,尺寸与真实内容一致,透明度 0.5→1 呼吸动画;AI 分析页用 Agent 卡骨架 + 文案轮播 |
 | Table | 表头 12px/600 `ink-muted` + `hairline` 2px 底边;行 44px,悬停 `green-50`;数字右对齐等宽;空表 = 表格内 Empty State |
 | Stat Card | 眉标 12px/600 `ink-muted` → `{typography.num}` 大数字 → 13px 提升/下降徽章 + 16px 趋势图标;内边距上下 20px / 左右 24px,眉标与数字间距 8px,三卡等高由网格拉伸保证;3-4 个一行(工作台固定 3 个:推荐方向匹配度 / 路线图进度 / 待处理建议) |
-| AI Insight Card(分析摘要卡) | `card` 底 + 24px 内边距;标题 text-h2 + `ai-badge` + 副标题 13px `ink-muted`;两行 = 眉标 12px `ink-faint`(岗位优势/需要关注)+ 条目 13px(优势 ✓ 绿 top-3 仅标题 / 需要关注 ⓘ 中性灰弱视觉、AI 原文逐字不带来源前缀 top-2,无长解释);空行不渲染;底部行动区(细边分隔):主按钮「去处理 X 条建议」绿实心 32px(sm,X = 待处理建议数,与 KPI 同源;X=0 → 「建议已处理 ✓」完成态;无简历 → 不渲染)+ ghost「查看职业画像」;不渲染建议 action;未分析/解析失败 → 卡内引导(不造假);四态齐全 |
+| AI Insight Card(分析摘要卡) | `card` 底 + 24px 内边距;标题 text-h2 + `ai-badge` + 副标题 13px `ink-muted`;两行 = 眉标 12px `ink-faint`(岗位优势/需要关注)+ 条目 13px(优势 ✓ 绿 top-3 仅标题 / 需要关注 ⓘ 中性灰弱视觉、AI 原文逐字不带来源前缀 top-2,无长解释);空行不渲染;底部行动区(细边分隔):主按钮「去处理 X 条建议」绿实心 32px(sm,X = 待处理建议数,与 KPI 同源;X=0 → 「建议已处理 ✓」完成态;无简历 → 不渲染)+ ghost「查看职业画像」;不渲染建议 action;未分析/解析失败 → 卡内引导(不造假);四态齐全;卡内区块间距 12px(space-3)、主/次按钮横向间距 20px(gap-x-5,窄屏换行 gap-y-2 8px)|
 | Progress Bar | 4px 高胶囊,`sunken` 轨道 + `green-600` 填充;进度环(ATS)12px 描边 |
 
 ### AI 内容约定(AI 语义的全局纪律)
