@@ -205,9 +205,14 @@ export function DashboardView() {
             />
           </div>
 
-          {/* ④ AI 洞察(「AI 发现了什么」):最近一次画像分析摘要(优势 top-3 / 短板 top-2 / 重点关注一行),
+          {/* ④ AI 洞察(「AI 发现了什么 → 下一步该做什么」):画像分析摘要(优势 top-3 /
+              需要关注 ≤2)+ 行动区(去处理 X 条建议 → 简历优化 / 查看职业画像),
               未分析/解析失败 → 卡内引导,不造假(见 ai-insight-card.tsx) */}
-          <AiInsightCard analyzed={data.profile.analyzed} />
+          <AiInsightCard
+            analyzed={data.profile.analyzed}
+            pendingCount={data.resume.pendingCount}
+            lastActivityId={data.resume.lastActivityId}
+          />
 
           {/* ⑤ 成长概览(8.2,D1 + 概览化):职业画像版本 / 最新岗位匹配度 / 任务完成计数 +
               完整报告深链(区块内入口;真实趋势在报告页) */}

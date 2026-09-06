@@ -788,6 +788,8 @@ M2(Career Profile)实施中形成的新架构决策,以实际代码为准:
 
 **工作台 IA 重构修订(2026-09-06)**:按用户验收意见,工作台从「数据展示 + 模块入口混合」收敛为 3 大核心区(状态 → 行动 → 洞察 → 成长),回答四问。① KPI 4 → 3(「本周任务」卡删除;stats.ts 零改动,weekTasks 仍供问候行一句话状态)。② 3 张顾问卡 → 单张 AIInsightCard(`src/components/dashboard/ai-insight-card.tsx`):数据源 profile.get 的 aiAnalysis 客户端 safeParse(先例 profile-result.tsx),岗位优势/当前短板(方向 weaknesses 派生,带来源前缀)/推荐行动各 top-3;底部「查看完整分析」→ /profile#glance(仅已分析且有合法数据);未分析/加载失败/解析失败 → 卡内引导,零伪造;零后端/DB/AI 改动。③ 「我的工作」区与 agent-card/module-card 组件删除(功能/路由/业务逻辑全保留)。④ computeNextStep 规则链与 CTA 深链 100% 不变;stats 700ms 轮询保留。⑤ 「下一步建议」视觉层级增强(标题 16px/600、说明 14px),逻辑零改动。
 
+**AI 洞察「发现 → 行动」升级(2026-09-06)**:承接 IA 重构,AI 洞察从「静态分析摘要」升级为「摘要 + 行动入口」。① 「当前短板」与「重点关注」合并为「需要关注」= 方向 weaknesses flatMap top-2(AI 原文逐字、不带来源前缀;不足即少,不伪造填充),画像摘要结语句不再在 Dashboard 展示(完整保留于 /profile#glance,零丢失)。② 删除「查看完整分析」,底部行动区:主按钮「去处理 X 条建议」+ ghost「查看职业画像」→ /profile#glance。③ X = `stats.resume.pendingCount`(与 KPI「待处理建议」同源,复用 stats 既有 700ms 轮询 + window focus refetch 同步,卡内零新增查询/轮询;dashboard-view 新增 props 直传,零后端改动);深链 `/resume?resumeId=<lastActivityId>`(null 回退 /resume,先例 computeNextStep 规则 4b);X=0 → 非交互完成态「建议已处理 ✓」(先例「路线图任务已全部完成」);X=null(无简历/无版本)→ 不渲染主按钮(不伪造 0,上传引导属规则 4a 不重复)。④ 按钮层级:一屏唯一主按钮席位(设计文档标称 40px,Button 实现 default=h-9=36px,既有漂移)属「下一步建议」卡 CTA(DesignRules 每屏最多 1 个主按钮),故 AI 洞察主按钮 = default 变体 + size="sm"(32px 绿实心,层级 36 > 32 保持主次)。
+
 ## 十二、M6 补记:Phase 2 增强能力(2026-08-23,任务 6.1–6.9 落地确认)
 
 M6(岗位匹配/技能教练/画像对比/简历多版本/分享卡片/深色模式)实施中形成的新架构决策,以实际代码为准:

@@ -3,8 +3,8 @@
 ## 当前项目状态
 
 - **阶段**:Phase 1(MVP 核心闭环)+ **Phase 2(增强能力)完成**:里程碑 M1 – M4、M5 闭环整合(5.1–5.3,5.4 按用户指示未执行)、工作台导航优化三轮、**Stage 6(6.1–6.9)**、**Stage 7(7.1–7.3)**、**Stage 8(8.1–8.2)** 全部完成并推送;6.7 微信登录按用户拍板本轮暂缓(零代码,待凭据);6.10、7.4/7.5 按用户指示未执行
-- **最近更新**:2026-09-06,工作台 IA 重构(3 大核心区:状态/下一步建议/KPI×3/AI 洞察摘要卡/成长趋势,删「我的工作」与顾问卡);测试基线 929/97
-- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、工作台 IA 重构、6.1 – 6.9、7.1 – 7.3、8.1 – 8.2 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
+- **最近更新**:2026-09-06,AI 洞察「发现 → 行动」重构(需要关注合并、去处理 X 条建议主按钮 + 查看职业画像次入口、删除查看完整分析);测试基线 935/97
+- **已完成任务**:1.1 – 1.8、2.1 – 2.7、3.1 – 3.5、4.1 – 4.17、5.1 – 5.3、工作台导航优化(两排语义/卡片主体≠CTA/下一步建议行动卡/待处理建议)、工作台 IA 重构、AI 洞察「发现 → 行动」重构、6.1 – 6.9、7.1 – 7.3、8.1 – 8.2 全部完成;部署(5.3 部署动作)按用户决定暂缓,清单见 deployment-checklist.md
 - **当前状态**:**Stage 6–8 已实现并推送,浏览器人工验收待做**(Phase 2 整体验收 + Stage 7 面试验收 + Stage 8 走查同批,要点见各节「下一步」);6.10、7.4/7.5 按用户指示不执行;生产部署暂缓(清单见 deployment-checklist.md)。
 - **测试基线**:926 个测试 / 97 个文件全部通过;typecheck / lint 零错误;生产构建成功;prompt 打包 11/11 打入 tRPC Serverless 路由
 
@@ -1139,3 +1139,25 @@ Stage 8 最终验证:停 dev → 全量 npm test → typecheck → lint → buil
 ## 下一步
 
 浏览器人工验收:1160px 容器三断点布局、AI 洞察长文本换行、深色模式可读性。
+
+# AI 洞察「发现 → 行动」重构(2026-09-06)
+
+## 背景
+
+用户验收意见:AI 洞察当前形态更像静态分析报告——「当前短板」与「重点关注」信息重复;内容偏长;看完缺少明确的下一步行动;「查看完整分析」作为唯一入口行动引导较弱。要求让 AI 洞察承担 Dashboard 职责:快速告诉用户 AI 发现了什么 → 用户下一步应该做什么。新结构:岗位优势(✓ top-3 不变)、「当前短板」+「重点关注」合并为「需要关注」(≤2 条核心问题,中性灰弱视觉,无长解释)、删除「查看完整分析」,底部行动区 = 主按钮「去处理 X 条建议」(X 必须用真实待处理 AI 建议数量,不能写死,数量变化必须同步;X=0 → 合理完成态)+ 次入口「查看职业画像」(文案用产品模块名)。零后端/DB/AI Prompt 改动,复用现有数据与接口。与代码的冲突:① 需求「绿色主按钮」vs DesignRules「button-primary 每屏最多 1 个」+ DesignSystem「一屏只允许一个 40px 主按钮」——该席位已属「下一步建议」卡 CTA,按推荐方案 AI 洞察主按钮用 default 变体 + size="sm"(32px 绿实心,保留绿色行动视觉;走查实测 next-step CTA 高 36px,Button 实现 h-9 与设计文档 40px 存在既有漂移,层级 36 > 32 保持主次,已同步注记);② 上一任务确立的「重点关注」独立行按本次需求合并撤销,摘要结语句完整保留于 /profile#glance,零信息丢失。
+
+## 主要修改
+
+- `ai-insight-card.tsx`:Props 扩展 `{ analyzed, pendingCount, lastActivityId }`(X 与深链数据由 dashboard-view 直传,卡内零新增查询/轮询);删 focusLine(摘要结语句抽取 + gap 兜底)与「查看完整分析」;「当前短板」行改「需要关注」(图标 CircleAlert → Info,沿用弱视觉);底部行动区三态——X>0 → Button default + size="sm" asChild Link「去处理 {X} 条建议」深链 `/resume?resumeId=<lastActivityId>`(null 回退 /resume);X=0 → 非交互完成态「建议已处理 ✓」(绿 Check + 中性文案,颜色+文字双通道);X=null(无简历/无版本)→ 不渲染主按钮(不伪造 0,上传引导属规则 4a 不重复);ghost「查看职业画像」→ /profile#glance 三态均渲染;未分析引导文案同步「岗位优势与需要关注」;头注释重写(合并规则/X 数据源与同步机制/按钮层级决策)
+- `dashboard-view.tsx`:仅 AIInsightCard 调用点传入 `pendingCount={data.resume.pendingCount}` + `lastActivityId={data.resume.lastActivityId}`(与 KPI「待处理建议」同源,复用 stats 既有 700ms 轮询 + window focus refetch 实现数量同步),区块注释同步
+- 测试:ai-insight-card.test.tsx 重写 12 例(删 gap 不同文/摘要单句两例,改摘要无有效句例锁定「不再 gap 兜底」,新增 X=0 / X=null / lastActivityId 回退三例,内容态主例断言结语句不展示 + 主按钮深链 + ghost);dashboard-view.test.tsx 内容态/未分析断言同步,新增「X 三态经 stats 数据」rerender 例
+- 文档:DesignRules Dashboard 第 4 条重写(需要关注合并规则、行动区三态、按钮层级注记);DesignSystem AI Insight Card 行同步(两行 + 底部行动区);technical-design 附记追加「发现 → 行动」升级;progress.md 本条
+
+## 验证
+
+- 定向(ai-insight-card + dashboard-view,逐文件运行)12/12 + 15/15;全量 935/935(97 文件);typecheck / lint 零错误
+- Playwright 走查(msedge 有头,用户 3000 dev server,夹具直插 + 级联清理)全部通过:夹具 A 内容态 21 项(3 优势截断/需要关注 2 条 AI 原文/无旧标签旧入口/主按钮「去处理 2 条建议」DB 实读 + 深链 href/KPI 与 X 同源一致/按钮层级 32px vs 36px/ghost → /profile#glance 锚点可见);点击主按钮 → `/resume?resumeId=<lastActivityId>` 且对应简历激活;X 实时同步(Agent 运行中 700ms 轮询,2→1 按钮与 DB 同步,X=0 → 主按钮消失 + 「建议已处理」完成态 + ghost 仍在);375px 无横向溢出(实测 0px);夹具 C 无简历 X=null(无主按钮不伪造 0、「下一步建议」上传引导不重复、KPI「—」同口径);夹具 D 未分析(卡内引导、无摘要条目与行动区、「下一步建议」去完成画像规则 1);夹具用户级联清理残留 0。发现:按钮默认高度实测 36px(Button 实现 h-9),设计文档 40px 标称存在既有漂移,已同步注记(不属本次改动)
+
+## 下一步
+
+浏览器人工验收:行动区三态视觉(32px 绿主按钮与 next-step 主按钮并屏、完成态绿 Check)、深色模式可读性。
