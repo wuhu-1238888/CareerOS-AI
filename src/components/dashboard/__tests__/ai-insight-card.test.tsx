@@ -1,5 +1,6 @@
 // AI 洞察卡测试(工作台 IA 重构 + 摘要化):五态(未分析引导/加载骨架/错误重试/降级/内容)、
-// 优势 top-3、短板 top-2 且与重点关注同文去重、重点关注 = 首个建议 gap 一行、
+// 优势 top-3、短板 top-2(AI 原文逐字、不带方向来源前缀)、重点关注 = 画像摘要结语句
+// (AI 高层总结,与短板的具体发现分层;摘要无有效句 → 兜底首个建议 gap)、
 // 不渲染建议 action(职责让位「下一步建议」/成长路线)、AI 原始文本逐字呈现(无命令式措辞)。
 // 数据源 profile.get 的 aiAnalysis 在客户端经 profileAnalysisSchema.safeParse 校验(先例 profile-result.tsx)。
 import { render, screen } from "@testing-library/react";
@@ -29,9 +30,9 @@ vi.mock("@/trpc/client", () => ({
   },
 }));
 
-// 合法画像分析:4 优势(验证 top-3 截断)+ 2 方向(短板含与首个建议 gap 同文项,验证去重)+ 3 建议
+// 合法画像分析:4 优势(验证 top-3 截断)+ 2 方向(短板两条)+ 多句 summary(验证结语句抽取)+ 3 建议
 const validAnalysis = {
-  summary: "计算机专业应届生。",
+  summary: "计算机专业应届生,技术基础扎实。整体呈现从技术向产品方向转型的潜力,需补充产品方法论。",
   abilityTags: [
     { name: "Python", level: "熟练" },
     { name: "SQL", level: "熟练" },
@@ -122,7 +123,7 @@ describe("AiInsightCard", () => {
     expect(screen.queryByText("岗位优势")).toBeNull();
   });
 
-  it("内容态:优势 top-3 + 短板 top-2 去重 + 重点关注一行 + AiBadge + 查看完整分析深链;无建议 action", () => {
+  it("内容态:优势 top-3 + 短板 top-2(无来源前缀)+ 重点关注 = 摘要结语句 + AiBadge + 深链;无建议 action", () => {
     mocks.profileData = { aiAnalysis: validAnalysis };
     render(<AiInsightCard analyzed />);
     // 三行眉标(推荐行动已删)
@@ -135,11 +136,15 @@ describe("AiInsightCard", () => {
     expect(screen.getByText("目标清晰")).toBeInTheDocument();
     expect(screen.getByText("技能组合完整")).toBeInTheDocument();
     expect(screen.queryByText("学习能力强")).toBeNull();
-    // 短板 top-2:「后端开发:缺少分布式经验」与重点关注同文被去重,只剩「数据分析」一条
-    expect(screen.queryByText("后端开发:")).toBeNull();
-    expect(screen.getByText("数据分析:")).toBeInTheDocument();
+    // 短板 top-2:AI 原文逐字,不带方向来源前缀(一行短句压缩)
+    expect(screen.getByText("缺少分布式经验")).toBeInTheDocument();
     expect(screen.getByText("不熟悉可视化工具")).toBeInTheDocument();
-    // 重点关注 = 首个建议 gap 一行(同文仅此一处,短板不再重复)
+    expect(screen.queryByText("后端开发:")).toBeNull();
+    expect(screen.queryByText("数据分析:")).toBeNull();
+    // 重点关注 = 摘要结语句(gap 原文不再渲染;「缺少分布式经验」仅短板一处)
+    expect(
+      screen.getByText("整体呈现从技术向产品方向转型的潜力,需补充产品方法论。")
+    ).toBeInTheDocument();
     expect(screen.getAllByText("缺少分布式经验")).toHaveLength(1);
     // 建议 action 一律不渲染(不承担成长路线职责)
     expect(screen.queryByText("完成一个分布式项目")).toBeNull();
@@ -150,7 +155,7 @@ describe("AiInsightCard", () => {
     expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/profile#glance");
   });
 
-  it("短板与重点关注不同文:两者并存,短板保留来源前缀", () => {
+  it("gap 与短板不同文:gap 原文依旧不渲染,重点关注仍是摘要结语句(分层不重复)", () => {
     mocks.profileData = {
       aiAnalysis: {
         ...validAnalysis,
@@ -158,12 +163,31 @@ describe("AiInsightCard", () => {
       },
     };
     render(<AiInsightCard analyzed />);
-    // 无同文去重 → 两条短板均显示
-    expect(screen.getByText("后端开发:")).toBeInTheDocument();
-    expect(screen.getByText("数据分析:")).toBeInTheDocument();
+    // gap 不作为重点关注展示(与短板的具体发现分层)
+    expect(screen.queryByText("沟通表达")).toBeNull();
     expect(screen.getByText("缺少分布式经验")).toBeInTheDocument();
-    // 重点关注 = 「沟通表达」
-    expect(screen.getByText("沟通表达")).toBeInTheDocument();
+    expect(screen.getByText("不熟悉可视化工具")).toBeInTheDocument();
+    expect(
+      screen.getByText("整体呈现从技术向产品方向转型的潜力,需补充产品方法论。")
+    ).toBeInTheDocument();
+  });
+
+  it("摘要单句:整句作为重点关注(不落 gap 兜底)", () => {
+    mocks.profileData = {
+      aiAnalysis: { ...validAnalysis, summary: "计算机专业应届生。" },
+    };
+    render(<AiInsightCard analyzed />);
+    expect(screen.getByText("计算机专业应届生。")).toBeInTheDocument();
+    expect(screen.getAllByText("缺少分布式经验")).toHaveLength(1); // gap 不接管,仅短板一处
+  });
+
+  it("摘要无有效句(全标点):重点关注兜底 = 首个建议 gap", () => {
+    mocks.profileData = {
+      aiAnalysis: { ...validAnalysis, summary: "。" },
+    };
+    render(<AiInsightCard analyzed />);
+    // gap 兜底接管重点关注,与短板同文各一处
+    expect(screen.getAllByText("缺少分布式经验")).toHaveLength(2);
   });
 
   it("全部方向无短板:当前短板行整体不渲染,其余行完好", () => {

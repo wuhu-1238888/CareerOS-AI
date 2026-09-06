@@ -2,8 +2,9 @@
 // AI 洞察卡(工作台 IA 重构 + 摘要化):工作台四问之「AI 发现了什么」= 最近一次画像分析的
 // 摘要。数据源:trpc.profile.get 的 aiAnalysis(仅画像分析,不混入岗位匹配报告;客户端渲染前
 // 校验,safeParse 先例 profile-result.tsx:119)。摘要策略:优势 top-3(仅标题,detail 留在
-// /profile#glance)、短板 top-2(方向 weaknesses 派生,带来源前缀,与重点关注同文去重)、
-// 重点关注 = 首个建议 gap 一行(AI 发现的「最值得关注的问题」)。职责边界:只发现问题、
+// /profile#glance)、短板 top-2(方向 weaknesses 派生,AI 原文逐字一行短句,不带方向来源前缀)、
+// 重点关注 = 画像摘要(summary)的结语句一行(AI 对整体分析的高层总结,与短板的具体发现分层;
+// 摘要无有效句 → 兜底首个建议 gap)。职责边界:只发现问题、
 // 不解决问题 —— 不渲染建议 action 列表,那是「下一步建议」与成长路线的职责。
 // 降级纪律:未分析 / 加载失败 / 数据异常 → 卡内引导文案,绝不伪造 AI 结论;与 /profile 页
 // 自身的异常提示(profile-result.tsx:121-128)保持一致。分析导向:只呈现 AI 原始文本,
@@ -23,15 +24,18 @@ export function AiInsightCard({ analyzed }: { analyzed: boolean }) {
 
   const parsed = profileAnalysisSchema.safeParse(profile.data?.aiAnalysis);
   const analysis = parsed.success ? parsed.data : null;
-  const focusGap = analysis ? analysis.suggestions[0]?.gap ?? null : null;
+  // 重点关注 = 画像摘要(summary)的结语句:AI 对整体分析的高层总结(如「从技术向产品转型仍是
+  // 核心方向」),与「当前短板」的具体发现分层,避免同粒度重复。摘要无有效句 → 兜底首个建议 gap。
+  const focusLine = (() => {
+    if (!analysis) return null;
+    const sentences = analysis.summary.match(/[^。;!?？]+[。;!?？]?/g) ?? [];
+    const last = sentences[sentences.length - 1]?.trim();
+    return last ? last : (analysis.suggestions[0]?.gap ?? null);
+  })();
   const strengthRows = analysis ? analysis.strengths.slice(0, 3) : [];
+  // 短板 top-2:AI 原文逐字、不带方向来源前缀(一行短句压缩;完整分组见 /profile#glance)
   const weaknessRows = analysis
-    ? analysis.directions
-        .flatMap((direction) =>
-          direction.weaknesses.map((text) => ({ source: direction.name, text }))
-        )
-        .filter((weakness) => weakness.text !== focusGap) // 与重点关注同文去重(同一 gap 常见)
-        .slice(0, 2)
+    ? analysis.directions.flatMap((direction) => direction.weaknesses).slice(0, 2)
     : [];
 
   return (
@@ -99,24 +103,21 @@ export function AiInsightCard({ analyzed }: { analyzed: boolean }) {
               <li className="flex items-start gap-3">
                 <p className="w-16 shrink-0 text-caption text-ink-faint">当前短板</p>
                 <ul className="min-w-0 space-y-1.5">
-                  {weaknessRows.map((weakness, index) => (
-                    <li key={`${weakness.source}-${index}`} className="flex items-start gap-1.5">
+                  {weaknessRows.map((text, index) => (
+                    <li key={`${text}-${index}`} className="flex items-start gap-1.5">
                       <CircleAlert className="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden />
-                      <span className="min-w-0 text-body-sm text-ink-secondary">
-                        <span className="text-ink-faint">{weakness.source}:</span>
-                        {weakness.text}
-                      </span>
+                      <span className="min-w-0 text-body-sm text-ink-secondary">{text}</span>
                     </li>
                   ))}
                 </ul>
               </li>
             )}
-            {focusGap && (
+            {focusLine && (
               <li className="flex items-start gap-3">
                 <p className="w-16 shrink-0 text-caption text-ink-faint">重点关注</p>
                 <p className="flex min-w-0 items-start gap-1.5">
                   <Crosshair className="mt-0.5 size-4 shrink-0 text-ink-secondary" aria-hidden />
-                  <span className="min-w-0 text-body-sm font-medium text-ink">{focusGap}</span>
+                  <span className="min-w-0 text-body-sm font-medium text-ink">{focusLine}</span>
                 </p>
               </li>
             )}
