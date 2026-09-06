@@ -160,7 +160,7 @@ export function RoadmapTimeline({
   }
 
   return (
-    <div className="w-full py-6">
+    <div className="w-full pt-4 pb-6">
       {/* sticky 概览带:目标岗位 | 整体进度 两区(DesignSystem「概要条 sticky」;路径文案模板
           「从 X 到 Y」的「从」无数据源,适配为目标方向;全部复用既有数据,无新计算) */}
       <div className="sticky top-16 z-10 border-b border-hairline bg-canvas py-3">

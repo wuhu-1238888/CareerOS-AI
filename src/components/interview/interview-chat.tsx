@@ -228,7 +228,7 @@ export function InterviewChat({
   const remaining = questions.length - index;
 
   return (
-    <div className="w-full space-y-6 py-6">
+    <div className="w-full space-y-6 pt-4 pb-6">
       {/* 顶部:进度 / 场次信息 / 结束面试 */}
       <div className="sticky top-16 z-30 flex flex-wrap items-center justify-between gap-3 bg-canvas py-2">
         <div className="flex min-w-0 items-center gap-2 text-body-sm text-ink-secondary">
