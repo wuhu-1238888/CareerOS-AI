@@ -148,11 +148,6 @@ CareerOS AI 是一个面向大学生、应届生与 0-3 年职场新人的 AI �
 
 - [面试官体验路线](docs/demo-flow.md) — 3~5 分钟走完全产品闭环
 
-**方法论**
-
-- [AI 产品开发 SOP](docs/project-workflow/01-AI-PRODUCT-DEVELOPMENT-SOP.md) — 从本项目提炼的通用开发框架(4 阶段 × 17 Stage)
-- [快速启动](docs/project-workflow/06-QUICK-START.md) — 新项目的执行清单(推荐入口)
-
 ## 本地运行
 
 环境要求:Node.js ≥ 18.17、PostgreSQL(本地或远程)。
