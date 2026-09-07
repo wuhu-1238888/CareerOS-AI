@@ -71,7 +71,17 @@ CareerOS AI 是一个面向大学生、应届生与 0-3 年职场新人的 AI �
 
 ## 产品截图
 
-> 截图即将补充(将存放于 docs/screenshots/ 目录)。
+| 工作台 | 职业画像 |
+| --- | --- |
+| ![工作台](docs/screenshots/01-dashboard.png) | ![职业画像](docs/screenshots/02-profile.png) |
+
+| 成长路线 | 岗位匹配 |
+| --- | --- |
+| ![成长路线](docs/screenshots/03-roadmap.png) | ![岗位匹配](docs/screenshots/04-matching.png) |
+
+| 简历优化 | 模拟面试 |
+| --- | --- |
+| ![简历优化](docs/screenshots/05-resume.png) | ![模拟面试](docs/screenshots/06-interview.png) |
 
 ## 技术栈
 
