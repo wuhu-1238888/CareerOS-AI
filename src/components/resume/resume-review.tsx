@@ -4,7 +4,7 @@
 // sectionPlan 缺失(无原文/未解析)时回退固定 Schema 顺序渲染(向后兼容)。
 // 目标方向选择:画像推荐方向 chips(默认首选)+ 自定义输入;40px 主按钮「开始优化」。
 // 「保存核对结果」就地保存(resume.saveParsedData);「开始优化」经 onStartOptimize 交由 Hub(4.4 起触发改写)。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,14 @@ import { MAX_SKILLS, parseSkillsText, skillsErrorText } from "@/lib/resume/skill
 import type { SectionRef, StandardKind, StandardSection } from "@/lib/resume/section-order";
 
 const EMPTY_TIME_RANGE: TimeRange = { start: "", end: "至今" };
+
+// 校验失败定位:平滑滚动到第一个错误字段所在分区(与 roadmap/profile 的定位先例同款)。
+// block: "center" 让分区居中进入视口,天然避开 sticky Header;锚点 = 错误卡片上的 data-field。
+function scrollToField(dataField: string) {
+  document
+    .querySelector(`[data-field="${dataField}"]`)
+    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
 
 function emptyParsed(): ParsedResume {
   return {
@@ -160,6 +168,9 @@ export function ResumeReview({
   const [formError, setFormError] = useState<string | null>(null);
   // 技能区校验错误(数量超限 / 单条超长):显示在技能分区附近,提交时校验(DesignRules L220)
   const [skillsError, setSkillsError] = useState<string | null>(null);
+  // 校验失败定位:滚动到错误分区后聚焦对应输入(轻微高亮 + 键盘用户可直接编辑)
+  const skillsInputRef = useRef<HTMLTextAreaElement>(null);
+  const directionInputRef = useRef<HTMLInputElement>(null);
 
   // 多分区条目归组(4.10):plan.items 的本地副本 —— 删除时索引平移、添加时追加到对应分区
   const [eduGroups, setEduGroups] = useState<number[][]>(() =>
@@ -227,10 +238,12 @@ export function ResumeReview({
     const parsed = buildParsed();
     const error = skillsErrorText(parsed.skills, "保存");
     if (error) {
-      // 前端拦截:不调用 API、不清空用户输入,错误显示在技能区
+      // 前端拦截:不调用 API、不清空用户输入,错误显示在技能区 + 自动定位(校验失败反馈)
       setSaved(false);
       setFormError(null);
       setSkillsError(error);
+      scrollToField("skills");
+      skillsInputRef.current?.focus({ preventScroll: true });
       return;
     }
     setSkillsError(null);
@@ -249,15 +262,19 @@ export function ResumeReview({
     const target = direction.trim();
     if (!target) {
       setDirectionError("请选择或填写目标方向");
+      scrollToField("direction");
+      directionInputRef.current?.focus({ preventScroll: true });
       return;
     }
     setDirectionError(null);
     const parsed = buildParsed();
     const error = skillsErrorText(parsed.skills, "开始优化");
     if (error) {
-      // 前端拦截:进入 AI 优化前校验,不调用 onStartOptimize
+      // 前端拦截:进入 AI 优化前校验,不调用 onStartOptimize + 自动定位(校验失败反馈)
       setFormError(null);
       setSkillsError(error);
+      scrollToField("skills");
+      skillsInputRef.current?.focus({ preventScroll: true });
       return;
     }
     setSkillsError(null);
@@ -534,10 +551,15 @@ export function ResumeReview({
 
         if (block.kind === "skills") {
           return (
-            <div key={bi} className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">
+            <div
+              key={bi}
+              data-field="skills"
+              className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card"
+            >
               <SectionHeader title={block.label} hint="每行一个技能,或使用逗号分隔;重复的技能将自动去重" />
               <div className="space-y-1">
                 <Textarea
+                  ref={skillsInputRef}
                   aria-label="技能列表"
                   rows={4}
                   value={skillsText}
@@ -708,7 +730,11 @@ export function ResumeReview({
 
         // direction:目标方向(仅作优化分析上下文,不进入最终文本正文)
         return (
-          <div key={bi} className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">
+          <div
+            key={bi}
+            data-field="direction"
+            className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card"
+          >
             <SectionHeader
               title="目标方向"
               hint="优化将围绕这个方向调整表达;优先推荐画像分析的方向"
@@ -741,6 +767,7 @@ export function ResumeReview({
               </label>
               <Input
                 id="rv-direction"
+                ref={directionInputRef}
                 value={direction}
                 onChange={(e) => {
                   setDirection(e.target.value);

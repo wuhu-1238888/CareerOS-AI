@@ -3,7 +3,7 @@
 // 4.10:sectionPlan 模式(原文顺序渲染 / 自定义模块只读 / 工作实习分开展示 / 虚拟分区兜底)
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResumeReview } from "../resume-review";
 import type { ParsedResume } from "@/lib/resume/analysis-schemas";
 import type { SectionRef } from "@/lib/resume/section-order";
@@ -518,5 +518,134 @@ describe("ResumeReview(skills 上限校验)", () => {
     // 无裸 JSON / 字段名泄漏
     expect(screen.queryByText(/parsedData/)).toBeNull();
     expect(screen.queryByText(/too_small/)).toBeNull();
+  });
+});
+
+// 校验失败自动定位:点击保存/优化遇到校验错误 → 平滑滚动到第一个错误字段所在分区,错误提示第一眼可见
+describe("ResumeReview(校验失败自动定位)", () => {
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    scrollIntoView = vi.fn();
+    // jsdom 无 scrollIntoView,挂 prototype mock 验证滚动定位(与 roadmap/profile 测试先例同款)
+    Element.prototype.scrollIntoView =
+      scrollIntoView as unknown as typeof Element.prototype.scrollIntoView;
+  });
+
+  afterEach(() => {
+    // 恢复 setup.ts 的 noop stub
+    Element.prototype.scrollIntoView = () => {};
+  });
+
+  const manySkills = (n: number) => Array.from({ length: n }, (_, i) => `技能${i}`).join("\n");
+
+  /** 第 callIndex 次 scrollIntoView 调用所定位元素上的 data-field 值 */
+  function scrolledField(callIndex = 0): string | undefined {
+    const el = scrollIntoView.mock.instances[callIndex] as HTMLElement | undefined;
+    return el?.dataset.field;
+  }
+
+  function renderReview(
+    onStart: (parsed: ParsedResume, direction: string) => Promise<void> = vi.fn(),
+    careers: string[] = careerPaths
+  ) {
+    render(
+      <ResumeReview
+        resumeId="r1"
+        initial={initialParsed}
+        careerPaths={careers}
+        onStartOptimize={onStart}
+        optimizing={false}
+      />
+    );
+  }
+
+  it("Case A:无错误点保存 → 正常保存,不触发定位", async () => {
+    renderReview();
+    await userEvent.setup().click(screen.getByRole("button", { name: "保存核对结果" }));
+    await waitFor(() => expect(mocks.saveMutateAsync).toHaveBeenCalled());
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("Case B:技能 31 条点保存 → 拦截 + 平滑滚动到技能区 + 聚焦技能输入,输入保留", async () => {
+    renderReview();
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    expect(
+      await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再保存。")
+    ).toBeInTheDocument();
+    expect(mocks.saveMutateAsync).not.toHaveBeenCalled();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrolledField()).toBe("skills");
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    expect(document.activeElement).toBe(screen.getByLabelText("技能列表"));
+    // 拦截不清空用户输入
+    expect(screen.getByLabelText("技能列表")).toHaveValue(manySkills(31));
+  });
+
+  it("Case C:技能 31 条点「开始优化」→ 不触发回调,滚动定位到技能区", async () => {
+    const onStart = vi.fn();
+    renderReview(onStart);
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    await user.click(screen.getByRole("button", { name: "开始优化" }));
+    expect(
+      await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再开始优化。")
+    ).toBeInTheDocument();
+    expect(onStart).not.toHaveBeenCalled();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrolledField()).toBe("skills");
+  });
+
+  it("Case D:方向为空 + 技能 31 条 → 只定位第一个错误(方向);修复后再点定位技能", async () => {
+    const onStart = vi.fn();
+    renderReview(onStart, []); // 无推荐方向 → 方向为空,与技能超限构成双错误
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    await user.click(screen.getByRole("button", { name: "开始优化" }));
+    expect(await screen.findByText("请选择或填写目标方向")).toBeInTheDocument();
+    // 多错误只定位第一个:方向
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrolledField()).toBe("direction");
+    expect(document.activeElement).toBe(screen.getByLabelText("目标方向(可自定义)"));
+    // 修复方向后再点 → 定位下一个错误:技能
+    await user.type(screen.getByLabelText("目标方向(可自定义)"), "算法工程师");
+    await user.click(screen.getByRole("button", { name: "开始优化" }));
+    expect(
+      await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再开始优化。")
+    ).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    expect(scrolledField(1)).toBe("skills");
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it("Case E:修复全部错误后 → 保存与开始优化恢复正常,不再触发定位", async () => {
+    const onStart = vi.fn().mockResolvedValue(undefined);
+    renderReview(onStart, []);
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再保存。");
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    // 删减技能至合法 + 补填方向
+    fireEvent.change(skillsInput, { target: { value: manySkills(30) } });
+    await user.type(screen.getByLabelText("目标方向(可自定义)"), "算法工程师");
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    await waitFor(() => expect(mocks.saveMutateAsync).toHaveBeenCalled());
+    expect(await screen.findByText("核对结果已保存")).toBeInTheDocument();
+    // 修复后的保存与优化均不再新增定位调用
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "开始优化" }));
+    await waitFor(() => expect(onStart).toHaveBeenCalled());
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
   });
 });
