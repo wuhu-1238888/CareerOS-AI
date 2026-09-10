@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/trpc/client";
+import { friendlyError } from "@/lib/error-message";
 import type { ParsedResume, TimeRange } from "@/lib/resume/analysis-schemas";
+import { MAX_SKILLS, parseSkillsText, skillsErrorText } from "@/lib/resume/skills";
 import type { SectionRef, StandardKind, StandardSection } from "@/lib/resume/section-order";
 
 const EMPTY_TIME_RANGE: TimeRange = { start: "", end: "至今" };
@@ -24,14 +26,6 @@ function emptyParsed(): ParsedResume {
     experiences: [],
     projects: [],
   };
-}
-
-// 技能输入:一行一个(也兼容逗号/顿号分隔),转技能数组
-function parseSkillsText(text: string): string[] {
-  return text
-    .split(/[\n,、,]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
 }
 
 // 分区标题 + 说明
@@ -164,6 +158,8 @@ export function ResumeReview({
   const [directionError, setDirectionError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // 技能区校验错误(数量超限 / 单条超长):显示在技能分区附近,提交时校验(DesignRules L220)
+  const [skillsError, setSkillsError] = useState<string | null>(null);
 
   // 多分区条目归组(4.10):plan.items 的本地副本 —— 删除时索引平移、添加时追加到对应分区
   const [eduGroups, setEduGroups] = useState<number[][]>(() =>
@@ -228,14 +224,24 @@ export function ResumeReview({
   }
 
   async function handleSave() {
+    const parsed = buildParsed();
+    const error = skillsErrorText(parsed.skills, "保存");
+    if (error) {
+      // 前端拦截:不调用 API、不清空用户输入,错误显示在技能区
+      setSaved(false);
+      setFormError(null);
+      setSkillsError(error);
+      return;
+    }
+    setSkillsError(null);
     setSaved(false);
     setFormError(null);
     try {
-      await saveParsed.mutateAsync({ resumeId, parsedData: buildParsed() });
+      await saveParsed.mutateAsync({ resumeId, parsedData: parsed });
       setSaved(true);
       void utils.resume.get.invalidate();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "保存失败,请稍后重试");
+      setFormError(friendlyError(err));
     }
   }
 
@@ -246,13 +252,26 @@ export function ResumeReview({
       return;
     }
     setDirectionError(null);
+    const parsed = buildParsed();
+    const error = skillsErrorText(parsed.skills, "开始优化");
+    if (error) {
+      // 前端拦截:进入 AI 优化前校验,不调用 onStartOptimize
+      setFormError(null);
+      setSkillsError(error);
+      return;
+    }
+    setSkillsError(null);
     setFormError(null);
     try {
-      await onStartOptimize(buildParsed(), target);
+      await onStartOptimize(parsed, target);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "操作失败,请稍后重试");
+      setFormError(friendlyError(err));
     }
   }
+
+  // 技能派生值:解析后的有效技能列表(去重/噪声过滤后)与超限标记(计数常显,超限变红)
+  const skills = parseSkillsText(skillsText);
+  const skillsOverLimit = skills.length > MAX_SKILLS;
 
   const blocks = buildBlocks(sectionPlan);
 
@@ -516,17 +535,31 @@ export function ResumeReview({
         if (block.kind === "skills") {
           return (
             <div key={bi} className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">
-              <SectionHeader title={block.label} hint="每行一个技能,或使用逗号分隔" />
-              <Textarea
-                aria-label="技能列表"
-                rows={4}
-                value={skillsText}
-                onChange={(e) => {
-                  setSkillsText(e.target.value);
-                  setSaved(false);
-                }}
-                maxLength={1000}
-              />
+              <SectionHeader title={block.label} hint="每行一个技能,或使用逗号分隔;重复的技能将自动去重" />
+              <div className="space-y-1">
+                <Textarea
+                  aria-label="技能列表"
+                  rows={4}
+                  value={skillsText}
+                  aria-invalid={!!skillsError}
+                  className={cn(skillsError && "border-danger")}
+                  onChange={(e) => {
+                    setSkillsText(e.target.value);
+                    setSkillsError(null); // 输入即清错,不逐键打断(与方向字段同款)
+                    setSaved(false);
+                  }}
+                  maxLength={1000}
+                />
+                <p
+                  className={cn(
+                    "text-caption",
+                    skillsOverLimit ? "text-danger" : "text-ink-faint"
+                  )}
+                >
+                  已识别 {skills.length} / {MAX_SKILLS} 项
+                </p>
+                {skillsError && <p className="text-body-sm text-danger">{skillsError}</p>}
+              </div>
             </div>
           );
         }

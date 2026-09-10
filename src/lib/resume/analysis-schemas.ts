@@ -28,6 +28,10 @@ export const projectEntrySchema = z.object({
 });
 export type ProjectEntry = z.infer<typeof projectEntrySchema>;
 
+/** 技能数量与单条长度上限(parsedResumeSchema.skills 与前端解析/校验共用,单一事实源) */
+export const MAX_SKILLS = 30;
+export const MAX_SKILL_LENGTH = 50;
+
 /** 简历解析结果(4.3):基本信息 / 教育 / 技能 / 工作实习 / 项目,分区结构与核对表单一致 */
 export const parsedResumeSchema = z.object({
   basicInfo: z.object({
@@ -47,7 +51,15 @@ export const parsedResumeSchema = z.object({
     )
     .max(10)
     .default([]),
-  skills: z.array(z.string().min(1, "技能不能为空").max(50)).max(30).default([]),
+  skills: z
+    .array(
+      z
+        .string()
+        .min(1, "技能不能为空")
+        .max(MAX_SKILL_LENGTH, `单个技能最多 ${MAX_SKILL_LENGTH} 字`)
+    )
+    .max(MAX_SKILLS, `技能最多 ${MAX_SKILLS} 项`)
+    .default([]),
   experiences: z.array(experienceEntrySchema).max(15).default([]),
   projects: z.array(projectEntrySchema).max(15).default([]),
 });

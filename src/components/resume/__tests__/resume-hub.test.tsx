@@ -65,6 +65,8 @@ const mocks = vi.hoisted(() => {
     retryMutateAsync: vi.fn(),
     saveMutateAsync: vi.fn(),
     rewriteMutateAsync: vi.fn(),
+    // sonner toast(4.x 修复回归:toast 不得透传裸 zod JSON)
+    toastError: vi.fn(),
     updateOptimizationMutateAsync: vi.fn(),
     acceptAllMutateAsync: vi.fn(),
     scoreAtsMutateAsync: vi.fn(),
@@ -89,6 +91,9 @@ const mocks = vi.hoisted(() => {
 vi.mock("../resume-export", () => ({
   ResumeExport: () => <div data-testid="resume-export" />,
 }));
+
+// sonner toast stub(4.x 修复回归):断言 toast.error 收到用户可读文案
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
@@ -438,6 +443,29 @@ describe("ResumeHub 状态机", () => {
     await waitFor(() =>
       expect(mocks.invalidateLatestRun).toHaveBeenCalledWith({ intent: "rewrite-resume" })
     );
+  });
+
+  it("「开始优化」保存失败(后端 zod 原始 JSON):toast 显示中文消息,不触发改写", async () => {
+    mocks.resumeData = {
+      id: "r1",
+      fileName: "张伟简历.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      extractError: null,
+      parsedData,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    mocks.profileData = { careerPaths: [{ directionName: "后端开发" }] };
+    // 实测 bug 串:前端拦截上线前,后端仍可能以 zod issue JSON 拒绝 → 不得原样透传
+    mocks.saveMutateAsync.mockRejectedValueOnce(
+      new Error(
+        '{"code":"too_big","maximum":30,"type":"array","inclusive":true,"exact":false,"message":"技能最多 30 项","path":["parsedData","skills"]}'
+      )
+    );
+    render(<ResumeHub />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "开始优化" }));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("技能最多 30 项"));
+    expect(mocks.rewriteMutateAsync).not.toHaveBeenCalled();
   });
 
   it("改写失败:错误视图;「重试」用会话内输入重跑 rewrite(不回到表单)", async () => {

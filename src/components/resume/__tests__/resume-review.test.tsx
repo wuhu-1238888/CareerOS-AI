@@ -1,7 +1,7 @@
 // 简历核对表单测试(4.3):分区渲染与初始值 / 编辑保存(saveParsedData 载荷)/
 // 技能拆分 / 方向 chips 与自定义 / 空方向拦截 / 开始优化回调 / 条目增删;
 // 4.10:sectionPlan 模式(原文顺序渲染 / 自定义模块只读 / 工作实习分开展示 / 虚拟分区兜底)
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ResumeReview } from "../resume-review";
@@ -390,5 +390,133 @@ describe("ResumeReview(sectionPlan,4.10)", () => {
     await user.click(deletes[0]!); // 块顺序:实习经历区在前 → 第一个删除按钮属于实习条目
     expect(screen.queryByLabelText("公司 2")).toBeNull();
     expect(screen.getByLabelText("公司 1")).toHaveValue("杭州某科技有限公司");
+  });
+});
+
+// 技能上限校验(30 项 / 单条 50 字):前端预校验 + 计数 + 技能区中文提示 + 拦截保存/优化
+describe("ResumeReview(skills 上限校验)", () => {
+  const manySkills = (n: number) => Array.from({ length: n }, (_, i) => `技能${i}`).join("\n");
+
+  function renderReview(
+    onStart: (parsed: ParsedResume, direction: string) => Promise<void> = vi.fn()
+  ) {
+    render(
+      <ResumeReview
+        resumeId="r1"
+        initial={initialParsed}
+        careerPaths={careerPaths}
+        onStartOptimize={onStart}
+        optimizing={false}
+      />
+    );
+  }
+
+  it("初始 3 项显示计数;清空后 0 项可正常保存空数组", async () => {
+    renderReview();
+    expect(screen.getByText("已识别 3 / 30 项")).toBeInTheDocument();
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    expect(screen.getByText("已识别 0 / 30 项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    await waitFor(() =>
+      expect(mocks.saveMutateAsync).toHaveBeenCalledWith({
+        resumeId: "r1",
+        parsedData: expect.objectContaining({ skills: [] }),
+      })
+    );
+  });
+
+  it("技能超过 30 项:计数变红 + 保存被拦截,输入保留且不调 API", async () => {
+    renderReview();
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    expect(screen.getByText("已识别 31 / 30 项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    expect(
+      await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再保存。")
+    ).toBeInTheDocument();
+    expect(mocks.saveMutateAsync).not.toHaveBeenCalled();
+    // 拦截不清空用户输入
+    expect(screen.getByLabelText("技能列表")).toHaveValue(manySkills(31));
+  });
+
+  it("技能超过 30 项点「开始优化」:拦截且不触发回调", async () => {
+    const onStart = vi.fn();
+    renderReview(onStart);
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    await user.click(screen.getByRole("button", { name: "开始优化" }));
+    expect(
+      await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再开始优化。")
+    ).toBeInTheDocument();
+    expect(onStart).not.toHaveBeenCalled();
+    expect(mocks.saveMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("31 行含 1 条重复:自动去重后 30 / 30,保存成功且载荷无重复", async () => {
+    renderReview();
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: `${manySkills(30)}\n技能0` } });
+    expect(screen.getByText("已识别 30 / 30 项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    await waitFor(() => expect(mocks.saveMutateAsync).toHaveBeenCalled());
+    const payload = mocks.saveMutateAsync.mock.calls[0]![0] as {
+      parsedData: { skills: string[] };
+    };
+    expect(payload.parsedData.skills).toHaveLength(30);
+    expect(new Set(payload.parsedData.skills).size).toBe(30);
+  });
+
+  it("单条技能超过 50 字:保存拦截并提示精简", async () => {
+    renderReview();
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: "a".repeat(51) } });
+    expect(screen.getByText("已识别 1 / 30 项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    expect(
+      await screen.findByText("单个技能最多 50 字,请精简超长技能后再保存。")
+    ).toBeInTheDocument();
+    expect(mocks.saveMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("超限报错后删减至合法:错误消失,可正常保存", async () => {
+    renderReview();
+    const user = userEvent.setup();
+    const skillsInput = screen.getByLabelText("技能列表");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(31) } });
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    await screen.findByText("技能最多 30 项,当前 31 项,请删除或合并 1 项后再保存。");
+    await user.clear(skillsInput);
+    fireEvent.change(skillsInput, { target: { value: manySkills(30) } });
+    // 输入即清错(DesignRules L220:不逐键打断)
+    expect(screen.queryByText(/技能最多 30 项/)).toBeNull();
+    expect(screen.getByText("已识别 30 / 30 项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存核对结果" }));
+    await waitFor(() => expect(mocks.saveMutateAsync).toHaveBeenCalled());
+    expect(await screen.findByText("核对结果已保存")).toBeInTheDocument();
+  });
+
+  it("其他字段后端校验失败:显示字段中文消息而非裸 JSON", async () => {
+    mocks.saveMutateAsync.mockRejectedValueOnce(
+      new Error(
+        '{"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"学校不能为空","path":["parsedData","education",0,"school"]}'
+      )
+    );
+    renderReview();
+    await userEvent.setup().click(screen.getByRole("button", { name: "保存核对结果" }));
+    expect(await screen.findByText("学校不能为空")).toBeInTheDocument();
+    // 无裸 JSON / 字段名泄漏
+    expect(screen.queryByText(/parsedData/)).toBeNull();
+    expect(screen.queryByText(/too_small/)).toBeNull();
   });
 });

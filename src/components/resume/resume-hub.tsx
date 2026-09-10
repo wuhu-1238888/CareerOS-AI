@@ -23,16 +23,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/trpc/client";
 import { goBackOrFallback } from "@/lib/client-back";
+import { friendlyError } from "@/lib/error-message";
 import { ResumeUpload } from "./resume-upload";
 import { ResumeReview } from "./resume-review";
 import { ResumeResult } from "./resume-result";
 import { AnalysisView } from "@/components/profile/analysis-view";
 import { LinkageBanners } from "@/components/linkage/linkage-banners";
 import type { ParsedResume } from "@/lib/resume/analysis-schemas";
-
-function friendlyError(err: unknown): string {
-  return err instanceof Error ? err.message : "操作失败,请稍后重试";
-}
 
 export function ResumeHub() {
   const router = useRouter();

@@ -244,6 +244,28 @@ describe("resume.parse / retryParse / saveParsedData / latestRun 护栏(router �
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
+  it("saveParsedData:技能超过 30 条 / 单条超 50 字 → BAD_REQUEST 且含中文消息(不裸英文)", async () => {
+    // 前端拦截的兜底:后端 zod 拒绝时,issue message 已是中文,即使穿透也不暴露裸英文 JSON
+    const overCount = {
+      ...backend.mockOutput,
+      skills: Array.from({ length: 31 }, (_, i) => `技能${i}`),
+    };
+    await expect(
+      caller(userIdA).resume.saveParsedData({ resumeId: resumeIdA, parsedData: overCount })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller(userIdA).resume.saveParsedData({ resumeId: resumeIdA, parsedData: overCount })
+    ).rejects.toThrow(/技能最多 30 项/);
+
+    const overLength = { ...backend.mockOutput, skills: ["a".repeat(51)] };
+    await expect(
+      caller(userIdA).resume.saveParsedData({ resumeId: resumeIdA, parsedData: overLength })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller(userIdA).resume.saveParsedData({ resumeId: resumeIdA, parsedData: overLength })
+    ).rejects.toThrow(/单个技能最多 50 字/);
+  });
+
   it("latestRun:按 intent 参数化隔离(parse-resume 有 run,rewrite-resume/score-ats 为 null);他人 run 不可见", async () => {
     const latestA = await caller(userIdA).resume.latestRun({ intent: "parse-resume" });
     expect(latestA?.status).toBe("succeeded");
