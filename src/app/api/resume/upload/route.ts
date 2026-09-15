@@ -1,5 +1,8 @@
 // 简历上传 Route Handler(4.1):只做鉴权 + 表单解析薄壳,业务逻辑在 src/lib/resume/upload.ts。
 // middleware 不拦 /api,必须自鉴权(401 JSON)。
+// 生产部署适配(2026-09):上传同步做 PDF/DOCX 文本提取(含重试),可能超过 Vercel 默认 10s
+// 函数上限 → 显式声明 maxDuration(Vercel Hobby 上限 300s)。
+export const maxDuration = 300;
 import { auth } from "@/lib/auth";
 import { handleResumeUpload } from "@/lib/resume/upload";
 
