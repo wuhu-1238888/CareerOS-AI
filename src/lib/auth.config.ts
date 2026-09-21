@@ -3,10 +3,12 @@
 import type { NextAuthConfig } from "next-auth";
 
 // 受保护路由:(dashboard) 路由组内的全部页面 + 旧简历中心重定向页(/resumes → /resume?tab=resumes)
+// 2026-09 修复:/matching 此前仅在中 middleware matcher 中,未在此列表 → 未登录可打开页面外壳(数据 401)
 const protectedPaths = [
   "/dashboard",
   "/profile",
   "/navigator",
+  "/matching",
   "/resume",
   "/resumes",
   "/interview",

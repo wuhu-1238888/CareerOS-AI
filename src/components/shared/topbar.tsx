@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { trpc } from "@/trpc/client";
+import { DEMO_EMAIL } from "@/lib/demo-account";
 import { UserAvatar } from "./user-avatar";
 
 export const NAV_ITEMS = [
@@ -48,10 +49,20 @@ export function Topbar() {
 
   const name = me.data?.name ?? session?.user?.name ?? "";
   const avatarColor = me.data?.avatarColor ?? null;
+  // 演示模式(游客预览):顶栏常驻「返回首页」入口与菜单「退出演示」,仅演示账号可见,真实用户零影响
+  const isDemo = session?.user?.email === DEMO_EMAIL;
 
   async function handleSignOut() {
     await signOut({ redirect: false });
     router.push("/login");
+    router.refresh();
+  }
+
+  // 演示模式(游客预览)退出:返回 Landing Page 固定路由(非 router.back)。
+  // 必须先退出演示会话——/ 对任何已登录会话都会服务端重定向 /dashboard,只有回到未登录态才能渲染 Landing Page。
+  async function handleExitDemo() {
+    await signOut({ redirect: false });
+    router.push("/");
     router.refresh();
   }
 
@@ -84,6 +95,18 @@ export function Topbar() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 演示模式专属:返回首页(退出演示会话回 Landing Page),移动端与汉堡/头像同行 */}
+          {isDemo ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="whitespace-nowrap"
+              onClick={() => void handleExitDemo()}
+            >
+              返回首页
+            </Button>
+          ) : null}
+
           {/* 移动端抽屉(<md 折叠) */}
           <Sheet>
             <SheetTrigger asChild>
@@ -151,11 +174,11 @@ export function Topbar() {
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
-                  void handleSignOut();
+                  void (isDemo ? handleExitDemo() : handleSignOut());
                 }}
               >
                 <LogOut className="mr-2 size-4" aria-hidden />
-                退出登录
+                {isDemo ? "退出演示" : "退出登录"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

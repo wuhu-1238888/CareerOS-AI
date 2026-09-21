@@ -36,6 +36,7 @@ vi.mock("@/trpc/client", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.status = "authenticated";
+  mocks.session = { user: { id: "u1", name: "测试用户", email: "u1@test.local" }, expires: "2030-01-01T00:00:00.000Z" };
   mocks.meData = { id: "u1", name: "测试用户", avatarColor: null };
   mocks.meLoading = false;
   mocks.pathname = "/dashboard";
@@ -116,5 +117,35 @@ describe("Topbar", () => {
     mocks.meData = { id: "u1", name: "", avatarColor: null };
     render(<Topbar />);
     expect(screen.queryByText("用")).not.toBeInTheDocument();
+  });
+
+  it("演示模式:顶栏常驻「返回首页」,点击退出演示会话并回 Landing Page", async () => {
+    mocks.session = { user: { id: "u1", name: "张伟", email: "demo@careeros.local" }, expires: "2030-01-01T00:00:00.000Z" };
+    render(<Topbar />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "返回首页" }));
+    expect(mocks.signOut).toHaveBeenCalledWith({ redirect: false });
+    expect(mocks.push).toHaveBeenCalledWith("/");
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it("演示模式:用户菜单显示「退出演示」,点击同样回首页(不去 /login)", async () => {
+    mocks.session = { user: { id: "u1", name: "张伟", email: "demo@careeros.local" }, expires: "2030-01-01T00:00:00.000Z" };
+    render(<Topbar />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "打开用户菜单" }));
+    const menu = await screen.findByRole("menu");
+    await userEvent.setup().click(within(menu).getByText("退出演示"));
+    expect(mocks.signOut).toHaveBeenCalledWith({ redirect: false });
+    expect(mocks.push).toHaveBeenCalledWith("/");
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it("真实用户:不渲染「返回首页」,菜单仍为「退出登录」→ /login(零影响)", async () => {
+    render(<Topbar />);
+    expect(screen.queryByRole("button", { name: "返回首页" })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "打开用户菜单" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).queryByText("退出演示")).not.toBeInTheDocument();
+    await userEvent.setup().click(within(menu).getByText("退出登录"));
+    expect(mocks.push).toHaveBeenCalledWith("/login");
   });
 });

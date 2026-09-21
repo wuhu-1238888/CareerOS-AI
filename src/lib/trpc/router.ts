@@ -15,6 +15,7 @@ import {
 } from "@/lib/profile/schemas";
 import { analyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
+import { DEMO_EMAIL } from "@/lib/demo-account";
 import { runMatch } from "@/lib/matching/pipeline";
 import { matchAnalysisSchema } from "@/lib/matching/analysis-schemas";
 import { matchingAgentInputSchema } from "@/lib/agents/matching.agent";
@@ -449,11 +450,15 @@ const t = initTRPC.context<Context>().create();
 
 export const publicProcedure = t.procedure;
 
-// 受保护过程:未登录 → UNAUTHORIZED;登录后 ctx.userId 为数据库用户 id
-export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
+// 受保护过程:未登录 → UNAUTHORIZED;登录后 ctx.userId 为数据库用户 id。
+// 演示账号只读(2026-09 游客预览):拦截全部 mutation,杜绝演示数据污染与 AI 费用;query 放行。
+export const protectedProcedure = t.procedure.use(async ({ ctx, next, type }) => {
   const userId = ctx.session?.user?.id;
   if (!userId) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "请先登录" });
+  }
+  if (type === "mutation" && ctx.session?.user?.email === DEMO_EMAIL) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "演示账号为只读模式，注册后可保存你的数据" });
   }
   return next({ ctx: { ...ctx, userId } });
 });
