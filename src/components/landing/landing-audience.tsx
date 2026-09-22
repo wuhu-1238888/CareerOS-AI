@@ -1,47 +1,47 @@
-// 谁适合使用(首页 ⑥):以「用户带着什么问题来」为标题,人群映射严格取自 user-persona.md 的 4 类人群,
-// 不虚构新群体。2×2 轻卡,快速阅读。
+// 适用人群(首页 ④):严格取自 user-persona.md 的 4 类人群(PRD P0-P3)。
+// 每卡极简:人群标签 + 一个典型痛点 + 一句帮助(不再解释痛点细节,减少灰色小字)。
 import { Check } from "lucide-react";
 import { SectionHeading } from "./landing-section-heading";
 
 const AUDIENCES = [
   {
-    problem: "不知道自己适合什么岗位",
-    audience: "常见于：大学生 · 转行人群",
-    answer: "3 分钟生成职业画像，从推荐方向开始探索",
+    label: "大学生",
+    pain: "方向迷茫，信息过载",
+    solution: "3 分钟生成职业画像，从推荐方向开始探索",
   },
   {
-    problem: "有目标岗位，但不知道差距",
-    audience: "常见于：应届生 · 0-3 年职场新人",
-    answer: "粘贴 JD 拿到匹配度与差距清单，一键生成 90 天提升计划",
+    label: "应届生",
+    pain: "简历表达差，匹配度未知",
+    solution: "逐条优化简历，用匹配度看清差距",
   },
   {
-    problem: "有经历，但不会表达",
-    audience: "常见于：应届生 · 转行人群",
-    answer: "简历逐条优化 + ATS 评分，每处修改都告诉你为什么",
+    label: "0-3 年职场新人",
+    pain: "想转型，能力不自信",
+    solution: "能力对比 + 90 天提升计划，把差距变成任务",
   },
   {
-    problem: "准备面试，但不知道哪里会失分",
-    audience: "常见于：应届生 · 0-3 年职场新人",
-    answer: "个性化模拟面试：逐题反馈，结束拿到综合报告",
+    label: "转行人群",
+    pain: "担心过往经历白费",
+    solution: "重新定位方向，用可迁移能力重写表达",
   },
 ] as const;
 
 export function LandingAudience() {
   return (
-    <section aria-label="谁适合使用" className="py-16 sm:py-20">
+    <section aria-label="适用人群" className="py-12">
       <SectionHeading
-        eyebrow="谁适合使用"
-        title="你带着哪个问题来？"
+        eyebrow="适合谁"
+        title="无论你处于求职的哪个阶段"
         description="从第一次想「以后做什么」，到投递前的最后一轮面试准备。"
       />
-      <div className="mt-10 grid gap-4 md:grid-cols-2">
-        {AUDIENCES.map(({ problem, audience, answer }) => (
-          <div key={problem} className="rounded-card border border-hairline bg-surface p-6 shadow-card">
-            <h3 className="text-h3 text-ink">{problem}</h3>
-            <p className="mt-1 text-caption text-ink-muted">{audience}</p>
+      <div className="mt-8 grid gap-4 md:grid-cols-2">
+        {AUDIENCES.map(({ label, pain, solution }) => (
+          <div key={label} className="rounded-card border border-hairline bg-surface p-6 shadow-card">
+            <p className="text-[14px] font-semibold text-green-700">{label}</p>
+            <h3 className="mt-2 text-h3 text-ink">{pain}</h3>
             <p className="mt-4 flex items-start gap-2 text-body-sm text-ink-secondary">
               <Check className="mt-0.5 size-4 shrink-0 text-green-600" aria-hidden />
-              {answer}
+              {solution}
             </p>
           </div>
         ))}

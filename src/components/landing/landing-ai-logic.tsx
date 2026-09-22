@@ -1,4 +1,4 @@
-// AI 决策逻辑(首页 ④):理解 → 分析 → 决策 → 行动 四列,不堆技术名词。
+// AI 决策逻辑(首页 ③):理解 → 分析 → 决策 → 行动 四列,不堆技术名词。
 // 差异化主张:AI 不只生成内容,而是给出有理由的职业决策,并把决策转化为行动。
 // 「分析」是 AI 语义内容 → 合法使用 ai-badge 与 ai-insight 紫底(DesignRules AI 视觉白名单);
 // 「决策」是品牌价值强调 → green-50 底 + 左 green-600 边(同 linkage 横幅模式,紫色白名单不受影响)。
@@ -13,13 +13,13 @@ const ACTIONS = ["成长任务", "简历优化建议", "面试准备", "路线�
 
 export function LandingAiLogic() {
   return (
-    <section aria-label="AI 决策逻辑" className="py-16">
+    <section aria-label="AI 决策逻辑" className="py-12">
       <SectionHeading
         eyebrow="AI 如何工作"
         title="AI 不只生成内容，更帮你做职业决策"
         description="它先理解你的背景，再给出有理由的结论——选哪个方向、投哪个岗位，最后把每个结论变成今天就能做的动作。"
       />
-      <div className="mt-10 grid gap-4 md:grid-cols-4">
+      <div className="mt-8 grid gap-4 md:grid-cols-4">
         {/* 01 理解 */}
         <div className="relative rounded-card border border-hairline bg-surface p-6 shadow-card">
           <ArrowRight

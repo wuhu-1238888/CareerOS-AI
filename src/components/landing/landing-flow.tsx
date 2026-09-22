@@ -1,41 +1,27 @@
-// 产品闭环(首页 ③):五个环节如何首尾相连。顶部一行故事主线(认识自己→找到目标→补齐差距→优化材料→验证能力),
-// 下方 5 张精简卡(模块名 + 产出单行)。与 ② 分工:②讲「为什么」,③讲「流程怎么走」,不重复展开。
+// 产品闭环(首页 ②):画像 → 匹配 → 路线 → 简历 → 面试 五步,每卡「编号 + 图标 + 标题 + 一句短描述」,
+// 让用户 3 秒看懂完整闭环,不解释产品机制(细节由 AI 区块与游客预览承担)。
 // 图标与工作台顶栏同源(Search / Target / Route / FileText / MessageSquareText);桌面横向箭头相连,移动端纵向堆叠。
 import { ArrowRight, ChevronDown, FileText, MessageSquareText, Route, Search, Target } from "lucide-react";
 import { SectionHeading } from "./landing-section-heading";
 
 const STEPS = [
-  { icon: Search, name: "职业画像", output: "结构化画像 + 推荐方向" },
-  { icon: Target, name: "岗位匹配", output: "匹配度 + 差距清单" },
-  { icon: Route, name: "成长路线", output: "阶段化路线 + 每周任务" },
-  { icon: FileText, name: "简历优化", output: "修改建议 + ATS 评分" },
-  { icon: MessageSquareText, name: "模拟面试", output: "逐题反馈 + 综合报告" },
+  { icon: Search, name: "职业画像", desc: "了解你的优势与发展方向" },
+  { icon: Target, name: "岗位匹配", desc: "找到与你匹配的目标岗位" },
+  { icon: Route, name: "成长路线", desc: "明确下一阶段的成长路径" },
+  { icon: FileText, name: "简历优化", desc: "让经历更贴合目标岗位" },
+  { icon: MessageSquareText, name: "模拟面试", desc: "针对目标岗位进行面试准备" },
 ] as const;
-
-// 故事主线:五个环节连起来回答的终极问题(收束语义,与 ② 的五个问题措辞区分)
-const STORY_ARC = ["认识自己", "找到目标", "补齐差距", "优化材料", "验证能力"] as const;
 
 export function LandingFlow() {
   return (
-    <section aria-label="产品闭环" className="py-16 sm:py-20">
+    <section aria-label="产品闭环" className="py-12">
       <SectionHeading
         eyebrow="产品闭环"
-        title="五个环节，首尾相连"
-        description="上一环的结果是下一环的起点：求职的每一步，都用同一份画像与数据。"
+        title="从职业定位，到真正拿到目标岗位"
+        description="五个环节首尾相连：先看清自己，再补上差距，最后在简历与面试里把它表达出来。"
       />
-
-      {/* 顶部连接语义:一条主线 */}
-      <p className="mt-10 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-body-sm text-ink-secondary">
-        {STORY_ARC.map((label, index) => (
-          <span key={label} className="flex items-center gap-x-2">
-            {index > 0 ? <ArrowRight className="size-4 text-ink-faint" aria-hidden /> : null}
-            {label}
-          </span>
-        ))}
-      </p>
-
       <ol className="mt-8 grid gap-4 md:grid-cols-5">
-        {STEPS.map(({ icon: Icon, name, output }, index) => (
+        {STEPS.map(({ icon: Icon, name, desc }, index) => (
           <li
             key={name}
             className="relative rounded-card border border-hairline bg-surface p-6 shadow-card"
@@ -51,8 +37,8 @@ export function LandingFlow() {
             <div className="mt-3 flex size-10 items-center justify-center rounded-control bg-green-100 text-green-600">
               <Icon className="size-5" aria-hidden />
             </div>
-            <h3 className="mt-4 text-h3 text-ink">{name}</h3>
-            <p className="mt-2 text-body-sm text-ink-muted">{output}</p>
+            <h3 className="mt-3 text-h3 text-ink">{name}</h3>
+            <p className="mt-2 text-body-sm text-ink-muted">{desc}</p>
             {index < STEPS.length - 1 ? (
               <ChevronDown className="mx-auto mt-4 size-4 text-ink-faint md:hidden" aria-hidden />
             ) : null}
