@@ -32,7 +32,7 @@ describe("首页(任务 5.2)", () => {
     expect(screen.getByRole("heading", { name: /找到你的职业方向/ })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "开始免费体验" }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByRole("button", { name: "游客预览" })).toHaveLength(2);
-    expect(screen.getByRole("heading", { name: "从职业定位，到真正拿到目标岗位" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "从职业定位，到真正走到目标岗位" })).toBeInTheDocument();
     expect(screen.getAllByText("你的数据只用于个性化分析")).toHaveLength(2); // Hero 数据说明 + Final CTA 信任行
     expect(screen.getByRole("img", { name: /工作台界面示意/ })).toBeInTheDocument(); // DOM Demo Mockup
     expect(container.querySelectorAll("img")).toHaveLength(0); // 不再使用真实截图

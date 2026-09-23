@@ -62,9 +62,9 @@ darkColors:
 
 typography:
   display-lg:
-    fontSize: 40px
+    fontSize: 43px
     fontWeight: 700
-    lineHeight: 1.18
+    lineHeight: 1.33
     letterSpacing: -0.01em
   display:
     fontSize: 32px
@@ -431,7 +431,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 
 | Token | 字号/字重/行高 | 用途 |
 |---|---|---|
-| `{typography.display-lg}` | 40px / 700 / 1.18 / -0.01em | **仅 Landing Hero H1**(首页专用,内部页面一律不用) |
+| `{typography.display-lg}` | 43px / 700 / 1.33 / -0.01em | **仅 Landing Hero H1**(首页专用,内部页面一律不用;值来自设计基准图像素实测) |
 | `{typography.display}` | 32px / 700 / 1.35 | 引导页标题、Landing 区块 H2、大数字之外的最大标题 |
 | `{typography.num}` | 32px / 700 / 1(等宽数字) | **匹配度 85% 之类的大数字**——CareerOS 的签名元素 |
 | `{typography.h1}` | 24px / 600 / 1.4 | 页面标题(页面头默认) |

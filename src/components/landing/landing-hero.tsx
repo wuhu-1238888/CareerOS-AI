@@ -12,7 +12,7 @@ export function LandingHero() {
   return (
     <section className="grid items-center gap-12 pb-10 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
       <div className="min-w-0">
-        <p className="text-[14px] font-semibold text-green-700">AI 职业成长操作系统</p>
+        <p className="text-[14px] font-semibold text-green-700">AI 驱动的职业成长系统</p>
         <h1 className="mt-2.5 max-w-[480px] text-display sm:text-display-lg text-ink">
           找到你的职业方向
           <br />

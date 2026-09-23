@@ -15,7 +15,7 @@ vi.mock("next-auth/react", () => ({
 describe("LandingView", () => {
   it("Hero:眉标 + 两行大标题(display-lg)+ 副标题 + 双 CTA(主「开始免费体验」/ 次「游客预览」)+ 数据说明", () => {
     render(<LandingView />);
-    expect(screen.getByText("AI 职业成长操作系统")).toBeInTheDocument();
+    expect(screen.getByText("AI 驱动的职业成长系统")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /找到你的职业方向/ })).toBeInTheDocument();
     expect(screen.getByText(/完整求职闭环/)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "开始免费体验" }).length).toBeGreaterThanOrEqual(2);
@@ -53,7 +53,7 @@ describe("LandingView", () => {
 
   it("产品闭环:画像 → 匹配 → 路线 → 简历 → 面试 5 步齐全", () => {
     render(<LandingView />);
-    expect(screen.getByRole("heading", { name: "从职业定位，到真正拿到目标岗位" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "从职业定位，到真正走到目标岗位" })).toBeInTheDocument();
     for (const name of ["职业画像", "岗位匹配", "成长路线", "简历优化", "模拟面试"]) {
       expect(screen.getAllByRole("heading", { name })).not.toHaveLength(0);
     }

@@ -5,15 +5,15 @@
 // 全部按钮均为纯样式 span(不可聚焦),wrapper aria-hidden,屏幕阅读器只读 figure 的 aria-label。
 // 字号为真实工作台约 60% 比例,放大后密度适中且天然高分辨率。
 // 禁令走查:无渐变、无发光、无玻璃拟态;无 img/视频;仅使用 DesignSystem token 类。
-import { Briefcase, Compass, FileText, MessageSquareText, Route, Search, Target, User } from "lucide-react";
+import { Briefcase, ChartNoAxesCombined, Compass, FileText, MessageSquareText, Target, User, UserRound } from "lucide-react";
 
 const NAV_ITEMS = ["首页", "职业画像", "岗位匹配", "成长路线", "简历优化", "模拟面试"] as const;
 
-// 五格进度 = 产品五步闭环(虚构值;全部非零,避免出现「空状态」观感)
+// 五格进度 = 产品五步闭环(虚构值;全部非零,避免出现「空状态」观感);图标与产品闭环卡同一套
 const PROGRESS = [
-  { icon: Search, label: "职业画像", value: "80%" },
+  { icon: UserRound, label: "职业画像", value: "80%" },
   { icon: Target, label: "岗位匹配", value: "65%" },
-  { icon: Route, label: "成长路线", value: "40%" },
+  { icon: ChartNoAxesCombined, label: "成长路线", value: "40%" },
   { icon: FileText, label: "简历优化", value: "30%" },
   { icon: MessageSquareText, label: "模拟面试", value: "15%" },
 ] as const;
