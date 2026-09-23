@@ -3,7 +3,7 @@
 // 标题用 Landing 专用 text-display-lg(40px),两行显式断行形成视觉节奏;内部页面不使用该档。
 // 右列装饰(氛围圆 / 悬浮助手卡)均为平色 + aria-hidden、不可聚焦,不参与语义。
 import Link from "next/link";
-import { Compass, Lock } from "lucide-react";
+import { ArrowRight, Compass, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GuestLoginButton } from "./guest-login-button";
 import { LandingDemoMockup } from "./landing-demo-mockup";
@@ -23,12 +23,15 @@ export function LandingHero() {
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <Button size="lg" asChild>
-            <Link href="/register">开始免费体验</Link>
+            <Link href="/register">
+              开始免费体验
+              <ArrowRight aria-hidden />
+            </Link>
           </Button>
           <GuestLoginButton />
         </div>
         <p className="mt-4 flex items-center gap-2 text-body-sm text-ink-muted">
-          <Lock className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
+          <ShieldCheck className="size-3.5 shrink-0 text-green-600" aria-hidden />
           你的数据只用于个性化分析
         </p>
       </div>

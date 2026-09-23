@@ -35,7 +35,7 @@ describe("LandingView", () => {
       expect(mockup.getAllByText(item).length).toBeGreaterThanOrEqual(1);
     }
     // 问候:不带虚构人名
-    expect(mockup.getByText(/你好，未来的职场人/)).toBeInTheDocument();
+    expect(mockup.getByText(/你好，未来的职业人/)).toBeInTheDocument();
     // 我的职业成长进度:五格 = 五步闭环,数值全部非零(不出现空状态)
     expect(mockup.getByText("我的职业成长进度")).toBeInTheDocument();
     expect(mockup.getByText("继续完善信息 →")).toBeInTheDocument();

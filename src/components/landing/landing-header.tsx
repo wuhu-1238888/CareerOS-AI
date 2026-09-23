@@ -2,6 +2,7 @@
 // 纯静态服务端组件;64px 高度 / hairline 下边线 / logo 样式与工作台顶栏同源。
 // 锚点指向 LandingView 各 section 的 id(loop / ai-how / audience):纯站内跳转,不新增路由。
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const NAV = [
@@ -41,7 +42,10 @@ export function LandingHeader() {
             登录
           </Link>
           <Button asChild>
-            <Link href="/register">开始免费体验</Link>
+            <Link href="/register">
+              开始免费体验
+              <ArrowRight aria-hidden />
+            </Link>
           </Button>
         </div>
       </div>

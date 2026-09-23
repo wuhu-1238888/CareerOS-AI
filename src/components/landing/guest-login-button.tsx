@@ -2,6 +2,7 @@
 // 「游客预览」按钮:用预置演示账号走现有 Credentials 登录流程,一键进入只读演示模式。
 // 失败提示不暴露账号细节;成功后进入工作台(演示数据由 prisma/demo-seed.ts 预置)。
 import { useState } from "react";
+import { Eye } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ export function GuestLoginButton({ className }: { className?: string }) {
       disabled={loading}
       onClick={handleGuestLogin}
     >
+      <Eye aria-hidden />
       {loading ? "正在进入…" : "游客预览"}
     </Button>
   );

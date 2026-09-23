@@ -73,7 +73,7 @@ export function LandingDemoMockup() {
         <div className="space-y-3.5 p-5">
           {/* 问候 */}
           <div>
-            <p className="text-h2 text-ink">你好，未来的职场人 👋</p>
+            <p className="text-h2 text-ink">你好，未来的职业人 👋</p>
             <p className="mt-1 text-body-sm text-ink-secondary">
               让 AI 帮助你找到方向，制定计划，成为更好的自己
             </p>
