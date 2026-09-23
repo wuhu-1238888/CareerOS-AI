@@ -26,12 +26,14 @@ const JOB = {
   desc: "负责产品规划与需求分析，推动产品迭代与落地。",
 };
 
+// xl 起把 Mockup 限宽 608px(右列 674px × 90.2%,缩小 9.8%):figure 为块级,限宽后自然靠左,
+// 右侧腾出 66px 留白供悬浮助手卡横跨 Mockup 右缘;内部靠 flex 收缩 + 既有 truncate 适配,不用 transform: scale。
 export function LandingDemoMockup() {
   return (
     <figure
       role="img"
       aria-label="CareerOS 工作台界面示意(演示数据)"
-      className="overflow-hidden rounded-card border border-hairline bg-surface shadow-card"
+      className="overflow-hidden rounded-card border border-hairline bg-surface shadow-card xl:w-[608px]"
     >
       <div aria-hidden>
         {/* 单条顶栏:窗口三点 + Logo + 导航 + 头像。

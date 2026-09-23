@@ -1,6 +1,6 @@
 // Hero(首页 ①):3 秒传达「是什么 / 能做什么 / 长什么样」——左文案 + 双 CTA + 数据说明,
 // 右 Landing 专用 DOM Demo Mockup(虚构演示数据,取代真实账号截图:清晰、可放大、无个人数据)。
-// 标题用 Landing 专用 text-display-lg(40px),两行显式断行形成视觉节奏;内部页面不使用该档。
+// 标题用 Landing 专用 text-display-lg(43px,基准图像素实测值),两行显式断行形成视觉节奏;内部页面不使用该档。
 // 右列装饰(氛围圆 / 悬浮助手卡)均为平色 + aria-hidden、不可聚焦,不参与语义。
 import Link from "next/link";
 import { ArrowRight, Compass, ShieldCheck } from "lucide-react";
@@ -43,7 +43,8 @@ export function LandingHero() {
           aria-hidden
         />
         <LandingDemoMockup />
-        {/* 悬浮助手卡:纯装饰,不可聚焦;压在 Mockup 右下角外侧,不遮挡岗位行的匹配度与按钮 */}
+        {/* 悬浮助手卡:纯装饰,不可聚焦;横跨 Mockup 右缘(左半压在 Mockup 右下角、右半落在 xl 留白区),
+            保持参考图「悬浮在 Mockup 右下角边缘」的观感,且不遮挡岗位行的匹配度与按钮 */}
         <div
           className="absolute -bottom-6 -right-3 hidden items-center gap-2.5 rounded-card border border-hairline bg-surface px-3 py-2 shadow-card sm:flex"
           aria-hidden
