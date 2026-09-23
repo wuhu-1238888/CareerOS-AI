@@ -22,7 +22,7 @@ export function LandingHeader() {
           >
             CareerOS<span className="text-green-600"> AI</span>
           </Link>
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-2 md:flex">
             {NAV.map(({ href, label }) => (
               <a
                 key={href}

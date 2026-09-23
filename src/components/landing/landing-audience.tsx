@@ -1,5 +1,6 @@
 // 适用人群(首页 ④):严格取自 user-persona.md 的 4 类人群(PRD P0-P3)。
 // 每卡极简:人群标签 + 一个典型痛点 + 一句帮助(不再解释痛点细节,减少灰色小字)。
+// 本区块比其余区块更宽松(卡内边距 p-6 = 24px、网格间距 gap-6 = 24px,DesignRules 例外条款)。
 import { Check } from "lucide-react";
 import { SectionHeading } from "./landing-section-heading";
 
@@ -34,12 +35,12 @@ export function LandingAudience() {
         title="无论你处于求职的哪个阶段"
         description="从第一次想「以后做什么」，到投递前的最后一轮面试准备。"
       />
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
+      <div className="mt-8 grid gap-6 md:grid-cols-2">
         {AUDIENCES.map(({ label, pain, solution }) => (
-          <div key={label} className="rounded-card border border-hairline bg-surface p-5 shadow-card">
-            <p className="text-[14px] font-semibold text-green-700">{label}</p>
+          <div key={label} className="rounded-card border border-hairline bg-surface p-6 shadow-card">
+            <p className="text-[15px] font-bold text-green-700">{label}</p>
             <h3 className="mt-2 text-h3 text-ink">{pain}</h3>
-            <p className="mt-4 flex items-start gap-2 text-body-sm text-ink-secondary">
+            <p className="mt-5 flex items-start gap-2 text-body-sm text-ink-secondary">
               <Check className="mt-0.5 size-4 shrink-0 text-green-600" aria-hidden />
               {solution}
             </p>

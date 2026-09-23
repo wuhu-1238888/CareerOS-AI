@@ -10,7 +10,7 @@ import { LandingDemoMockup } from "./landing-demo-mockup";
 
 export function LandingHero() {
   return (
-    <section className="grid items-center gap-12 pb-10 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.32fr)]">
+    <section className="grid items-center gap-12 pb-10 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
       <div className="min-w-0">
         <p className="text-[14px] font-semibold text-green-700">AI 驱动的职业成长系统</p>
         <h1 className="mt-2.5 max-w-[480px] text-display sm:text-display-lg text-ink">
@@ -42,22 +42,25 @@ export function LandingHero() {
           className="absolute -top-10 right-0 -z-10 hidden size-[420px] rounded-full bg-green-50 lg:block"
           aria-hidden
         />
-        <LandingDemoMockup />
-        {/* 悬浮助手卡:纯装饰,不可聚焦。位置按基准图像素实测:卡与「查看详情」垂直居中(中心同高)、
-            卡左缘距按钮右缘 7px、横跨 Mockup 右缘(内侧 48px / 外侧 88px)。我们卡片更宽,故取左缘距按钮 6px。
-            ≥1384px 才有容纳该横向位置的空间(1280–1383 容器已封顶,右侧仅剩 126px),
-            这段回退为「贴在 Mockup 右下角下方」——两档都不遮挡匹配度与按钮。 */}
-        <div
-          className="absolute -bottom-6 -right-3 hidden items-center gap-2.5 rounded-card border border-hairline bg-surface px-3 py-2 shadow-card sm:flex min-[1384px]:bottom-8 min-[1384px]:-right-16"
-          aria-hidden
-        >
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
-            <UserRound className="size-4" />
-          </span>
-          <span className="leading-tight">
-            <span className="block text-caption text-ink-muted">你的职业成长伙伴</span>
-            <span className="block text-body-sm font-semibold text-ink">CareerOS AI</span>
-          </span>
+        {/* Mockup 包裹层:xl 起右列内缩 60px(Mockup ≈650px),在右侧留出悬浮卡探出的横向空间 */}
+        <div className="relative xl:w-[calc(100%-60px)]">
+          <LandingDemoMockup />
+          {/* 悬浮助手卡:纯装饰,不可聚焦。位置按基准图像素实测:卡与「查看详情」垂直居中(中心同高)、
+              卡左缘距按钮右缘 7px(实现取 6px),横跨 Mockup 右缘一大半(内侧 30px / 外侧 130px)。
+              ≥1440px 才有容纳该横向位置的空间(1440 视口卡右缘余 22px),
+              1280–1439px 回退为「贴在 Mockup 右下角下方」——两档都不遮挡匹配度与按钮。 */}
+          <div
+            className="absolute -bottom-6 -right-3 hidden items-center gap-2.5 rounded-card border border-hairline bg-surface px-3 py-2 shadow-card sm:flex min-[1440px]:bottom-8 min-[1440px]:-right-[130px]"
+            aria-hidden
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
+              <UserRound className="size-4" />
+            </span>
+            <span className="leading-tight">
+              <span className="block text-caption text-ink-muted">你的职业成长伙伴</span>
+              <span className="block text-body-sm font-semibold text-ink">CareerOS AI</span>
+            </span>
+          </div>
         </div>
       </div>
     </section>

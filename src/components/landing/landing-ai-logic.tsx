@@ -1,15 +1,15 @@
 // AI 决策逻辑(首页 ③):理解 → 分析 → 决策 → 行动 四列,不堆技术名词。
 // 差异化主张:AI 不只生成内容,而是给出有理由的职业决策,并把决策转化为行动。
-// 「分析」是 AI 语义内容 → 合法使用 ai-badge 与 ai-insight 紫底(DesignRules AI 视觉白名单);
-// 「决策」是品牌价值强调 → green-50 底 + 左 green-600 边(同 linkage 横幅模式,紫色白名单不受影响)。
+// 「分析」是 AI 语义内容 → 合法使用 ai-badge 与 ai-insight 紫底(DesignRules AI 视觉白名单;
+// 用户明确裁定保留紫底,作为本 section 唯一的强调卡);「决策」为普通白卡,不再用绿色底强调。
 import { ArrowRight, Check, Compass, ListChecks, ScanSearch } from "lucide-react";
 import { AiBadge } from "@/components/shared/ai-badge";
 import { SectionHeading } from "./landing-section-heading";
 
 const UNDERSTAND = ["教育背景", "技能", "项目与工作经历", "目标岗位"];
-const ANALYZE = ["能力优势与短板", "岗位要求拆解", "匹配度与成长差距"];
-const DECIDE = ["职业方向推荐与优先级", "目标岗位投递建议", "90 天提升计划与阶段目标"];
-const ACTIONS = ["成长任务", "简历优化建议", "面试准备", "路线反馈与 AI 调整"];
+const ANALYZE = ["能力优势与短板", "岗位要求", "匹配程度", "成长差距"];
+const DECIDE = ["职业方向", "岗位选择", "成长优先级", "下一阶段目标"];
+const ACTIONS = ["成长任务", "简历优化建议", "面试准备", "后续反馈与 AI 调整"];
 
 export function LandingAiLogic() {
   return (
@@ -59,8 +59,8 @@ export function LandingAiLogic() {
           </ul>
         </div>
 
-        {/* 03 决策(品牌价值强调:绿色底,同 linkage 横幅模式) */}
-        <div className="relative rounded-r-control border-l-[3px] border-l-green-600 bg-green-50 p-5">
+        {/* 03 决策(标准白卡:全 section 只让「分析」一张卡带色底,视觉重心落在 AI 分析) */}
+        <div className="relative rounded-card border border-hairline bg-surface p-5 shadow-card">
           <ArrowRight
             className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
