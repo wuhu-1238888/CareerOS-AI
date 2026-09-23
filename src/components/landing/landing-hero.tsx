@@ -1,18 +1,19 @@
 // Hero(首页 ①):3 秒传达「是什么 / 能做什么 / 长什么样」——左文案 + 双 CTA + 数据说明,
 // 右 Landing 专用 DOM Demo Mockup(虚构演示数据,取代真实账号截图:清晰、可放大、无个人数据)。
-// 移动端文字在上、Mockup 在下,自然换行无横向溢出。
+// 标题用 Landing 专用 text-display-lg(40px),两行显式断行形成视觉节奏;内部页面不使用该档。
+// 右列装饰(氛围圆 / 悬浮助手卡)均为平色 + aria-hidden、不可聚焦,不参与语义。
 import Link from "next/link";
-import { Lock } from "lucide-react";
+import { Compass, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GuestLoginButton } from "./guest-login-button";
 import { LandingDemoMockup } from "./landing-demo-mockup";
 
 export function LandingHero() {
   return (
-    <section className="grid items-center gap-12 pb-12 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-      <div>
+    <section className="grid items-center gap-12 pb-10 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <div className="min-w-0">
         <p className="text-[14px] font-semibold text-green-700">AI 职业成长操作系统</p>
-        <h1 className="mt-2.5 max-w-[440px] text-display text-ink">
+        <h1 className="mt-2.5 max-w-[480px] text-display sm:text-display-lg text-ink">
           找到你的职业方向
           <br />
           一步一步走到目标岗位
@@ -31,7 +32,28 @@ export function LandingHero() {
           你的数据只用于个性化分析
         </p>
       </div>
-      <LandingDemoMockup />
+
+      <div className="relative isolate min-w-0">
+        {/* 氛围圆:平色浅绿(非渐变/非发光),仅桌面显示且不越出容器 */}
+        <div
+          className="absolute -top-10 right-0 -z-10 hidden size-[420px] rounded-full bg-green-50 lg:block"
+          aria-hidden
+        />
+        <LandingDemoMockup />
+        {/* 悬浮助手卡:纯装饰,不可聚焦;压在 Mockup 右下角外侧,不遮挡岗位行的匹配度与按钮 */}
+        <div
+          className="absolute -bottom-6 -right-3 hidden items-center gap-2.5 rounded-card border border-hairline bg-surface px-3 py-2 shadow-card sm:flex"
+          aria-hidden
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
+            <Compass className="size-4" />
+          </span>
+          <span className="leading-tight">
+            <span className="block text-caption text-ink-muted">你的职业成长伙伴</span>
+            <span className="block text-body-sm font-semibold text-ink">CareerOS AI</span>
+          </span>
+        </div>
+      </div>
     </section>
   );
 }

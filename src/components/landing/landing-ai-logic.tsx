@@ -13,7 +13,7 @@ const ACTIONS = ["成长任务", "简历优化建议", "面试准备", "路线�
 
 export function LandingAiLogic() {
   return (
-    <section aria-label="AI 决策逻辑" className="py-12">
+    <section id="ai-how" aria-label="AI 决策逻辑" className="scroll-mt-20 py-10">
       <SectionHeading
         eyebrow="AI 如何工作"
         title="AI 不只生成内容，更帮你做职业决策"
@@ -21,7 +21,7 @@ export function LandingAiLogic() {
       />
       <div className="mt-8 grid gap-4 md:grid-cols-4">
         {/* 01 理解 */}
-        <div className="relative rounded-card border border-hairline bg-surface p-6 shadow-card">
+        <div className="relative rounded-card border border-hairline bg-surface p-5 shadow-card">
           <ArrowRight
             className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
@@ -31,7 +31,7 @@ export function LandingAiLogic() {
             <h3 className="text-h3 text-ink">理解</h3>
           </div>
           <p className="mt-1 text-caption text-ink-muted">你只需要提供这些信息</p>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-3 space-y-1.5">
             {UNDERSTAND.map((item) => (
               <li key={item} className="flex items-center gap-2 text-body-sm text-ink-secondary">
                 <span className="size-1.5 rounded-full bg-hairline-strong" aria-hidden />
@@ -42,14 +42,14 @@ export function LandingAiLogic() {
         </div>
 
         {/* 02 分析(AI 语义:ai-insight 视觉) */}
-        <div className="relative rounded-r-control border-l-[3px] border-l-violet-400 bg-violet-50 p-6">
+        <div className="relative rounded-r-control border-l-[3px] border-l-violet-400 bg-violet-50 p-5">
           <ArrowRight
             className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
           />
           <AiBadge>AI 分析</AiBadge>
           <p className="mt-2 text-caption text-ink-muted">AI 把你的信息与岗位要求放在一起比对</p>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-3 space-y-1.5">
             {ANALYZE.map((item) => (
               <li key={item} className="flex items-center gap-2 text-body-sm text-ink-secondary">
                 <span className="size-1.5 rounded-full bg-violet-400" aria-hidden />
@@ -60,7 +60,7 @@ export function LandingAiLogic() {
         </div>
 
         {/* 03 决策(品牌价值强调:绿色底,同 linkage 横幅模式) */}
-        <div className="relative rounded-r-control border-l-[3px] border-l-green-600 bg-green-50 p-6">
+        <div className="relative rounded-r-control border-l-[3px] border-l-green-600 bg-green-50 p-5">
           <ArrowRight
             className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
@@ -70,7 +70,7 @@ export function LandingAiLogic() {
             <h3 className="text-h3 text-ink">决策</h3>
           </div>
           <p className="mt-1 text-caption text-ink-muted">在分析之上，给出结论与理由</p>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-3 space-y-1.5">
             {DECIDE.map((item) => (
               <li key={item} className="flex items-center gap-2 text-body-sm text-ink-secondary">
                 <span className="size-1.5 rounded-full bg-green-600" aria-hidden />
@@ -81,13 +81,13 @@ export function LandingAiLogic() {
         </div>
 
         {/* 04 行动 */}
-        <div className="rounded-card border border-hairline bg-surface p-6 shadow-card">
+        <div className="rounded-card border border-hairline bg-surface p-5 shadow-card">
           <div className="flex items-center gap-2">
             <ListChecks className="size-4 text-green-600" aria-hidden />
             <h3 className="text-h3 text-ink">行动</h3>
           </div>
           <p className="mt-1 text-caption text-ink-muted">每个结论都变成今天就能做的动作</p>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-3 space-y-1.5">
             {ACTIONS.map((item) => (
               <li key={item} className="flex items-center gap-2 text-body-sm text-ink-secondary">
                 <Check className="size-4 shrink-0 text-green-600" aria-hidden />

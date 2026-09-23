@@ -14,7 +14,7 @@ const STEPS = [
 
 export function LandingFlow() {
   return (
-    <section aria-label="产品闭环" className="py-12">
+    <section id="loop" aria-label="产品闭环" className="scroll-mt-20 py-10">
       <SectionHeading
         eyebrow="产品闭环"
         title="从职业定位，到真正拿到目标岗位"
@@ -24,7 +24,7 @@ export function LandingFlow() {
         {STEPS.map(({ icon: Icon, name, desc }, index) => (
           <li
             key={name}
-            className="relative rounded-card border border-hairline bg-surface p-6 shadow-card"
+            className="relative rounded-card border border-hairline bg-surface p-5 shadow-card"
           >
             {/* 桌面端横向箭头 / 移动端纵向箭头 */}
             {index < STEPS.length - 1 ? (
@@ -33,14 +33,14 @@ export function LandingFlow() {
                 aria-hidden
               />
             ) : null}
-            <p className="text-eyebrow text-green-600">{String(index + 1).padStart(2, "0")}</p>
-            <div className="mt-3 flex size-10 items-center justify-center rounded-control bg-green-100 text-green-600">
+            <p className="text-[14px] font-semibold text-green-600">{String(index + 1).padStart(2, "0")}</p>
+            <div className="mt-2.5 flex size-10 items-center justify-center rounded-control bg-green-100 text-green-600">
               <Icon className="size-5" aria-hidden />
             </div>
-            <h3 className="mt-3 text-h3 text-ink">{name}</h3>
-            <p className="mt-2 text-body-sm text-ink-muted">{desc}</p>
+            <h3 className="mt-2.5 text-h3 text-ink">{name}</h3>
+            <p className="mt-1.5 text-body-sm text-ink-muted">{desc}</p>
             {index < STEPS.length - 1 ? (
-              <ChevronDown className="mx-auto mt-4 size-4 text-ink-faint md:hidden" aria-hidden />
+              <ChevronDown className="mx-auto mt-3 size-4 text-ink-faint md:hidden" aria-hidden />
             ) : null}
           </li>
         ))}

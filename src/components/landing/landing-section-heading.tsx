@@ -15,7 +15,7 @@ export function SectionHeading({
   return (
     <div className={className}>
       <p className="text-[14px] font-semibold text-green-700">{eyebrow}</p>
-      <h2 className="mt-2.5 text-h1 text-ink">{title}</h2>
+      <h2 className="mt-2.5 text-display text-ink">{title}</h2>
       {description ? <p className="mt-3 max-w-[640px] text-body text-ink-muted">{description}</p> : null}
     </div>
   );

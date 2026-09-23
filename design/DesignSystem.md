@@ -61,6 +61,11 @@ darkColors:
   info-bg: "#1d2c4d"
 
 typography:
+  display-lg:
+    fontSize: 40px
+    fontWeight: 700
+    lineHeight: 1.18
+    letterSpacing: -0.01em
   display:
     fontSize: 32px
     fontWeight: 700
@@ -426,7 +431,8 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 
 | Token | 字号/字重/行高 | 用途 |
 |---|---|---|
-| `{typography.display}` | 32px / 700 / 1.35 | 引导页标题、大数字之外的最大标题 |
+| `{typography.display-lg}` | 40px / 700 / 1.18 / -0.01em | **仅 Landing Hero H1**(首页专用,内部页面一律不用) |
+| `{typography.display}` | 32px / 700 / 1.35 | 引导页标题、Landing 区块 H2、大数字之外的最大标题 |
 | `{typography.num}` | 32px / 700 / 1(等宽数字) | **匹配度 85% 之类的大数字**——CareerOS 的签名元素 |
 | `{typography.h1}` | 24px / 600 / 1.4 | 页面标题(页面头默认) |
 | `{typography.h2}` | 18px / 600 / 1.5 | 区块标题、大卡片标题 |
@@ -436,7 +442,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 | `{typography.body-sm}` | 13px / 400 / 1.55 | 元信息、次要说明 |
 | `{typography.caption}` | 12px / 400 / 1.5 | 时间戳、徽章、标签 |
 | `{typography.button}` | 14px / 500 / 1 | 全部按钮文字 |
-| `{typography.eyebrow}` | 12px / 600 / 1.4 / +0.08em | 区块眉标(唯一使用字距的样式) |
+| `{typography.eyebrow}` | 12px / 600 / 1.4 / +0.08em | 区块眉标(内部页面唯一以字距做排版语义的样式) |
 | `{typography.mono}` | 13px / 400 / 1.6 | 代码、关键词 token |
 
 ### 中文排版规则(本系统特有)

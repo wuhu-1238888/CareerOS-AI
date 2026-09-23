@@ -7,8 +7,8 @@ import { GuestLoginButton } from "./guest-login-button";
 export function LandingFinalCta() {
   return (
     <>
-      <section className="py-12 text-center">
-        <h2 className="text-h1 text-ink">准备好开始你的职业规划了吗？</h2>
+      <section className="py-10 text-center">
+        <h2 className="text-display text-ink">准备好开始你的职业规划了吗？</h2>
         <p className="mt-3 text-body-lg text-ink-muted">
           从职业画像开始，找到目标岗位，并明确下一步行动。
         </p>
@@ -18,7 +18,7 @@ export function LandingFinalCta() {
           </Button>
           <GuestLoginButton />
         </div>
-        <p className="mt-10 flex items-center justify-center gap-2 text-body-sm text-ink-muted">
+        <p className="mt-8 flex items-center justify-center gap-2 text-body-sm text-ink-muted">
           <ShieldCheck className="size-4 text-green-600" aria-hidden />
           你的数据只用于个性化分析
         </p>

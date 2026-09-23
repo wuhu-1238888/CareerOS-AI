@@ -10,6 +10,7 @@ import {
 
 // Tailwind 工具类必须为字面量(静态扫描),此处以映射表声明完整类名
 const typographyClass: Record<string, string> = {
+  "display-lg": "text-display-lg", // 仅 Landing Hero H1
   display: "text-display",
   h1: "text-h1",
   h2: "text-h2",
@@ -163,7 +164,7 @@ export default function TokensPage() {
         </Section>
 
         {/* 字体字号 */}
-        <Section title="字体字号(12 级)" desc="工具类 text-{display|h1|h2|h3|body-lg|body|body-sm|caption|button|eyebrow|num|mono}">
+        <Section title="字体字号(13 级)" desc="工具类 text-{display-lg|display|h1|h2|h3|body-lg|body|body-sm|caption|button|eyebrow|num|mono}">
           <div className="space-y-3 rounded-card border border-hairline bg-surface p-6 shadow-card">
             {(Object.entries(typography) as [string, (typeof typography)[keyof typeof typography]][]).map(
               ([name, spec]) => (

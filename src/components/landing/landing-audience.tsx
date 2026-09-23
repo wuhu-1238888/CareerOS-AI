@@ -28,7 +28,7 @@ const AUDIENCES = [
 
 export function LandingAudience() {
   return (
-    <section aria-label="适用人群" className="py-12">
+    <section id="audience" aria-label="适用人群" className="scroll-mt-20 py-10">
       <SectionHeading
         eyebrow="适合谁"
         title="无论你处于求职的哪个阶段"
@@ -36,7 +36,7 @@ export function LandingAudience() {
       />
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         {AUDIENCES.map(({ label, pain, solution }) => (
-          <div key={label} className="rounded-card border border-hairline bg-surface p-6 shadow-card">
+          <div key={label} className="rounded-card border border-hairline bg-surface p-5 shadow-card">
             <p className="text-[14px] font-semibold text-green-700">{label}</p>
             <h3 className="mt-2 text-h3 text-ink">{pain}</h3>
             <p className="mt-4 flex items-start gap-2 text-body-sm text-ink-secondary">

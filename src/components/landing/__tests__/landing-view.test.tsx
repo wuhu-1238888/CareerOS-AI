@@ -1,7 +1,7 @@
 // 首页组件测试(2026-09 Landing 升级,同月信息减法后):Header / Hero(双 CTA)/ 产品闭环 5 步 /
 // AI 决策逻辑 / 适用人群 / Final CTA + 页脚(核心能力 Showcase 已删除,详细体验交给游客预览)。
 // 禁令走查:无视频、无渐变;产品展示为 Hero 唯一 DOM Demo Mockup(虚构演示数据,无 img、无真实截图)。
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { LandingView } from "../landing-view";
 
@@ -13,7 +13,7 @@ vi.mock("next-auth/react", () => ({
 }));
 
 describe("LandingView", () => {
-  it("Hero:eyebrow + display 标题 + 副标题 + 双 CTA(主「开始免费体验」/ 次「游客预览」)+ 数据说明", () => {
+  it("Hero:眉标 + 两行大标题(display-lg)+ 副标题 + 双 CTA(主「开始免费体验」/ 次「游客预览」)+ 数据说明", () => {
     render(<LandingView />);
     expect(screen.getByText("AI 职业成长操作系统")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /找到你的职业方向/ })).toBeInTheDocument();
@@ -28,11 +28,27 @@ describe("LandingView", () => {
 
   it("Hero 产品展示:Landing 专用 DOM Demo Mockup(虚构演示数据,无真实账号信息)", () => {
     render(<LandingView />);
-    expect(screen.getByRole("img", { name: /工作台界面示意/ })).toBeInTheDocument();
-    expect(screen.getByText("你好，张伟")).toBeInTheDocument();
-    expect(screen.getByText("待处理建议")).toBeInTheDocument();
-    expect(screen.getByText("推荐方向匹配度")).toBeInTheDocument();
-    expect(screen.getByText("AI 洞察")).toBeInTheDocument();
+    const mockup = within(screen.getByRole("img", { name: /工作台界面示意/ }));
+    // 顶栏:Logo + 六项导航(「职业画像」等同时是进度 tile 文案,故用 getAllByText)
+    expect(mockup.getByText("CareerOS")).toBeInTheDocument();
+    for (const item of ["首页", "职业画像", "岗位匹配", "成长路线", "简历优化", "模拟面试"]) {
+      expect(mockup.getAllByText(item).length).toBeGreaterThanOrEqual(1);
+    }
+    // 问候:不带虚构人名
+    expect(mockup.getByText(/你好，未来的职场人/)).toBeInTheDocument();
+    // 我的职业成长进度:五格 = 五步闭环,数值全部非零(不出现空状态)
+    expect(mockup.getByText("我的职业成长进度")).toBeInTheDocument();
+    expect(mockup.getByText("继续完善信息 →")).toBeInTheDocument();
+    for (const value of ["80%", "65%", "40%", "30%", "15%"]) {
+      expect(mockup.getByText(value)).toBeInTheDocument();
+    }
+    expect(mockup.queryByText("0%")).toBeNull();
+    // 推荐岗位
+    expect(mockup.getByText("推荐岗位")).toBeInTheDocument();
+    expect(mockup.getByText("查看更多 →")).toBeInTheDocument();
+    expect(mockup.getByText("产品经理")).toBeInTheDocument();
+    expect(mockup.getByText("互联网 | 15-30k | 本科及以上")).toBeInTheDocument();
+    expect(mockup.getByText("匹配度 85%")).toBeInTheDocument();
   });
 
   it("产品闭环:画像 → 匹配 → 路线 → 简历 → 面试 5 步齐全", () => {
@@ -51,7 +67,7 @@ describe("LandingView", () => {
     render(<LandingView />);
     // AI 决策逻辑:四步结构(理解 → 分析 → 决策 → 行动),主张「AI 不只生成内容,更帮你做职业决策」
     expect(screen.getByRole("heading", { name: "AI 不只生成内容，更帮你做职业决策" })).toBeInTheDocument();
-    // 「AI 分析」在分区标题 ai-badge 与 Mockup 内 AI 洞察徽标各一处
+    // 「AI 分析」徽标:ai-badge 在「分析」列
     expect(screen.getAllByText("AI 分析").length).toBeGreaterThanOrEqual(1);
     for (const name of ["理解", "决策", "行动"]) {
       expect(screen.getByRole("heading", { name })).toBeInTheDocument();

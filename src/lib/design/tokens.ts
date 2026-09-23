@@ -52,6 +52,9 @@ export const colors = {
 };
 
 export const typography = {
+  // Landing 专用大标题(仅首页 Hero H1 使用):比 display 大一级、行高更紧,营造两行视觉节奏。
+  // 内部业务页面一律用 display 及以下标度,不得使用本档。
+  "display-lg": { fontSize: "40px", fontWeight: 700, lineHeight: 1.18, letterSpacing: "-0.01em" },
   display: { fontSize: "32px", fontWeight: 700, lineHeight: 1.35, letterSpacing: "0" },
   h1: { fontSize: "24px", fontWeight: 600, lineHeight: 1.4, letterSpacing: "0" },
   h2: { fontSize: "18px", fontWeight: 600, lineHeight: 1.5, letterSpacing: "0" },
