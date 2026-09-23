@@ -10,7 +10,7 @@ import { LandingDemoMockup } from "./landing-demo-mockup";
 
 export function LandingHero() {
   return (
-    <section className="grid items-center gap-12 pb-10 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+    <section className="grid items-center gap-12 pb-10 pt-16 sm:pt-20 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.32fr)]">
       <div className="min-w-0">
         <p className="text-[14px] font-semibold text-green-700">AI 驱动的职业成长系统</p>
         <h1 className="mt-2.5 max-w-[480px] text-display sm:text-display-lg text-ink">

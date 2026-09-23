@@ -14,7 +14,7 @@ const NAV = [
 export function LandingHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-hairline bg-surface">
-      <div className="mx-auto flex h-16 w-full max-w-[1160px] items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="mx-auto flex h-16 w-full max-w-[1280px] items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex items-center gap-8">
           <Link
             href="/"
