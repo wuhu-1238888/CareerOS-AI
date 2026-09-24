@@ -17,22 +17,22 @@ const STEPS = [
 
 export function LandingFlow() {
   return (
-    <section id="loop" aria-label="产品闭环" className="scroll-mt-20 py-10">
+    <section id="loop" aria-label="产品闭环" className="scroll-mt-24 py-12">
       <SectionHeading
         eyebrow="产品闭环"
         title="从职业定位，到真正走到目标岗位"
         description="五个环节打通职业成长，从认知到行动，帮你构建完整的求职闭环。"
       />
-      <ol className="mt-8 grid gap-4 md:grid-cols-5">
+      <ol className="mt-8 grid gap-6 md:grid-cols-5">
         {STEPS.map(({ icon: Icon, name, desc }, index) => (
           <li
             key={name}
             className="relative rounded-card border border-hairline bg-surface p-5 shadow-card"
           >
-            {/* 桌面端横向箭头 / 移动端纵向箭头 */}
+            {/* 桌面端横向箭头 / 移动端纵向箭头(gap-6 = 24px 缝隙,16px 箭头以 -right-5 居中于缝隙) */}
             {index < STEPS.length - 1 ? (
               <ArrowRight
-                className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
+                className="absolute -right-5 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
                 aria-hidden
               />
             ) : null}

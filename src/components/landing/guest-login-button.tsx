@@ -39,7 +39,7 @@ export function GuestLoginButton({ className }: { className?: string }) {
     <Button
       type="button"
       variant="outline"
-      size="lg"
+      size="xl"
       className={className}
       disabled={loading}
       onClick={handleGuestLogin}

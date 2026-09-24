@@ -13,7 +13,7 @@ export function LandingView() {
   return (
     <div className="min-h-screen bg-canvas">
       <LandingHeader />
-      <main className="mx-auto w-full max-w-[1280px] px-4 sm:px-6">
+      <main className="mx-auto w-full max-w-[1400px] px-4 sm:px-6">
         <LandingHero />
         <LandingFlow />
         <LandingAiLogic />

@@ -1,5 +1,5 @@
-// Landing Header(2026-09):未登录首页顶栏 —— logo + 站内锚点导航(≥md 显示)+「登录」+ 主 CTA。
-// 纯静态服务端组件;64px 高度 / hairline 下边线 / logo 样式与工作台顶栏同源。
+// Landing Header(2026-09 视觉重构):未登录首页顶栏 —— logo + 站内锚点导航(≥md 显示)+「登录」+ 主 CTA。
+// 纯静态服务端组件;72px 高度(h-18,营销页自有规格,内部页面仍 64px)/ hairline 下边线。
 // 锚点指向 LandingView 各 section 的 id(loop / ai-how / audience):纯站内跳转,不新增路由。
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
@@ -14,20 +14,20 @@ const NAV = [
 export function LandingHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-hairline bg-surface">
-      <div className="mx-auto flex h-16 w-full max-w-[1280px] items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="mx-auto flex h-18 w-full max-w-[1400px] items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex items-center gap-8">
           <Link
             href="/"
-            className="text-[20px] font-bold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="text-[22px] font-bold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             CareerOS<span className="text-green-600"> AI</span>
           </Link>
-          <nav className="hidden items-center gap-2 md:flex">
+          <nav className="hidden items-center gap-1 md:flex">
             {NAV.map(({ href, label }) => (
               <a
                 key={href}
                 href={href}
-                className="rounded-control px-3 py-2 text-body-sm text-ink-secondary transition-colors hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-control px-4 py-2 text-body text-ink-secondary transition-colors hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {label}
               </a>
@@ -37,7 +37,7 @@ export function LandingHeader() {
         <div className="flex items-center gap-2">
           <Link
             href="/login"
-            className="rounded-control px-3 py-2 text-body-sm text-ink-secondary transition-colors hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-control px-4 py-2 text-body text-ink-secondary transition-colors hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             登录
           </Link>

@@ -24,6 +24,8 @@ const buttonVariants = cva(
         default: "h-9 px-4 py-2",
         sm: "h-8 rounded-md px-3 text-xs",
         lg: "h-10 rounded-md px-8",
+        // Landing 营销页大 CTA(2026-09 视觉重构):44px 高、18px 内边距、16px 文字,比 lg 略大一号
+        xl: "h-11 rounded-md px-9 text-body-lg",
         icon: "h-9 w-9",
       },
     },

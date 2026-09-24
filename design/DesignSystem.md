@@ -61,6 +61,11 @@ darkColors:
   info-bg: "#1d2c4d"
 
 typography:
+  display-xl:
+    fontSize: 48px
+    fontWeight: 700
+    lineHeight: 1.33
+    letterSpacing: -0.01em
   display-lg:
     fontSize: 43px
     fontWeight: 700
@@ -116,6 +121,11 @@ typography:
     fontWeight: 600
     lineHeight: 1.4
     letterSpacing: 0.08em
+  eyebrow-lg:
+    fontSize: 15px
+    fontWeight: 700
+    lineHeight: 1.4
+    letterSpacing: 0
   num:
     fontSize: 32px
     fontWeight: 700
@@ -144,6 +154,7 @@ spacing:
   space-10: 40px
   space-12: 48px
   space-16: 64px
+  space-18: 72px
   space-20: 80px
 
 shadows:
@@ -431,7 +442,8 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 
 | Token | 字号/字重/行高 | 用途 |
 |---|---|---|
-| `{typography.display-lg}` | 43px / 700 / 1.33 / -0.01em | **仅 Landing Hero H1**(首页专用,内部页面一律不用;值来自设计基准图像素实测) |
+| `{typography.display-xl}` | 48px / 700 / 1.33 / -0.01em | **仅 Landing Hero H1**(2026-09 视觉重构放大档,首页专用,内部页面一律不用) |
+| `{typography.display-lg}` | 43px / 700 / 1.33 / -0.01em | Landing 大标题备用档(原 Hero H1 值,基准图像素实测);内部页面不用 |
 | `{typography.display}` | 32px / 700 / 1.35 | 引导页标题、Landing 区块 H2、大数字之外的最大标题 |
 | `{typography.num}` | 32px / 700 / 1(等宽数字) | **匹配度 85% 之类的大数字**——CareerOS 的签名元素 |
 | `{typography.h1}` | 24px / 600 / 1.4 | 页面标题(页面头默认) |
@@ -443,6 +455,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 | `{typography.caption}` | 12px / 400 / 1.5 | 时间戳、徽章、标签 |
 | `{typography.button}` | 14px / 500 / 1 | 全部按钮文字 |
 | `{typography.eyebrow}` | 12px / 600 / 1.4 / +0.08em | 区块眉标(内部页面唯一以字距做排版语义的样式) |
+| `{typography.eyebrow-lg}` | 15px / 700 / 1.4 / 0 | **Landing 区块眉标**(无字距、无胶囊底、非 Badge;H2 仍是区块唯一视觉主标题) |
 | `{typography.mono}` | 13px / 400 / 1.6 | 代码、关键词 token |
 
 ### 中文排版规则(本系统特有)
@@ -466,7 +479,7 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 
 ### 间距体系
 
-4px 基准网格,升序:`{spacing.space-1}` 4 · `{spacing.space-2}` 8 · `{spacing.space-3}` 12 · `{spacing.space-4}` 16 · `{spacing.space-5}` 20 · `{spacing.space-6}` 24 · `{spacing.space-8}` 32 · `{spacing.space-10}` 40 · `{spacing.space-12}` 48 · `{spacing.space-16}` 64 · `{spacing.space-20}` 80。
+4px 基准网格,升序:`{spacing.space-1}` 4 · `{spacing.space-2}` 8 · `{spacing.space-3}` 12 · `{spacing.space-4}` 16 · `{spacing.space-5}` 20 · `{spacing.space-6}` 24 · `{spacing.space-8}` 32 · `{spacing.space-10}` 40 · `{spacing.space-12}` 48 · `{spacing.space-16}` 64 · `{spacing.space-18}` 72 · `{spacing.space-20}` 80。
 
 - 卡片内边距 24px(`card`);区块间距 24px;大区块间距 48px;弹窗内边距 24px。
 - 组件内部间隙以 4/8 为主,区块之间以 24/48 为主——间距即层级。
@@ -516,8 +529,8 @@ CareerOS AI 的用户是大学生与职场新人,产品是陪伴成长的 AI 职
 └────────────────────────────────────────────────────────┘
 ```
 
-- **顶栏 64px**:白底 + `hairline` 下边线,sticky。6 个一级入口(工作台/职业画像/成长路线/岗位匹配/简历优化/模拟面试)——不需要侧栏(这是消费级产品的决定,不同于企业级三明治导航)。
-- **居中容器 1160px**:个人工作台感,不是全屏管理后台。32px 边距(768px 以下 24px)。
+- **顶栏 64px**:白底 + `hairline` 下边线,sticky。6 个一级入口(工作台/职业画像/成长路线/岗位匹配/简历优化/模拟面试)——不需要侧栏(这是消费级产品的决定,不同于企业级三明治导航)。**Landing 首页顶栏为 72px**(`h-18`,2026-09 视觉重构;营销页自有规格,内部页面仍 64px)。
+- **居中容器 1160px**:个人工作台感,不是全屏管理后台。32px 边距(768px 以下 24px)。**Landing 首页容器为 1400px**(见首页章)。
 - **页面头**:标题 + 描述 + 主行动按钮右对齐。每页一个主行动。
 - **宽表单页**(如简历上传/简历核对修正):全宽(继承 1160px 内容容器),按字段类型组织——短字段 2 列、长描述与技能文本全宽(2026-08 修订:原「表单 640px」规则仅保留给多步采集表单,解决简历页核心内容区过窄的问题);**多步表单**(画像采集):640px + 顶部步进器 + 底部固定前后按钮。
 - **对话视图**(模拟面试,全站唯一特许):全宽继承 1160px 内容容器 + 页面单一纵向滚动(对话区无内嵌滚动),顶部进度状态栏吸顶,输入为全宽 composer 卡(2026-09 修订:原 720px 窄栏 + 55vh 内嵌滚动,与结果视图宽度规则对齐)。

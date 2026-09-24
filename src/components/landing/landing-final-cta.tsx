@@ -7,13 +7,13 @@ import { GuestLoginButton } from "./guest-login-button";
 export function LandingFinalCta() {
   return (
     <>
-      <section className="py-10 text-center">
+      <section className="py-12 text-center">
         <h2 className="text-display text-ink">准备好开始你的职业规划了吗？</h2>
         <p className="mt-3 text-body-lg text-ink-muted">
           从职业画像开始，找到目标岗位，并明确下一步行动。
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Button size="lg" asChild>
+          <Button size="xl" asChild>
             <Link href="/register">开始免费体验</Link>
           </Button>
           <GuestLoginButton />

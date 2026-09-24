@@ -10,12 +10,13 @@ import { Briefcase, ChartNoAxesCombined, Compass, FileText, MessageSquareText, T
 const NAV_ITEMS = ["首页", "职业画像", "岗位匹配", "成长路线", "简历优化", "模拟面试"] as const;
 
 // 五格进度 = 产品五步闭环(虚构值;全部非零,避免出现「空状态」观感);图标与产品闭环卡同一套
+// bar 为瓦片内 2px 细进度条宽度的字面量类(与 value 同源,不新增业务含义;字面量写法避免内联 style)
 const PROGRESS = [
-  { icon: UserRound, label: "职业画像", value: "80%" },
-  { icon: Target, label: "岗位匹配", value: "65%" },
-  { icon: ChartNoAxesCombined, label: "成长路线", value: "40%" },
-  { icon: FileText, label: "简历优化", value: "30%" },
-  { icon: MessageSquareText, label: "模拟面试", value: "15%" },
+  { icon: UserRound, label: "职业画像", value: "80%", bar: "w-[80%]" },
+  { icon: Target, label: "岗位匹配", value: "65%", bar: "w-[65%]" },
+  { icon: ChartNoAxesCombined, label: "成长路线", value: "40%", bar: "w-[40%]" },
+  { icon: FileText, label: "简历优化", value: "30%", bar: "w-[30%]" },
+  { icon: MessageSquareText, label: "模拟面试", value: "15%", bar: "w-[15%]" },
 ] as const;
 
 // 虚构推荐岗位
@@ -90,12 +91,16 @@ export function LandingDemoMockup() {
               </span>
               <span className="shrink-0 text-caption text-green-700">继续完善信息 →</span>
             </div>
-            <div className="grid grid-cols-3 gap-2 p-3.5 sm:grid-cols-5">
-              {PROGRESS.map(({ icon: Icon, label, value }) => (
-                <div key={label} className="rounded-control border border-hairline bg-surface px-2 py-2">
+            <div className="grid grid-cols-3 gap-2.5 p-4 sm:grid-cols-5">
+              {PROGRESS.map(({ icon: Icon, label, value, bar }) => (
+                <div key={label} className="rounded-control border border-hairline bg-surface px-2.5 py-2.5">
                   <Icon className="size-3.5 text-green-600" aria-hidden />
-                  <p className="mt-1.5 truncate text-caption text-ink-muted">{label}</p>
-                  <p className="mt-0.5 text-[18px] font-bold leading-none text-ink">{value}</p>
+                  <p className="mt-2 truncate text-caption text-ink-muted">{label}</p>
+                  <p className="mt-1 text-[18px] font-bold leading-none text-ink">{value}</p>
+                  {/* 2px 细进度条(纯展示):轨 green-100 + 填充 green-600 */}
+                  <span className="mt-2 block h-0.5 overflow-hidden rounded-pill bg-green-100">
+                    <span className={`block h-full rounded-pill bg-green-600 ${bar}`} />
+                  </span>
                 </div>
               ))}
             </div>

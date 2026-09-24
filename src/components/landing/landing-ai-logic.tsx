@@ -13,17 +13,17 @@ const ACTIONS = ["成长任务", "简历优化建议", "面试准备", "后续�
 
 export function LandingAiLogic() {
   return (
-    <section id="ai-how" aria-label="AI 决策逻辑" className="scroll-mt-20 py-10">
+    <section id="ai-how" aria-label="AI 决策逻辑" className="scroll-mt-24 py-12">
       <SectionHeading
         eyebrow="AI 如何工作"
         title="AI 不只生成内容，更帮你做职业决策"
         description="它先理解你的背景，再给出有理由的结论——选哪个方向、投哪个岗位，最后把每个结论变成今天就能做的动作。"
       />
-      <div className="mt-8 grid gap-4 md:grid-cols-4">
+      <div className="mt-8 grid gap-6 md:grid-cols-4">
         {/* 01 理解 */}
         <div className="relative rounded-card border border-hairline bg-surface p-5 shadow-card">
           <ArrowRight
-            className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
+            className="absolute -right-5 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
           />
           <div className="flex items-center gap-2">
@@ -44,7 +44,7 @@ export function LandingAiLogic() {
         {/* 02 分析(AI 语义:ai-insight 视觉) */}
         <div className="relative rounded-r-control border-l-[3px] border-l-violet-400 bg-violet-50 p-5">
           <ArrowRight
-            className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
+            className="absolute -right-5 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
           />
           <AiBadge>AI 分析</AiBadge>
@@ -62,7 +62,7 @@ export function LandingAiLogic() {
         {/* 03 决策(标准白卡:全 section 只让「分析」一张卡带色底,视觉重心落在 AI 分析) */}
         <div className="relative rounded-card border border-hairline bg-surface p-5 shadow-card">
           <ArrowRight
-            className="absolute -right-4 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
+            className="absolute -right-5 top-1/2 hidden size-4 -translate-y-1/2 text-ink-faint md:block"
             aria-hidden
           />
           <div className="flex items-center gap-2">

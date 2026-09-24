@@ -52,9 +52,10 @@ export const colors = {
 };
 
 export const typography = {
-  // Landing 专用大标题(仅首页 Hero H1 使用):比 display 大一级,营造两行视觉节奏。
-  // 43px / 行高 1.33 为设计基准图(1536 宽 1:1)像素实测值,勿凭感觉改。
+  // Landing 专用大标题(仅首页 Hero H1 使用):2026-09 视觉重构放大档(48px),营造两行视觉节奏。
   // 内部业务页面一律用 display 及以下标度,不得使用本档。
+  "display-xl": { fontSize: "48px", fontWeight: 700, lineHeight: 1.33, letterSpacing: "-0.01em" },
+  // 原 Hero H1 值(基准图 1536 宽 1:1 像素实测 43px),保留为 Landing 大标题备用档。
   "display-lg": { fontSize: "43px", fontWeight: 700, lineHeight: 1.33, letterSpacing: "-0.01em" },
   display: { fontSize: "32px", fontWeight: 700, lineHeight: 1.35, letterSpacing: "0" },
   h1: { fontSize: "24px", fontWeight: 600, lineHeight: 1.4, letterSpacing: "0" },
@@ -66,6 +67,8 @@ export const typography = {
   caption: { fontSize: "12px", fontWeight: 400, lineHeight: 1.5, letterSpacing: "0" },
   button: { fontSize: "14px", fontWeight: 500, lineHeight: 1, letterSpacing: "0" },
   eyebrow: { fontSize: "12px", fontWeight: 600, lineHeight: 1.4, letterSpacing: "0.08em" },
+  // Landing 区块眉标:15px/700 无字距、无胶囊底、非 Badge(H2 仍是区块唯一视觉主标题)
+  "eyebrow-lg": { fontSize: "15px", fontWeight: 700, lineHeight: 1.4, letterSpacing: "0" },
   num: { fontSize: "32px", fontWeight: 700, lineHeight: 1, letterSpacing: "0" },
   mono: { fontSize: "13px", fontWeight: 400, lineHeight: 1.6, letterSpacing: "0" },
 };
@@ -89,6 +92,7 @@ export const spacing = {
   10: "40px",
   12: "48px",
   16: "64px",
+  18: "72px",
   20: "80px",
 };
 
