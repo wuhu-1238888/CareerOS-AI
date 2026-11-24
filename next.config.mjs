@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // 生产环境由 .env.production 注入 NEXT_PUBLIC_ASSET_PREFIX(正式域名):
+  // 静态资源(chunk/RSC)URL 固化为正式域名,PocketBay 发布专属域名(--e)不再影响资源加载
+  assetPrefix: process.env.NEXT_PUBLIC_ASSET_PREFIX,
   experimental: {
     // pdf-parse(4.2 简历文本提取)仅在 Node runtime 路由中引用,不做 RSC 打包
     serverComponentsExternalPackages: ["pdf-parse"],
