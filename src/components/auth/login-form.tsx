@@ -52,6 +52,10 @@ export function LoginForm() {
       const callbackUrl = searchParams.get("callbackUrl");
       router.push(callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/dashboard");
       router.refresh();
+    } catch (err) {
+      // 兜底:signIn 内部异常(网络抖动 / 服务端 5xx / 数据库连接瞬断)不再崩溃整页
+      console.error("[login] signIn failed:", err);
+      setServerError("登录服务暂时不可用，请稍后重试");
     } finally {
       setIsSubmitting(false);
     }
