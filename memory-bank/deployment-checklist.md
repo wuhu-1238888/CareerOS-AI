@@ -65,3 +65,15 @@
 3. `profile.analyze`/`retry` 增加 **in-flight 互斥**:存在未超时的 running 分析时幂等复用该 run,防并发重复计费。
 
 **注意**:其余长管线(matching/navigator/resume/interview)仍是同步等待模式,同样受 100s 约束 —— 如线上出现同类 HTML 解析错误,需按同一模式改造。Vercel Serverless(函数冻结)不支持后台执行,若要迁回 Vercel 需另做队列/流式方案。
+
+### 简历上传生产配置(2026-11-26 修复记录)
+
+线上简历上传「上传失败,请稍后重试」(所有格式)根因:`resolveEncryptionKey()` 生产环境缺 `FILE_ENCRYPTION_KEY` 时 **fail-closed 抛错**(`getFileStorage()` 在类型校验之前调用),异常逃逸到路由 catch 统一 500。修复:在本地 `.env.production` 补充并通过配对部署加密挂载到平台:
+
+| 变量 | 值 | 说明 |
+| --- | --- | --- |
+| `FILE_ENCRYPTION_KEY` | 64 位 hex(openssl rand -hex 32) | 生产必填,缺失即禁用上传;线上从未成功上传过文件,无旧密文兼容问题 |
+| `FILE_STORAGE_PROVIDER` | `local` | PocketBay 容器模型用本地存储即可(不用 vercel-blob) |
+| `UPLOAD_DIR` | `/data/uploads` | 指向平台持久卷 `/data`(跨更新保留);容器临时盘会随休眠回收丢失 |
+
+验证:`.txt` 上传返回 400 unsupported-type(校验可达)、PDF 返回 200(resumeId + 建行 + 加密落盘)。后续若在控制台改环境变量,注意 `FILE_ENCRYPTION_KEY` 不可再变(已加密文件依赖它)。
