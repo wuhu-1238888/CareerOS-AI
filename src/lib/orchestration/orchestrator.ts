@@ -45,13 +45,25 @@ export class Orchestrator {
     private agents: AgentRegistry = defaultRegistry
   ) {}
 
-  async run<TOutput>(params: RunAgentParams): Promise<RunAgentOutcome<TOutput>> {
+  /**
+   * 后台执行入口(2026-11 生产网关适配):创建 AgentRun 后立即返回执行句柄,
+   * Agent 执行与终态落库在 `done` 中后台完成 —— 供长管线(LLM 1-3 分钟)的
+   * tRPC mutation 立即响应,避免请求被生产网关(Cloudflare 100s)截断。
+   * 业务错误仍不 reject(ok:false + run 落 failed),仅基础设施级异常可能 reject。
+   */
+  async launch<TOutput>(params: RunAgentParams): Promise<{
+    runId: string;
+    done: Promise<RunAgentOutcome<TOutput>>;
+  }> {
     let agent: ReturnType<AgentRegistry["findByIntent"]>;
     try {
       agent = this.agents.findByIntent(params.intent);
     } catch (err) {
       // 路由失败:尚无 Agent 可执行,不落 AgentRun,直接给友好错误
-      return { ok: false, error: this.friendlyMessage(err), runId: "" };
+      return {
+        runId: "",
+        done: Promise.resolve({ ok: false, error: this.friendlyMessage(err), runId: "" }),
+      };
     }
 
     const run = await this.db.agentRun.create({
@@ -65,7 +77,21 @@ export class Orchestrator {
     });
     const runId = run.id;
     const startedAt = Date.now();
+    const done = this.executeRun<TOutput>(agent, runId, startedAt, params);
+    return { runId, done };
+  }
 
+  async run<TOutput>(params: RunAgentParams): Promise<RunAgentOutcome<TOutput>> {
+    const { done } = await this.launch<TOutput>(params);
+    return done;
+  }
+
+  private async executeRun<TOutput>(
+    agent: ReturnType<AgentRegistry["findByIntent"]>,
+    runId: string,
+    startedAt: number,
+    params: RunAgentParams
+  ): Promise<RunAgentOutcome<TOutput>> {
     try {
       const result = await agent.execute(params.input, params.context, {
         adapter: this.adapter,

@@ -50,3 +50,18 @@
 - 本地 `storage/` 目录(开发文件)不要打包到生产 —— Vercel 自动忽略非输出文件;
 - Blob 存储走 `FILE_STORAGE_PROVIDER=vercel-blob` 分支,文件仍先经 AES-256 加密再上传(EncryptedStorage 装饰器,4.1 抽象不变);
 - Prompt 打包已配置并验证(构建产物 `.nft.json` 6/6 prompt 在列),无需额外操作。
+
+## 六、PocketBay + Cloudflare 网关约束(2026-11 线上问题修复记录)
+
+线上实际部署于 **PocketBay**(`https://careeros-ai.pocketbay.app`,容器托管 `next start`,域名由 Cloudflare 前置,Caddy 反代)。关键约束:
+
+- **Cloudflare 对所有请求固定 100s 超时**(无法调整):响应超时即返回 HTML 524 错误页。任何「同步等待 LLM」超过 100s 的 HTTP 请求都会被截断,客户端收到的是 HTML 而不是 tRPC JSON。
+- 平台空闲数分钟会休眠容器;休眠时 GET 返回 204、POST 返回 403 挑战页(HTML),需浏览器手动唤醒。
+
+**已落地适配(2026-11)**:
+
+1. `profile.analyze` / `profile.retry` 改为**后台执行模式**:mutation 创建 AgentRun 后立即返回 `{ runId }`,管线在容器进程内后台完成;前端靠既有 `latestRun` 轮询(700ms)+ 失败重试 + stale 判死(RUN_STALE_MS)驱动,请求不再长挂。
+2. tRPC 客户端 `httpBatchLink` 挂 `resilientFetch`:**按 Content-Type 识别非 JSON 响应**(HTML 错误页/挑战页/空 204)并抛统一友好中文错误,不再向用户暴露 `Unexpected token '<'` 原始解析异常。
+3. `profile.analyze`/`retry` 增加 **in-flight 互斥**:存在未超时的 running 分析时幂等复用该 run,防并发重复计费。
+
+**注意**:其余长管线(matching/navigator/resume/interview)仍是同步等待模式,同样受 100s 约束 —— 如线上出现同类 HTML 解析错误,需按同一模式改造。Vercel Serverless(函数冻结)不支持后台执行,若要迁回 Vercel 需另做队列/流式方案。

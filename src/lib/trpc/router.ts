@@ -13,7 +13,7 @@ import {
   skillEntrySchema,
   experienceEntrySchema,
 } from "@/lib/profile/schemas";
-import { analyzeProfile } from "@/lib/profile/pipeline";
+import { launchAnalyzeProfile } from "@/lib/profile/pipeline";
 import { generateRoadmap, parseRoadmapSummary, parseStageContent, regenerateStage } from "@/lib/navigator/pipeline";
 import { DEMO_EMAIL } from "@/lib/demo-account";
 import { runMatch } from "@/lib/matching/pipeline";
@@ -49,6 +49,22 @@ import { RUN_STALE_MS } from "@/lib/orchestration/orchestrator";
 import { computeDashboardStats } from "@/lib/dashboard/stats";
 import { evaluateLinkageRules } from "@/lib/linkage/rules";
 import { computeGrowthAggregate, computeGrowthBlock, computeGrowthReport } from "@/lib/growth/data";
+
+// 画像分析 in-flight 互斥(2026-11 后台执行模式):存在未超时的 running 分析 → 返回其 runId 幂等复用。
+// 超时口径与 serializeRun 的 stale 判死一致(RUN_STALE_MS = LLM 超时 + 1 分钟):超时仍 running 视为进程死亡,可重新发起。
+async function findActiveAnalyzeRun(
+  db: Context["prisma"],
+  userId: string
+): Promise<string | null> {
+  const active = await db.agentRun.findFirst({
+    where: { userId, intent: "analyze-profile", status: "running" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (active && Date.now() - active.updatedAt.getTime() < RUN_STALE_MS) {
+    return active.id;
+  }
+  return null;
+}
 
 // 画像归属校验:profileId 不属于当前用户时一律 NOT_FOUND(不泄露他人画像存在性)
 async function requireOwnedProfile(
@@ -632,20 +648,25 @@ export const appRouter = t.router({
       return { ok: true };
     }),
 
-    // 画像分析(2.4):表单/纠偏/更新共用 —— 等待执行完成后返回新版本信息;
-    // 进度事件已随执行实时写入 AgentRun.progress,客户端轮询 latestRun/getRun 展示
+    // 画像分析(2.4):表单/纠偏/更新共用 —— 创建 run 后立即返回,管线在容器进程内后台执行
+    // (2026-11 生产网关适配:同步等待 LLM 1-3 分钟会被 Cloudflare 100s 超时截断并返回 HTML 524);
+    // 进度事件随执行实时写入 AgentRun.progress,客户端轮询 latestRun(700ms)驱动进度/成功/失败视图,
+    // 刷新后按最近 run 恢复;失败经 retry 从 AgentRun.input 重放。
     analyze: protectedProcedure
       .input(analyzeInputSchema)
       .mutation(async ({ ctx, input }) => {
         const { feedback, ...data } = input;
-        const outcome = await analyzeProfile({ userId: ctx.userId, data, feedback });
-        if (!outcome.ok) {
-          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        // in-flight 互斥:已有未超时的 running 分析 → 幂等复用该 run(防并发双开重复计费)
+        const activeRunId = await findActiveAnalyzeRun(ctx.prisma, ctx.userId);
+        if (activeRunId) {
+          return { runId: activeRunId };
         }
-        return { profileId: outcome.profileId, version: outcome.version, runId: outcome.runId };
+        const { runId } = await launchAnalyzeProfile({ userId: ctx.userId, data, feedback });
+        return { runId };
       }),
 
-    // 失败重试(2.4):从最近一次失败 run 的 input 重放分析(刷新后数据仍在服务端,无需客户端回传)
+    // 失败重试(2.4):从最近一次失败 run 的 input 重放分析(刷新后数据仍在服务端,无需客户端回传);
+    // 与 analyze 同为后台执行(网关超时适配),存在在途分析时幂等复用
     retry: protectedProcedure
       .input(z.object({ runId: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
@@ -658,11 +679,12 @@ export const appRouter = t.router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "无法重试该任务,请重新填写" });
         }
         const { feedback, ...data } = parsed.data;
-        const outcome = await analyzeProfile({ userId: ctx.userId, data, feedback });
-        if (!outcome.ok) {
-          throw new TRPCError({ code: "BAD_GATEWAY", message: outcome.error });
+        const activeRunId = await findActiveAnalyzeRun(ctx.prisma, ctx.userId);
+        if (activeRunId) {
+          return { runId: activeRunId };
         }
-        return { profileId: outcome.profileId, version: outcome.version, runId: outcome.runId };
+        const { runId } = await launchAnalyzeProfile({ userId: ctx.userId, data, feedback });
+        return { runId };
       }),
 
     // 指定分析任务的运行状态与进度(仅本人可见)

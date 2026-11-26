@@ -16,7 +16,15 @@ import type { ProfileData } from "@/lib/profile/schemas";
 import type { CorrectionFeedback } from "@/lib/profile/pipeline";
 
 function friendlyError(err: unknown): string {
-  return err instanceof Error ? err.message : "分析失败,请稍后重试";
+  if (err instanceof Error) {
+    // tRPC 输入校验失败(后端 Zod):给出统一提示,不把原始校验 JSON 暴露给用户
+    const data = (err as { data?: { code?: string } }).data;
+    if (data?.code === "BAD_REQUEST") {
+      return "提交的信息未通过校验,请检查后重试";
+    }
+    return err.message;
+  }
+  return "分析失败,请稍后重试";
 }
 
 export function ProfileHub() {
@@ -34,23 +42,37 @@ export function ProfileHub() {
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const lastInput = useRef<{ data: ProfileData; feedback?: CorrectionFeedback } | null>(null);
   const finishedRef = useRef(false);
+  // 本次会话发起(analyze/retry)的 runId:后台执行模式下 mutation 立即返回,
+  // 用于在最新 run 收敛到 succeeded 时清除草稿并刷新画像(见下方 effect)
+  const submittedRunIdRef = useRef<string | null>(null);
 
   const hasResult = !!profile.data?.aiAnalysis;
+  const draftKey = me.data ? `careeros:profile-draft:${me.data.id}` : null;
 
-  // 跟踪最近一次 run:无结果(首建/恢复)或提交在途(纠偏重算)时启用;仅 running/在途时轮询 700ms
+  // 跟踪最近一次 run:无结果(首建/恢复)、提交在途或本次会话已发起 run(后台执行模式,
+  // 纠偏重算/更新信息在有结果时仍需轮询)时启用;仅 running/在途时轮询 700ms
   const latestRun = trpc.profile.latestRun.useQuery(undefined, {
-    enabled: !profile.isLoading && (!hasResult || submitted),
+    enabled: !profile.isLoading && (!hasResult || submitted || submittedRunIdRef.current !== null),
     refetchInterval: (query) =>
       submitted || query.state.data?.status === "running" ? 700 : false,
   });
 
-  // 恢复路径:刷新后 run 已 succeeded(管线已完成)→ 刷新画像进入结果视图
+  // 完成收敛(后台执行模式):最近 run 进入 succeeded → 清除草稿并刷新画像进入结果视图。
+  // 草稿在「分析成功」前保留(失败时「修改信息」仍可恢复已填内容);仅当 succeeded 的 run 是
+  // 本次会话发起的(或刷新恢复时发现最近 run 已成功)才清理,避免误删用户新起的未提交草稿。
   useEffect(() => {
-    if (!hasResult && latestRun.data?.status === "succeeded" && !finishedRef.current) {
-      finishedRef.current = true;
-      void utils.profile.get.invalidate();
+    const run = latestRun.data;
+    if (!run || run.status !== "succeeded" || finishedRef.current) return;
+    const sessionSuccess = submittedRunIdRef.current !== null && submittedRunIdRef.current === run.id;
+    const recoveredSuccess = submittedRunIdRef.current === null && !hasResult;
+    if (!sessionSuccess && !recoveredSuccess) return;
+    finishedRef.current = true;
+    if (draftKey && typeof window !== "undefined") {
+      window.localStorage.removeItem(draftKey);
     }
-  }, [hasResult, latestRun.data?.status, utils]);
+    // 无论是否已有结果都刷新画像(纠偏重算/更新信息成功后须切换到新版本)
+    void utils.profile.get.invalidate();
+  }, [latestRun.data, hasResult, draftKey, utils]);
 
   if (me.isLoading || profile.isLoading || !me.data) {
     return (
@@ -62,7 +84,6 @@ export function ProfileHub() {
     );
   }
 
-  const draftKey = `careeros:profile-draft:${me.data.id}`;
   // 仅「无结果」时进入恢复等待:提交成功后画像已刷新(hasResult=true),轮询缓存的 running
   // 状态是过期的,不应再把视图钉在分析过程页(修复:提交成功后卡在 60%、需手动刷新才出结果)
   const recovering = !analyzeError && !hasResult && latestRun.data?.status === "running";
@@ -75,6 +96,15 @@ export function ProfileHub() {
       ? null
       : (latestRun.data ?? null);
 
+  // 本次会话发起的 run(后台执行模式):纠偏重算/更新信息在已有结果时仍须展示分析过程,
+  // 并在该 run 失败时透出失败视图(优先级高于旧结果)
+  const sessionRun =
+    submittedRunIdRef.current !== null && latestRun.data?.id === submittedRunIdRef.current
+      ? latestRun.data
+      : null;
+  const sessionRunActive = sessionRun?.status === "running";
+  const sessionRunFailed = sessionRun?.status === "failed";
+
   async function submit(data: ProfileData, feedback?: CorrectionFeedback) {
     lastInput.current = { data, feedback };
     finishedRef.current = false;
@@ -82,11 +112,15 @@ export function ProfileHub() {
     setFormMode(null);
     setSubmitted(true);
     try {
-      await analyze.mutateAsync({ ...data, feedback });
+      // 后台执行模式:mutation 仅创建 run 即返回(生产网关 100s 上限,不等待 LLM)
+      const result = await analyze.mutateAsync({ ...data, feedback });
+      submittedRunIdRef.current = result?.runId ?? null;
       await utils.profile.get.invalidate();
+      // 立即刷新 latestRun 进入 700ms 轮询(run 已创建,轮询驱动进度/成功/失败视图)
+      await utils.profile.latestRun.invalidate();
     } catch (err) {
       setAnalyzeError(friendlyError(err));
-      // 向表单抛出以保留草稿(表单仅在提交成功时清除 localStorage)
+      // 向表单抛出以保留草稿(草稿仅在此次分析 run 成功后清除,见完成收敛 effect)
       throw err;
     } finally {
       setSubmitted(false);
@@ -109,8 +143,10 @@ export function ProfileHub() {
     setAnalyzeError(null);
     setSubmitted(true);
     try {
-      await retry.mutateAsync({ runId: failedRun.id });
+      const result = await retry.mutateAsync({ runId: failedRun.id });
+      submittedRunIdRef.current = result?.runId ?? null;
       await utils.profile.get.invalidate();
+      await utils.profile.latestRun.invalidate();
     } catch (err) {
       setAnalyzeError(friendlyError(err));
     } finally {
@@ -137,12 +173,12 @@ export function ProfileHub() {
   }
 
   let view: React.ReactNode;
-  if (submitted || recovering || analyzeError) {
+  if (submitted || recovering || sessionRunActive || analyzeError || (sessionRunFailed && !formMode)) {
     // 分析在途或本次会话失败(含纠偏重算):优先级高于结果视图
     view = (
       <AnalysisView
-        run={runForView}
-        error={analyzeError}
+        run={sessionRun ?? runForView}
+        error={analyzeError ?? (sessionRunFailed ? (sessionRun?.error ?? "分析未完成,请重试") : null)}
         onRetry={handleRetry}
         onEdit={() => enterFormMode("edit")}
       />
@@ -152,7 +188,7 @@ export function ProfileHub() {
     view = (
       <ProfileForm
         initialData={profile.data?.data}
-        draftKey={draftKey}
+        draftKey={draftKey ?? undefined}
         onSubmit={submit}
         title={formMode === "update" ? "更新画像信息" : undefined}
       />
@@ -178,7 +214,7 @@ export function ProfileHub() {
     );
   } else {
     view = (
-      <ProfileForm initialData={profile.data?.data} draftKey={draftKey} onSubmit={submit} />
+      <ProfileForm initialData={profile.data?.data} draftKey={draftKey ?? undefined} onSubmit={submit} />
     );
   }
 

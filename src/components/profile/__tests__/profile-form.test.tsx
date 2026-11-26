@@ -90,8 +90,8 @@ describe("ProfileForm", () => {
         targets: [],
       })
     );
-    // 提交成功后草稿被清除
-    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+    // 草稿由 Hub 在分析成功后清除(表单不再于提交后立即清除,失败时「修改信息」可恢复)
+    expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
   });
 
   it("完整载荷:经历(含起止时间与自动时长)/兴趣/目标一并提交", async () => {
@@ -121,7 +121,7 @@ describe("ProfileForm", () => {
             type: "internship",
             organization: "示例科技",
             role: "后端实习生",
-            description: "",
+            description: undefined,
             startDate: "2025-06",
             endDate: "2025-09",
             duration: "3个月",
@@ -139,6 +139,8 @@ describe("ProfileForm", () => {
     const user = userEvent.setup();
     await fillRequired(user);
     await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.type(screen.getByLabelText("公司名称"), "示例科技");
+    await user.type(screen.getByLabelText("职位"), "后端实习生");
     fireEvent.change(screen.getByLabelText("开始时间"), { target: { value: "2025-01" } });
     await user.click(screen.getByRole("checkbox", { name: "至今" }));
     expect(screen.getByLabelText("结束时间")).toBeDisabled();
@@ -158,18 +160,117 @@ describe("ProfileForm", () => {
     const user = userEvent.setup();
     await fillRequired(user);
     await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.type(screen.getByLabelText("公司名称"), "示例科技");
+    await user.type(screen.getByLabelText("职位"), "后端实习生");
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    expect(await screen.findByText("请选择开始时间")).toBeInTheDocument();
+    expect(await screen.findByText("实习经历 1:请选择开始时间")).toBeInTheDocument();
     expect(currentStepTitle()).toContain("经历");
     fireEvent.change(screen.getByLabelText("开始时间"), { target: { value: "2025-06" } });
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    expect(await screen.findByText("请选择结束时间或勾选「至今」")).toBeInTheDocument();
+    expect(await screen.findByText("实习经历 1:请选择结束时间或勾选「至今」")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("结束时间"), { target: { value: "2025-03" } });
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    expect(await screen.findByText("结束时间不能早于开始时间")).toBeInTheDocument();
+    expect(await screen.findByText("实习经历 1:结束时间不能早于开始时间")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("结束时间"), { target: { value: "2025-09" } });
     await user.click(screen.getByRole("button", { name: "下一步" }));
     expect(currentStepTitle()).toContain("兴趣与目标");
+  });
+
+  it("空白实习经历:添加后未填写任何内容,「下一步」明确提示完善或删除,不进入下一步", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<ProfileForm onSubmit={onSubmit} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(
+      await screen.findByText("实习经历 1:尚未填写任何内容,请完善或删除")
+    ).toBeInTheDocument();
+    expect(currentStepTitle()).toContain("经历");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("空白项目经历:添加后未填写任何内容,「下一步」明确提示完善或删除", async () => {
+    render(<ProfileForm onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "添加项目经历" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(
+      await screen.findByText("项目经历 1:尚未填写任何内容,请完善或删除")
+    ).toBeInTheDocument();
+    expect(currentStepTitle()).toContain("经历");
+  });
+
+  it("只填公司名称不填职位:提示补全职位", async () => {
+    render(<ProfileForm onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.type(screen.getByLabelText("公司名称"), "示例科技");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(await screen.findByText("实习经历 1:请填写你的角色")).toBeInTheDocument();
+    expect(currentStepTitle()).toContain("经历");
+  });
+
+  it("只填职位不填公司名称:提示补全公司名称", async () => {
+    render(<ProfileForm onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.type(screen.getByLabelText("职位"), "后端实习生");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(await screen.findByText("实习经历 1:请填写公司名称")).toBeInTheDocument();
+    expect(currentStepTitle()).toContain("经历");
+  });
+
+  it("只填项目名称不填角色:提示补全角色", async () => {
+    render(<ProfileForm onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "添加项目经历" }));
+    await user.type(screen.getByLabelText("项目名称"), "校园二手交易平台");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(await screen.findByText("项目经历 1:请填写你的角色")).toBeInTheDocument();
+    expect(currentStepTitle()).toContain("经历");
+  });
+
+  it("多段经历逐条校验:错误提示准确指向对应条目", async () => {
+    render(<ProfileForm onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    // 第一段完整
+    await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.type(screen.getByLabelText("公司名称"), "示例科技");
+    await user.type(screen.getByLabelText("职位"), "后端实习生");
+    fireEvent.change(screen.getByLabelText("开始时间"), { target: { value: "2025-06" } });
+    fireEvent.change(screen.getByLabelText("结束时间"), { target: { value: "2025-09" } });
+    // 第二段只填职位(缺公司名称)
+    await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.type(screen.getAllByLabelText("职位")[1]!, "产品实习生");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    // 第二段缺公司名称,且因条目已部分填写,起止时间同样必填 —— 都指向「实习经历 2」
+    expect(await screen.findByText("实习经历 2:请填写公司名称")).toBeInTheDocument();
+    expect(screen.getByText("实习经历 2:请选择开始时间")).toBeInTheDocument();
+    // 第一段无任何错误提示
+    expect(screen.queryByText(/实习经历 1:/)).toBeNull();
+    expect(currentStepTitle()).toContain("经历");
+  });
+
+  it("经历条目编辑后清除对应错误,重新校验", async () => {
+    render(<ProfileForm onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "添加实习经历" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(
+      await screen.findByText("实习经历 1:尚未填写任何内容,请完善或删除")
+    ).toBeInTheDocument();
+    // 补充公司名称后,错误即清除(重新点击「下一步」按最新内容校验)
+    await user.type(screen.getByLabelText("公司名称"), "示例科技");
+    expect(
+      screen.queryByText("实习经历 1:尚未填写任何内容,请完善或删除")
+    ).toBeNull();
   });
 
   it("仅项目经历不受起止时间校验影响(时长仅用于实习/工作经历)", async () => {

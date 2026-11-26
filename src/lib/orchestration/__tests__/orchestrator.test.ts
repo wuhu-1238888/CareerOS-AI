@@ -111,6 +111,24 @@ describe("Orchestrator.run", () => {
     }
   });
 
+  it("launch(2026-11 后台执行):创建 run 即返回,await done 后 run 落 succeeded 且 runId 一致", async () => {
+    const { runId, done } = await makeOrchestrator(VALID_JSON_REPLY).launch({
+      intent: "sample-summary",
+      input: { text: "计算机专业" },
+      context: DEFAULT_CONTEXT,
+      userId,
+    });
+    expect(runId).toBeTruthy();
+    const outcome = await done;
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.runId).toBe(runId);
+      const run = await prisma.agentRun.findUnique({ where: { id: runId } });
+      expect(run?.status).toBe("succeeded");
+      expect((run?.output as { summary?: string })?.summary).toContain("后端");
+    }
+  });
+
   it("进度事件逐条转发给调用方", async () => {
     const stages: string[] = [];
     const outcome = await makeOrchestrator(VALID_JSON_REPLY).run({

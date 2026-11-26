@@ -49,8 +49,72 @@ export async function analyzeProfile(params: {
     return outcome;
   }
 
-  // Orchestrator 已过 outputSchema 校验;此处取最终数据落库
-  const analysis = outcome.result.data;
+  const { profileId, version } = await persistAnalysis({
+    userId,
+    data,
+    analysis: outcome.result.data,
+  });
+  return { ok: true, profileId, version, runId: outcome.runId, analysis: outcome.result.data };
+}
+
+/**
+ * 后台启动分析(2026-11 生产网关适配):创建 AgentRun 后立即返回,管线在容器进程内后台执行。
+ * 背景:生产域名经 Cloudflare(100s 固定超时)前置,画像分析同步等待 LLM 最多 3 分钟,
+ * 超时即被网关以 HTML 524 页截断,tRPC 客户端解析 HTML 抛「Unexpected token '<'」。
+ * 客户端靠既有 latestRun 轮询(700ms)+ 失败重试 + stale 判死恢复,契约不变。
+ * 失败(含分析成功但结果落库失败)一律落 run 终态,前端失败视图可重试;绝不 reject。
+ */
+export async function launchAnalyzeProfile(params: {
+  userId: string;
+  data: ProfileData;
+  feedback?: CorrectionFeedback;
+  /** 测试注入用;缺省走全局 llm(生产经 LLM_PROVIDER 切换) */
+  adapter?: LLMAdapter;
+}): Promise<{ runId: string; done: Promise<void> }> {
+  const { userId, data, feedback, adapter } = params;
+  const runner: Orchestrator = adapter ? new Orchestrator(prisma, adapter) : orchestrator;
+
+  const progressChain = { current: Promise.resolve() };
+  const { runId, done: runDone } = await runner.launch<ProfileAnalysis>({
+    intent: "analyze-profile",
+    input: { ...data, feedback },
+    context: await contextBuilder.buildUserContext(prisma, userId, "career-profile-analyzer"),
+    userId,
+    onRunProgress: (runId, progress: AgentProgress) => {
+      progressChain.current = progressChain.current.then(() => appendProgress(runId, progress));
+    },
+  });
+
+  const done = runDone
+    .then(async (outcome) => {
+      await progressChain.current;
+      if (!outcome.ok) return;
+      try {
+        await persistAnalysis({ userId, data, analysis: outcome.result.data });
+      } catch (err) {
+        // 分析成功但画像落库失败:标记 run 失败(前端失败视图可重试),避免用户停在「无结果」态
+        console.error(`[profile] persist analysis failed for run ${runId}`, err);
+        await prisma.agentRun.update({
+          where: { id: runId },
+          data: { status: "failed", error: "分析结果保存失败,请重试" },
+        });
+      }
+    })
+    .catch((err) => {
+      // 基础设施级异常兜底:run 无法落终态时由 serializeRun 的 stale 判死兜底(「分析中断,请重试」)
+      console.error(`[profile] background analysis ${runId} crashed`, err);
+    });
+
+  return { runId, done };
+}
+
+/** 分析结果落库:新版本行 + 推荐方向整体重建(同步 analyzeProfile 与后台 launch 共用) */
+async function persistAnalysis(params: {
+  userId: string;
+  data: ProfileData;
+  analysis: ProfileAnalysis;
+}): Promise<{ profileId: string; version: number }> {
+  const { userId, data, analysis } = params;
 
   const previous = await prisma.careerProfile.findFirst({
     where: { userId },
@@ -84,7 +148,7 @@ export async function analyzeProfile(params: {
     })),
   });
 
-  return { ok: true, profileId: profile.id, version, runId: outcome.runId, analysis };
+  return { profileId: profile.id, version };
 }
 
 // 进度追加落库:同一 run 的事件顺序到达,读-改-写安全(唯一写入方为当前管线调用)

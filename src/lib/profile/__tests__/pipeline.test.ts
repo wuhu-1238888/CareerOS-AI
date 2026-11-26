@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { MockAdapter } from "@/lib/llm/mock";
 import { prisma } from "@/lib/db/prisma";
-import { analyzeProfile } from "../pipeline";
+import { analyzeProfile, launchAnalyzeProfile } from "../pipeline";
 import * as contextBuilder from "@/lib/orchestration/context-builder";
 
 // 8.1a 接线断言:vi.spyOn 对 ESM 导出不可靠(递归爆栈),用 vi.mock 透传包装记录调用
@@ -192,6 +192,79 @@ describe("profile.analyze / retry / getRun / latestRun 护栏(router 层)", () =
       code: "BAD_REQUEST",
       message: "无法重试该任务,请重新填写",
     });
+  });
+});
+
+describe("launchAnalyzeProfile 后台执行(2026-11 生产网关 100s 适配)", () => {
+  it("launch 立即返回 runId,后台完成后:run succeeded + 5 条进度 + 画像落库", async () => {
+    const before = await prisma.careerProfile.count({ where: { userId: userIdC } });
+    const launched = await launchAnalyzeProfile({
+      userId: userIdC,
+      data: cs.input,
+      adapter: mockAdapterFor(cs),
+    });
+    expect(launched.runId).toBeTruthy();
+    await launched.done;
+    const run = await prisma.agentRun.findUnique({ where: { id: launched.runId } });
+    expect(run?.status).toBe("succeeded");
+    expect((run?.progress as { stage: string }[])).toHaveLength(5);
+    const row = await prisma.careerProfile.findFirst({
+      where: { userId: userIdC },
+      orderBy: { version: "desc" },
+    });
+    expect(row?.aiAnalysis).toMatchObject({ summary: cs.mockOutput.summary });
+    expect(await prisma.careerProfile.count({ where: { userId: userIdC } })).toBe(before + 1);
+  });
+
+  it("后台失败:run failed + 不落画像行,不向上抛", async () => {
+    const before = await prisma.careerProfile.count({ where: { userId: userIdC } });
+    const junk = new MockAdapter(0, () => "这不是 JSON");
+    const launched = await launchAnalyzeProfile({ userId: userIdC, data: cs.input, adapter: junk });
+    await launched.done;
+    const run = await prisma.agentRun.findUnique({ where: { id: launched.runId } });
+    expect(run?.status).toBe("failed");
+    expect(run?.error).toBe("AI 返回了无法识别的结果,请稍后重试");
+    expect(await prisma.careerProfile.count({ where: { userId: userIdC } })).toBe(before);
+  });
+});
+
+describe("profile.analyze / retry in-flight 互斥(2026-11 后台执行)", () => {
+  it("analyze:存在未超时的 running 分析 → 幂等复用该 run,不新开分析、不落画像", async () => {
+    const running = await prisma.agentRun.create({
+      data: {
+        agentName: "career-profile-analyzer",
+        intent: "analyze-profile",
+        userId: userIdB,
+        status: "running",
+        input: cs.input,
+      },
+    });
+    const before = await prisma.agentRun.count({
+      where: { userId: userIdB, intent: "analyze-profile" },
+    });
+    const res = await caller(userIdB).profile.analyze(cs.input);
+    expect(res).toEqual({ runId: running.id });
+    expect(
+      await prisma.agentRun.count({ where: { userId: userIdB, intent: "analyze-profile" } })
+    ).toBe(before);
+    expect(await prisma.careerProfile.count({ where: { userId: userIdB } })).toBe(0);
+  });
+
+  it("retry:存在在途分析时幂等复用其 runId(不再重复发起)", async () => {
+    const failed = await prisma.agentRun.create({
+      data: {
+        agentName: "career-profile-analyzer",
+        intent: "analyze-profile",
+        userId: userIdB,
+        status: "failed",
+        input: cs.input,
+      },
+    });
+    const running = await prisma.agentRun.findFirst({
+      where: { userId: userIdB, intent: "analyze-profile", status: "running" },
+    });
+    const res = await caller(userIdB).profile.retry({ runId: failed.id });
+    expect(res).toEqual({ runId: running!.id });
   });
 });
 

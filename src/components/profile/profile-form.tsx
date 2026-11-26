@@ -1,7 +1,8 @@
 "use client";
 // 职业画像四步采集表单(2.2):教育背景 → 技能 → 经历 → 兴趣与目标
-// 必填仅 学历+专业+技能;经历与目标可跳过;草稿随输入写入 localStorage(刷新不丢,提交成功清除);
-// 失焦校验 + 步进拦截提示;提交回调由 hub 注入(2.2 保存数据,2.4 起走分析管线)
+// 必填仅 学历+专业+技能;经历与目标可跳过;草稿随输入写入 localStorage(刷新不丢,分析成功后由 Hub 清除);
+// 失焦校验 + 步进拦截提示;经历条目逐字段校验(company/role 必填,空白条目拦截),提交载荷过滤空白条目;
+// 提交回调由 hub 注入(2.2 保存数据,2.4 起走分析管线)
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,18 @@ const STEPS = [
 // 表单工作态:允许未填写字段存在(提交/步进时校验),与可序列化的 ProfileData 相互转换。
 // 经历条目额外带 ongoing(「至今」勾选态,UI 专属;序列化时以 endDate=null 表达,不单独落库)
 type ExperienceFormEntry = ExperienceEntry & { ongoing: boolean };
+
+// 经历条目逐字段校验错误(2026-11 修复:company/role 此前未在前端校验,空白条目直达后端触发 too_small)
+type ExperienceFieldErrors = {
+  /** 公司/项目名称(必填) */
+  organization?: string;
+  /** 职位/角色(必填) */
+  role?: string;
+  /** 实习经历起止时间 */
+  date?: string;
+  /** 条目完全空白(未填写任何内容) */
+  blank?: string;
+};
 
 type FormData = {
   education: { degree: string; major: string; school: string; graduationYear: string };
@@ -87,6 +100,17 @@ function toFormData(profile: ProfileData): FormData {
   };
 }
 
+// 完全空白的经历条目(未填写任何内容):提交时过滤,不生成空白记录(与后端 organization/role 必填对齐)
+function isBlankExperience(e: ExperienceFormEntry): boolean {
+  return (
+    !(e.organization ?? "").trim() &&
+    !(e.role ?? "").trim() &&
+    !(e.description ?? "").trim() &&
+    !e.startDate &&
+    !e.endDate
+  );
+}
+
 function toProfileData(form: FormData): ProfileData {
   const education = [];
   if (form.education.degree && form.education.major.trim()) {
@@ -101,26 +125,27 @@ function toProfileData(form: FormData): ProfileData {
     education,
     skills: form.skills,
     experiences: [
-      // 实习/工作经历:附带起止时间与系统自动计算的时长(PRD 3.1.3);「至今」以 endDate=null 表达
-      ...form.internships.map((e) => {
+      // 实习/工作经历:附带起止时间与系统自动计算的时长(PRD 3.1.3);「至今」以 endDate=null 表达。
+      // 完全空白条目不入载荷;文本字段统一 trim,与后端 schema(min(1))一致
+      ...form.internships.filter((e) => !isBlankExperience(e)).map((e) => {
         const startDate = e.startDate || undefined;
         const endDate = e.endDate ?? null;
         return {
           type: e.type,
-          organization: e.organization,
-          role: e.role,
-          description: e.description,
+          organization: (e.organization ?? "").trim(),
+          role: (e.role ?? "").trim(),
+          description: e.description?.trim() || undefined,
           startDate,
           endDate,
           duration: startDate ? computeExperienceDuration(startDate, endDate) : undefined,
         };
       }),
       // 项目经历:PRD 仅要求 名称/角色/成果,不附带时长
-      ...form.projects.map((e) => ({
+      ...form.projects.filter((e) => !isBlankExperience(e)).map((e) => ({
         type: e.type,
-        organization: e.organization,
-        role: e.role,
-        description: e.description,
+        organization: (e.organization ?? "").trim(),
+        role: (e.role ?? "").trim(),
+        description: e.description?.trim() || undefined,
       })),
     ],
     interests: form.interests,
@@ -170,8 +195,9 @@ export function ProfileForm({
     draftKey ? readDraft(draftKey) ?? (initialData ? toFormData(initialData) : emptyForm()) : initialData ? toFormData(initialData) : emptyForm()
   );
   const [fieldErrors, setFieldErrors] = useState<{ degree?: string; major?: string; skills?: string }>({});
-  // 实习经历起止时间校验错误(按条目下标)
-  const [expErrors, setExpErrors] = useState<Record<number, string>>({});
+  // 经历条目逐字段校验错误(键 `${list}:${index}`):organization/role 为必填,
+  // date 为实习经历起止时间校验,blank 为完全空白的条目提示(未填写任何内容)
+  const [expErrors, setExpErrors] = useState<Record<string, ExperienceFieldErrors>>({});
   const [serverError, setServerError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [targetInput, setTargetInput] = useState("");
@@ -201,12 +227,21 @@ export function ProfileForm({
 
   function removeExperience(list: "internships" | "projects", index: number) {
     setData((d) => ({ ...d, [list]: d[list].filter((_, i) => i !== index) }));
-  }
-
-  function clearExpError(index: number) {
+    // 下标整体前移,该列表的逐条错误一并清空(下次步进校验重建)
     setExpErrors((errs) => {
       const next = { ...errs };
-      delete next[index];
+      for (const key of Object.keys(next)) {
+        if (key.startsWith(`${list}:`)) delete next[key];
+      }
+      return next;
+    });
+  }
+
+  // 编辑经历任一字段后清除该条目错误(下次「下一步」/提交时按最新内容重建)
+  function clearExpErrors(list: "internships" | "projects", index: number) {
+    setExpErrors((errs) => {
+      const next = { ...errs };
+      delete next[`${list}:${index}`];
       return next;
     });
   }
@@ -233,16 +268,36 @@ export function ProfileForm({
       return !skillsError;
     }
     if (stepIndex === 2) {
-      // 实习/工作经历一旦添加,起止时间即必填(PRD 3.1.3 时长);未添加/仅项目经历仍可跳过
-      const errs: Record<number, string> = {};
+      // 经历步骤校验(2026-11 修复):逐条逐字段校验,与后端 experienceEntrySchema 对齐 ——
+      // 完全空白条目提示「完善或删除」;已填写条目 company/role 必填(trim 后);实习经历起止时间必填(PRD 3.1.3)。
+      // 未添加任何经历仍可跳过。
+      const errs: Record<string, ExperienceFieldErrors> = {};
       data.internships.forEach((entry, i) => {
-        if (!entry.startDate) {
-          errs[i] = "请选择开始时间";
-        } else if (!entry.endDate && !entry.ongoing) {
-          errs[i] = "请选择结束时间或勾选「至今」";
-        } else if (entry.endDate && entry.endDate < entry.startDate) {
-          errs[i] = "结束时间不能早于开始时间";
+        const err: ExperienceFieldErrors = {};
+        if (isBlankExperience(entry)) {
+          err.blank = "尚未填写任何内容,请完善或删除";
+        } else {
+          if (!(entry.organization ?? "").trim()) err.organization = "请填写公司名称";
+          if (!(entry.role ?? "").trim()) err.role = "请填写你的角色";
+          if (!entry.startDate) {
+            err.date = "请选择开始时间";
+          } else if (!entry.endDate && !entry.ongoing) {
+            err.date = "请选择结束时间或勾选「至今」";
+          } else if (entry.endDate && entry.endDate < entry.startDate) {
+            err.date = "结束时间不能早于开始时间";
+          }
         }
+        if (Object.keys(err).length > 0) errs[`internships:${i}`] = err;
+      });
+      data.projects.forEach((entry, i) => {
+        const err: ExperienceFieldErrors = {};
+        if (isBlankExperience(entry)) {
+          err.blank = "尚未填写任何内容,请完善或删除";
+        } else {
+          if (!(entry.organization ?? "").trim()) err.organization = "请填写项目名称";
+          if (!(entry.role ?? "").trim()) err.role = "请填写你的角色";
+        }
+        if (Object.keys(err).length > 0) errs[`projects:${i}`] = err;
       });
       setExpErrors(errs);
       return Object.keys(errs).length === 0;
@@ -260,15 +315,19 @@ export function ProfileForm({
   }
 
   function handleSubmit() {
-    if (!validateStep(step)) return;
+    // 提交前兜底校验(正常步进已拦截,此处防草稿恢复/绕过场景):依次校验前三步,失败跳回对应步骤提示。
+    // 草稿不再由表单在提交后清除:后台执行模式下 mutation 仅创建分析任务即返回,
+    // 草稿由 Hub 在分析 run 成功后统一清除(失败时「修改信息」可恢复已填内容)。
+    for (const stepIndex of [0, 1, 2]) {
+      if (!validateStep(stepIndex)) {
+        setStep(stepIndex);
+        setServerError("");
+        return;
+      }
+    }
     setServerError("");
     setSubmitting(true);
     onSubmit(toProfileData(data))
-      .then(() => {
-        if (draftKey && typeof window !== "undefined") {
-          window.localStorage.removeItem(draftKey);
-        }
-      })
       .catch(() => setServerError("提交失败,请稍后重试"))
       .finally(() => setSubmitting(false));
   }
@@ -418,10 +477,20 @@ export function ProfileForm({
                             type="text"
                             placeholder="如:示例科技"
                             value={entry.organization}
-                            onChange={(e) =>
-                              updateExperience("internships", index, { organization: e.target.value })
-                            }
+                            aria-invalid={!!expErrors[`internships:${index}`]?.organization}
+                            className={cn(
+                              expErrors[`internships:${index}`]?.organization && "border-danger"
+                            )}
+                            onChange={(e) => {
+                              updateExperience("internships", index, { organization: e.target.value });
+                              clearExpErrors("internships", index);
+                            }}
                           />
+                          {expErrors[`internships:${index}`]?.organization ? (
+                            <p className="text-body-sm text-danger">
+                              实习经历 {index + 1}:请填写公司名称
+                            </p>
+                          ) : null}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor={`internship-role-${index}`}>职位</Label>
@@ -430,10 +499,18 @@ export function ProfileForm({
                             type="text"
                             placeholder="如:后端实习生"
                             value={entry.role}
-                            onChange={(e) =>
-                              updateExperience("internships", index, { role: e.target.value })
-                            }
+                            aria-invalid={!!expErrors[`internships:${index}`]?.role}
+                            className={cn(expErrors[`internships:${index}`]?.role && "border-danger")}
+                            onChange={(e) => {
+                              updateExperience("internships", index, { role: e.target.value });
+                              clearExpErrors("internships", index);
+                            }}
                           />
+                          {expErrors[`internships:${index}`]?.role ? (
+                            <p className="text-body-sm text-danger">
+                              实习经历 {index + 1}:请填写你的角色
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                       {/* 起止时间(PRD 3.1.3 时长):月份精度;「至今」禁用结束时间;时长由系统自动计算 */}
@@ -448,7 +525,7 @@ export function ProfileForm({
                               updateExperience("internships", index, {
                                 startDate: e.target.value || undefined,
                               });
-                              clearExpError(index);
+                              clearExpErrors("internships", index);
                             }}
                           />
                         </div>
@@ -465,7 +542,7 @@ export function ProfileForm({
                                 updateExperience("internships", index, {
                                   endDate: e.target.value || null,
                                 });
-                                clearExpError(index);
+                                clearExpErrors("internships", index);
                               }}
                             />
                             <div className="flex shrink-0 items-center gap-1.5">
@@ -477,7 +554,7 @@ export function ProfileForm({
                                     ongoing: checked === true,
                                     endDate: checked === true ? null : entry.endDate,
                                   });
-                                  clearExpError(index);
+                                  clearExpErrors("internships", index);
                                 }}
                               />
                               <Label
@@ -496,8 +573,15 @@ export function ProfileForm({
                           {computeExperienceDuration(entry.startDate, entry.endDate ?? null)}
                         </p>
                       ) : null}
-                      {expErrors[index] ? (
-                        <p className="text-body-sm text-danger">{expErrors[index]}</p>
+                      {expErrors[`internships:${index}`]?.date ? (
+                        <p className="text-body-sm text-danger">
+                          实习经历 {index + 1}:{expErrors[`internships:${index}`]!.date}
+                        </p>
+                      ) : null}
+                      {expErrors[`internships:${index}`]?.blank ? (
+                        <p className="text-body-sm text-danger">
+                          实习经历 {index + 1}:{expErrors[`internships:${index}`]!.blank}
+                        </p>
                       ) : null}
                       <div className="space-y-2">
                         <Label htmlFor={`internship-desc-${index}`}>工作内容(选填)</Label>
@@ -506,9 +590,10 @@ export function ProfileForm({
                           placeholder="简述你负责的工作与产出"
                           rows={3}
                           value={entry.description ?? ""}
-                          onChange={(e) =>
-                            updateExperience("internships", index, { description: e.target.value })
-                          }
+                          onChange={(e) => {
+                            updateExperience("internships", index, { description: e.target.value });
+                            clearExpErrors("internships", index);
+                          }}
                         />
                       </div>
                     </div>
@@ -552,10 +637,20 @@ export function ProfileForm({
                             type="text"
                             placeholder="如:校园二手交易平台"
                             value={entry.organization}
-                            onChange={(e) =>
-                              updateExperience("projects", index, { organization: e.target.value })
-                            }
+                            aria-invalid={!!expErrors[`projects:${index}`]?.organization}
+                            className={cn(
+                              expErrors[`projects:${index}`]?.organization && "border-danger"
+                            )}
+                            onChange={(e) => {
+                              updateExperience("projects", index, { organization: e.target.value });
+                              clearExpErrors("projects", index);
+                            }}
                           />
+                          {expErrors[`projects:${index}`]?.organization ? (
+                            <p className="text-body-sm text-danger">
+                              项目经历 {index + 1}:请填写项目名称
+                            </p>
+                          ) : null}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor={`project-role-${index}`}>你的角色</Label>
@@ -564,12 +659,25 @@ export function ProfileForm({
                             type="text"
                             placeholder="如:后端开发"
                             value={entry.role}
-                            onChange={(e) =>
-                              updateExperience("projects", index, { role: e.target.value })
-                            }
+                            aria-invalid={!!expErrors[`projects:${index}`]?.role}
+                            className={cn(expErrors[`projects:${index}`]?.role && "border-danger")}
+                            onChange={(e) => {
+                              updateExperience("projects", index, { role: e.target.value });
+                              clearExpErrors("projects", index);
+                            }}
                           />
+                          {expErrors[`projects:${index}`]?.role ? (
+                            <p className="text-body-sm text-danger">
+                              项目经历 {index + 1}:请填写你的角色
+                            </p>
+                          ) : null}
                         </div>
                       </div>
+                      {expErrors[`projects:${index}`]?.blank ? (
+                        <p className="text-body-sm text-danger">
+                          项目经历 {index + 1}:{expErrors[`projects:${index}`]!.blank}
+                        </p>
+                      ) : null}
                       <div className="space-y-2">
                         <Label htmlFor={`project-desc-${index}`}>项目描述(选填)</Label>
                         <Textarea
@@ -577,9 +685,10 @@ export function ProfileForm({
                           placeholder="简述项目内容与你的贡献"
                           rows={3}
                           value={entry.description ?? ""}
-                          onChange={(e) =>
-                            updateExperience("projects", index, { description: e.target.value })
-                          }
+                          onChange={(e) => {
+                            updateExperience("projects", index, { description: e.target.value });
+                            clearExpErrors("projects", index);
+                          }}
                         />
                       </div>
                     </div>

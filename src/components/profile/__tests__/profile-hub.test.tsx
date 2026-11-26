@@ -30,11 +30,17 @@ const mocks = vi.hoisted(() => ({
   analyzeMutateAsync: vi.fn(),
   retryMutateAsync: vi.fn(),
   invalidateProfile: vi.fn(),
+  invalidateLatestRun: vi.fn(),
 }));
 
 vi.mock("@/trpc/client", () => ({
   trpc: {
-    useUtils: () => ({ profile: { get: { invalidate: mocks.invalidateProfile } } }),
+    useUtils: () => ({
+      profile: {
+        get: { invalidate: mocks.invalidateProfile },
+        latestRun: { invalidate: mocks.invalidateLatestRun },
+      },
+    }),
     user: { me: { useQuery: () => ({ data: mocks.meData, isLoading: mocks.meLoading }) } },
     profile: {
       get: { useQuery: () => ({ data: mocks.profileData, isLoading: mocks.profileLoading }) },
@@ -110,8 +116,9 @@ beforeEach(() => {
   mocks.profileLoading = false;
   mocks.latestRunData = null;
   mocks.invalidateProfile.mockResolvedValue(undefined);
-  mocks.analyzeMutateAsync.mockResolvedValue({ profileId: "p1", version: 1, runId: "run-1" });
-  mocks.retryMutateAsync.mockResolvedValue({ profileId: "p2", version: 1, runId: "run-2" });
+  mocks.invalidateLatestRun.mockResolvedValue(undefined);
+  mocks.analyzeMutateAsync.mockResolvedValue({ runId: "run-1" });
+  mocks.retryMutateAsync.mockResolvedValue({ runId: "run-2" });
 });
 
 describe("ProfileHub 状态机", () => {
@@ -159,10 +166,12 @@ describe("ProfileHub 状态机", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "AI 返回了无法识别的结果,请稍后重试"
     );
-    mocks.analyzeMutateAsync.mockResolvedValueOnce({ profileId: "p1", version: 1, runId: "run-3" });
+    mocks.analyzeMutateAsync.mockResolvedValueOnce({ runId: "run-3" });
     await user.click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+    // 后台执行模式:提交后立即刷新 latestRun 进入轮询
+    await waitFor(() => expect(mocks.invalidateLatestRun).toHaveBeenCalled());
   });
 
   it("失败后修改信息:回到表单", async () => {
@@ -180,9 +189,11 @@ describe("ProfileHub 状态机", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(mocks.retryMutateAsync).toHaveBeenCalledWith({ runId: "run-failed" }));
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.invalidateLatestRun).toHaveBeenCalled());
   });
 
-  it("刷新后 run 已成功:自动刷新画像数据(进入结果态)", async () => {
+  it("刷新后 run 已成功:自动刷新画像数据(进入结果态)并清除草稿", async () => {
+    localStorage.setItem("careeros:profile-draft:u1", JSON.stringify({ education: {} }));
     mocks.latestRunData = {
       id: "run-1",
       status: "succeeded",
@@ -193,6 +204,19 @@ describe("ProfileHub 状态机", () => {
     };
     render(<ProfileHub />);
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+    await waitFor(() => expect(localStorage.getItem("careeros:profile-draft:u1")).toBeNull());
+  });
+
+  it("后台执行模式:提交后刷新 latestRun 进入轮询,失败时草稿保留供「修改信息」恢复", async () => {
+    render(<ProfileHub />);
+    const user = userEvent.setup();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "生成我的画像" }));
+    await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.invalidateLatestRun).toHaveBeenCalled());
+    // 草稿保留(等待分析成功后由 Hub 清除)
+    expect(localStorage.getItem("careeros:profile-draft:u1")).not.toBeNull();
   });
 
   it("纠偏(2.6):这不是我 → 弹窗提交 → Toast → 带反馈重算 → 重算期间展示分析过程", async () => {
@@ -230,6 +254,121 @@ describe("ProfileHub 状态机", () => {
     expect(await screen.findByText("画像顾问")).toBeInTheDocument();
     resolveAnalyze({ profileId: "p2", version: 2, runId: "run-2" });
     await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+  });
+
+  it("纠偏重算后台执行:已有结果时仍展示分析过程(会话 run 优先),成功后刷新画像", async () => {
+    mocks.profileData = {
+      id: "p1",
+      version: 1,
+      parentVersion: null,
+      data: {},
+      aiAnalysis: validAnalysis,
+      careerPaths: [],
+    };
+    let resolveAnalyze!: (value: unknown) => void;
+    mocks.analyzeMutateAsync.mockImplementation(
+      () => new Promise((resolve) => (resolveAnalyze = resolve))
+    );
+    const { rerender } = render(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    const user = userEvent.setup();
+    expect(await screen.findByText("计算机专业应届生。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "这不是我" }));
+    await user.click(await screen.findByText("推荐方向不准确"));
+    await user.click(screen.getByRole("button", { name: "提交反馈" }));
+    await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(1));
+    // 后台执行模式:mutation 立即返回 runId
+    resolveAnalyze({ runId: "run-2" });
+    await waitFor(() => expect(mocks.invalidateLatestRun).toHaveBeenCalled());
+    // 会话 run 在途:分析过程视图优先于旧结果
+    mocks.latestRunData = {
+      id: "run-2",
+      status: "running",
+      stale: false,
+      progress: [{ stage: "llm", message: "正在分析…" }],
+      error: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    rerender(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    expect(await screen.findByText("画像顾问")).toBeInTheDocument();
+    expect(screen.getByText("正在分析…")).toBeInTheDocument();
+    // 会话 run 成功:刷新画像(切到新版本)
+    mocks.invalidateProfile.mockClear();
+    mocks.latestRunData = {
+      id: "run-2",
+      status: "succeeded",
+      stale: false,
+      progress: [],
+      error: null,
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    rerender(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    await waitFor(() => expect(mocks.invalidateProfile).toHaveBeenCalled());
+  });
+
+  it("纠偏重算后台失败:会话 run failed 透出失败视图,重试携带反馈(会话内重放)", async () => {
+    mocks.profileData = {
+      id: "p1",
+      version: 1,
+      parentVersion: null,
+      data: {},
+      aiAnalysis: validAnalysis,
+      careerPaths: [],
+    };
+    mocks.analyzeMutateAsync.mockResolvedValueOnce({ runId: "run-2" });
+    const { rerender } = render(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    const user = userEvent.setup();
+    expect(await screen.findByText("计算机专业应届生。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "这不是我" }));
+    await user.click(await screen.findByText("能力评估不准确"));
+    await user.click(screen.getByRole("button", { name: "提交反馈" }));
+    await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(1));
+    // 后台 run 失败:失败视图优先于旧结果
+    mocks.latestRunData = {
+      id: "run-2",
+      status: "failed",
+      stale: false,
+      progress: [],
+      error: "AI 返回了无法识别的结果,请稍后重试",
+      createdAt: "2026-08-20T10:00:00Z",
+    };
+    rerender(
+      <>
+        <Toaster />
+        <ProfileHub />
+      </>
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "AI 返回了无法识别的结果,请稍后重试"
+    );
+    // 重试携带反馈(会话内重放)
+    mocks.analyzeMutateAsync.mockResolvedValueOnce({ runId: "run-3" });
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(mocks.analyzeMutateAsync).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mocks.analyzeMutateAsync).toHaveBeenLastCalledWith(
+        expect.objectContaining({ feedback: { areas: ["ability"], note: undefined } })
+      )
+    );
   });
 
   it("纠偏重算失败:失败视图重试携带反馈(会话内重放)", async () => {
